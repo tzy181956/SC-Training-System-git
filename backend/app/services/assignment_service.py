@@ -50,7 +50,7 @@ def get_assignment(db: Session, assignment_id: int) -> AthletePlanAssignment:
         .first()
     )
     if not assignment:
-        raise not_found("未找到分配记录")
+        raise not_found("未找到计划分配记录")
     return assignment
 
 
@@ -74,13 +74,16 @@ def create_assignment(db: Session, payload: AssignmentCreate) -> AthletePlanAssi
 def update_assignment(db: Session, assignment_id: int, payload: AssignmentUpdate) -> AthletePlanAssignment:
     assignment = db.query(AthletePlanAssignment).filter(AthletePlanAssignment.id == assignment_id).first()
     if not assignment:
-        raise not_found("未找到分配记录")
+        raise not_found("未找到计划分配记录")
+
     updates = payload.model_dump(exclude_unset=True)
     start_date = updates.get("start_date", assignment.start_date)
     end_date = updates.get("end_date", assignment.end_date)
     _validate_window(db, assignment.athlete_id, start_date, end_date, assignment_id)
+
     for key, value in updates.items():
         setattr(assignment, key, value)
+
     db.commit()
     return get_assignment(db, assignment_id)
 
@@ -88,7 +91,8 @@ def update_assignment(db: Session, assignment_id: int, payload: AssignmentUpdate
 def create_override(db: Session, assignment_id: int, payload: AssignmentOverrideCreate) -> AthletePlanAssignment:
     assignment = db.query(AthletePlanAssignment).filter(AthletePlanAssignment.id == assignment_id).first()
     if not assignment:
-        raise not_found("未找到分配记录")
+        raise not_found("未找到计划分配记录")
+
     override = (
         db.query(AssignmentItemOverride)
         .filter(
@@ -101,6 +105,7 @@ def create_override(db: Session, assignment_id: int, payload: AssignmentOverride
         override.initial_load_override = payload.initial_load_override
     else:
         db.add(AssignmentItemOverride(assignment_id=assignment_id, **payload.model_dump()))
+
     db.commit()
     return get_assignment(db, assignment_id)
 
@@ -109,6 +114,7 @@ def update_override(db: Session, override_id: int, payload: AssignmentOverrideUp
     override = db.query(AssignmentItemOverride).filter(AssignmentItemOverride.id == override_id).first()
     if not override:
         raise not_found("未找到负荷覆盖项")
+
     override.initial_load_override = payload.initial_load_override
     db.commit()
     db.refresh(override)
@@ -148,22 +154,19 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
         items = []
         for item in template.items:
             override = build_assignment_item_override(db, athlete.id, item)
-            status = "可分配"
-            basis_label = override["basis_label"] if override else None
-            computed_load = override["initial_load_override"] if override else None
-            if item.initial_load_mode == "percent_1rm" and not override:
-                status = "缺少测试基准"
+            is_manual_load = item.initial_load_mode == "percent_1rm" and not override
             items.append(
                 {
                     "template_item_id": item.id,
                     "exercise_name": item.exercise.name,
                     "load_mode_label": describe_load_mode(item),
-                    "computed_load": computed_load,
-                    "basis_label": basis_label,
-                    "status": status,
+                    "computed_load": override["initial_load_override"] if override else None,
+                    "basis_label": "训练时录入" if is_manual_load else (override["basis_label"] if override else None),
+                    "status": "鍙垎閰?",
                 }
             )
         rows.append({"athlete": athlete, "items": items})
+
     return {
         "template": template,
         "start_date": payload.start_date,
@@ -174,15 +177,8 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
 
 def create_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> list[AthletePlanAssignment]:
     preview = preview_batch_assignments(db, payload)
-    missing = [
-        row["athlete"].full_name
-        for row in preview["rows"]
-        if any(item["status"] == "缺少测试基准" for item in row["items"])
-    ]
-    if missing:
-        raise bad_request(f"以下运动员缺少测试基准，无法完成分配：{'、'.join(missing)}")
-
     created_ids: list[int] = []
+
     for athlete_id in payload.athlete_ids:
         _validate_window(db, athlete_id, payload.start_date, payload.end_date)
         assignment = AthletePlanAssignment(
@@ -196,6 +192,7 @@ def create_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> lis
         )
         db.add(assignment)
         db.flush()
+
         template = preview["template"]
         for item in template.items:
             override = build_assignment_item_override(db, athlete_id, item)
@@ -207,7 +204,9 @@ def create_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> lis
                         initial_load_override=override["initial_load_override"],
                     )
                 )
+
         created_ids.append(assignment.id)
+
     db.commit()
     return [get_assignment(db, assignment_id) for assignment_id in created_ids]
 
@@ -248,6 +247,7 @@ def assignment_overview(db: Session, target_date: date) -> dict:
         .order_by(AthletePlanAssignment.start_date.desc(), AthletePlanAssignment.id.desc())
         .all()
     )
+
     grouped: dict[tuple[int, date, date], dict] = {}
     for assignment in assignments:
         group_key = (assignment.template_id, assignment.start_date, assignment.end_date)

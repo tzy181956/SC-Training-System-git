@@ -39,7 +39,8 @@ watch(
   () => [props.item?.id, props.item?.records?.length, props.item?.initial_load, props.item?.prescribed_reps, props.suggestion?.suggestion_weight],
   () => {
     if (!props.item) return
-    currentDraft.weight = formatWeight(props.suggestion?.suggestion_weight ?? props.item.initial_load ?? 20)
+    const nextWeight = props.suggestion?.suggestion_weight ?? props.item.initial_load
+    currentDraft.weight = nextWeight === null || nextWeight === undefined ? '' : formatWeight(nextWeight)
     currentDraft.reps = String(props.item.prescribed_reps || 5)
     currentDraft.rir = '2'
     currentDraftDirty.value = false
