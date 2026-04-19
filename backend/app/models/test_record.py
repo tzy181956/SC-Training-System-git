@@ -14,6 +14,7 @@ class TestRecord(BaseModel):
     test_type: Mapped[str] = mapped_column(String(80), nullable=False)
     metric_name: Mapped[str] = mapped_column(String(80), nullable=False)
     result_value: Mapped[float] = mapped_column(Float, nullable=False)
+    result_text: Mapped[str | None] = mapped_column(String(80))
     unit: Mapped[str] = mapped_column(String(30), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
 

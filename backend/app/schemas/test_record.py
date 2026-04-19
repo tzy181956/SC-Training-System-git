@@ -12,6 +12,7 @@ class TestRecordBase(BaseModel):
     test_type: str
     metric_name: str
     result_value: float
+    result_text: str | None = None
     unit: str
     notes: str | None = None
 
@@ -25,6 +26,7 @@ class TestRecordUpdate(BaseModel):
     test_type: str | None = None
     metric_name: str | None = None
     result_value: float | None = None
+    result_text: str | None = None
     unit: str | None = None
     notes: str | None = None
 

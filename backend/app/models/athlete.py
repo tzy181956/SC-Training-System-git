@@ -13,6 +13,11 @@ class Athlete(BaseModel, ActiveMixin):
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     position: Mapped[str | None] = mapped_column(String(100))
     training_level: Mapped[str | None] = mapped_column(String(50))
+    height: Mapped[float | None] = mapped_column(nullable=True)
+    weight: Mapped[float | None] = mapped_column(nullable=True)
+    body_fat_percentage: Mapped[float | None] = mapped_column(nullable=True)
+    wingspan: Mapped[float | None] = mapped_column(nullable=True)
+    standing_reach: Mapped[float | None] = mapped_column(nullable=True)
     notes: Mapped[str | None] = mapped_column(Text)
 
     user = relationship("User")

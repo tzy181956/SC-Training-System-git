@@ -40,6 +40,11 @@ class AthleteBase(BaseModel):
     full_name: str
     position: str | None = None
     training_level: str | None = None
+    height: float | None = None
+    weight: float | None = None
+    body_fat_percentage: float | None = None
+    wingspan: float | None = None
+    standing_reach: float | None = None
     notes: str | None = None
     is_active: bool = True
 
@@ -55,6 +60,11 @@ class AthleteUpdate(BaseModel):
     full_name: str | None = None
     position: str | None = None
     training_level: str | None = None
+    height: float | None = None
+    weight: float | None = None
+    body_fat_percentage: float | None = None
+    wingspan: float | None = None
+    standing_reach: float | None = None
     notes: str | None = None
     is_active: bool | None = None
 

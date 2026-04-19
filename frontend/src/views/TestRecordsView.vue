@@ -12,27 +12,34 @@ const records = ref<any[]>([])
 const chartRef = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 
-const testTypeOptions = ['力量测试', '体能测试', '速度测试', '恢复评估']
-const metricOptions = ['深蹲 1RM', '卧推 1RM', '硬拉 1RM', '反向纵跳', '30 米冲刺', '哑铃推举 6RM']
+const testTypeOptions = ['基础身体', '力量测试', '体能测试', '速度测试', '耐力测试']
+const metricOptions = ['卧推', '卧拉', '深蹲', '臀桥', '引体向上', '反向跳', '静蹲跳', '直腿跳', '助跑摸高', '原地摸高']
 const unitMap: Record<string, string> = {
-  '深蹲 1RM': '公斤',
-  '卧推 1RM': '公斤',
-  '硬拉 1RM': '公斤',
-  '反向纵跳': '厘米',
-  '30 米冲刺': '秒',
-  '哑铃推举 6RM': '公斤',
+  卧推: 'kg',
+  卧拉: 'kg',
+  深蹲: 'kg',
+  臀桥: 'kg',
+  引体向上: '次',
+  反向跳: 'cm',
+  静蹲跳: 'cm',
+  直腿跳: 'RSI',
+  助跑摸高: 'cm',
+  原地摸高: 'cm',
 }
+const ratioMetrics = new Set(['卧推', '卧拉', '深蹲', '臀桥'])
 
 const form = reactive({
   athlete_id: 0,
   test_date: todayString(),
   test_type: '力量测试',
-  metric_name: '深蹲 1RM',
+  metric_name: '卧推',
   result_value: 0,
-  unit: '公斤',
+  result_text: '',
+  unit: 'kg',
   notes: '',
 })
 
+const selectedAthlete = computed(() => athletes.value.find((item) => item.id === form.athlete_id) || null)
 const selectedAthleteRecords = computed(() =>
   records.value.filter((item) => !form.athlete_id || item.athlete_id === form.athlete_id),
 )
@@ -45,8 +52,21 @@ async function hydrate() {
 }
 
 async function submit() {
-  await createTestRecord({ ...form })
+  await createTestRecord({ ...form, result_text: form.result_text || null })
   await hydrate()
+}
+
+function computeRelativeStrength(record: any) {
+  const athleteWeight = record.athlete?.weight
+  if (!ratioMetrics.has(record.metric_name) || !athleteWeight) return null
+  return Number(record.result_value / athleteWeight).toFixed(2)
+}
+
+function displayResult(record: any) {
+  if (record.result_text) {
+    return record.result_text
+  }
+  return `${record.result_value} ${record.unit}`
 }
 
 function renderChart() {
@@ -71,7 +91,7 @@ function renderChart() {
 watch(
   () => form.metric_name,
   (metricName) => {
-    form.unit = unitMap[metricName] || '公斤'
+    form.unit = unitMap[metricName] || 'kg'
   },
   { immediate: true },
 )
@@ -88,16 +108,24 @@ onMounted(hydrate)
           <p class="eyebrow">测试录入</p>
           <h3>测试数据记录</h3>
         </div>
+
         <label class="field">
           <span>运动员</span>
           <select v-model.number="form.athlete_id" class="text-input">
             <option v-for="athlete in athletes" :key="athlete.id" :value="athlete.id">{{ athlete.full_name }}</option>
           </select>
         </label>
+
+        <div v-if="selectedAthlete" class="athlete-meta">
+          <span>{{ selectedAthlete.team?.name || '未分队' }}</span>
+          <span>体重：{{ selectedAthlete.weight ?? '--' }} kg</span>
+        </div>
+
         <label class="field">
           <span>测试日期</span>
           <input v-model="form.test_date" type="date" class="text-input" />
         </label>
+
         <div class="two-col">
           <label class="field">
             <span>测试类型</span>
@@ -105,6 +133,7 @@ onMounted(hydrate)
               <option v-for="option in testTypeOptions" :key="option" :value="option">{{ option }}</option>
             </select>
           </label>
+
           <label class="field">
             <span>测试项目</span>
             <select v-model="form.metric_name" class="text-input">
@@ -112,22 +141,32 @@ onMounted(hydrate)
             </select>
           </label>
         </div>
+
         <div class="two-col">
           <label class="field">
-            <span>测试成绩</span>
-            <input v-model.number="form.result_value" type="number" class="text-input" placeholder="请输入测试结果" />
+            <span>数值结果</span>
+            <input v-model.number="form.result_value" type="number" step="0.01" class="text-input" placeholder="用于计算的数值" />
           </label>
+          <label class="field">
+            <span>展示文本</span>
+            <input v-model="form.result_text" class="text-input" placeholder="如 12′19″，没有可留空" />
+          </label>
+        </div>
+
+        <div class="two-col">
           <label class="field">
             <span>单位</span>
             <input v-model="form.unit" class="text-input" />
           </label>
+          <label class="field">
+            <span>备注</span>
+            <input v-model="form.notes" class="text-input" placeholder="可选备注" />
+          </label>
         </div>
-        <label class="field">
-          <span>备注</span>
-          <textarea v-model="form.notes" class="text-input area" placeholder="例如：季前测试、伤后回归、比赛周评估" />
-        </label>
+
         <button class="primary-btn" @click="submit">保存测试记录</button>
       </div>
+
       <div class="panel chart-panel">
         <div class="chart-head">
           <div>
@@ -135,12 +174,15 @@ onMounted(hydrate)
             <h3>最近测试变化</h3>
           </div>
         </div>
+
         <div ref="chartRef" class="chart"></div>
+
         <div class="list-grid">
           <div v-for="record in selectedAthleteRecords" :key="record.id" class="row-card">
-            <strong>{{ record.metric_name }}：{{ record.result_value }} {{ record.unit }}</strong>
+            <strong>{{ record.metric_name }}：{{ displayResult(record) }}</strong>
             <span>{{ record.test_date }} / {{ record.test_type }}</span>
-            <small>{{ record.notes || '无备注' }}</small>
+            <small v-if="computeRelativeStrength(record)">力量体重比：{{ computeRelativeStrength(record) }}</small>
+            <small v-else>{{ record.notes || '无备注' }}</small>
           </div>
         </div>
       </div>
@@ -167,10 +209,17 @@ onMounted(hydrate)
 .eyebrow,
 .field span,
 .row-card span,
-.row-card small {
+.row-card small,
+.athlete-meta span {
   margin: 0;
   color: var(--text-soft);
   font-size: 13px;
+}
+
+.athlete-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .chart {

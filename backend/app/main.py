@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.core.schema_sync import ensure_runtime_schema
 
 
 settings = get_settings()
@@ -17,6 +18,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router, prefix=settings.api_prefix)
+
+
+@app.on_event("startup")
+def startup_sync_schema() -> None:
+    ensure_runtime_schema()
 
 
 @app.get("/health")
