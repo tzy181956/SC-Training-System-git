@@ -1,0 +1,157 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
+import { useAuthStore } from '@/stores/auth'
+
+const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
+
+const links = [
+  { name: 'dashboard', label: '总览' },
+  { name: 'athletes', label: '运动员' },
+  { name: 'exercises', label: '动作库' },
+  { name: 'plans', label: '训练模板' },
+  { name: 'assignments', label: '计划分配' },
+  { name: 'training-reports', label: '训练数据' },
+  { name: 'tests', label: '测试数据' },
+]
+
+const currentLabel = computed(() => links.find((link) => link.name === route.name)?.label || '管理模式')
+const switchLabel = computed(() => (authStore.isManagementMode ? '切换到训练模式' : '切换到管理模式'))
+
+function switchMode() {
+  const nextMode = authStore.isManagementMode ? 'training' : 'management'
+  authStore.setMode(nextMode)
+  router.push(nextMode === 'training' ? { name: 'training-mode' } : { name: 'dashboard' })
+}
+</script>
+
+<template>
+  <div class="shell">
+    <aside class="shell-nav">
+      <div>
+        <p class="eyebrow">管理模式</p>
+        <h1>体能训练管理平台</h1>
+      </div>
+      <nav class="shell-links">
+        <RouterLink
+          v-for="link in links"
+          :key="link.name"
+          :to="{ name: link.name }"
+          class="shell-link"
+          :class="{ active: route.name === link.name }"
+        >
+          {{ link.label }}
+        </RouterLink>
+      </nav>
+      <div class="shell-user">
+        <div>
+          <strong>当前模式</strong>
+          <p>管理模式</p>
+        </div>
+        <button class="ghost-btn" @click="switchMode">{{ switchLabel }}</button>
+      </div>
+    </aside>
+    <main class="shell-main">
+      <header class="shell-header">
+        <div>
+          <p class="eyebrow">平板横屏优先</p>
+          <h2>{{ currentLabel }}</h2>
+        </div>
+        <slot name="header-actions" />
+      </header>
+      <slot />
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.shell {
+  display: grid;
+  grid-template-columns: var(--nav-width) 1fr;
+  min-height: 100vh;
+}
+
+.shell-nav {
+  background: linear-gradient(180deg, #0f172a, #153b35);
+  color: white;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.shell-links {
+  display: grid;
+  gap: 10px;
+}
+
+.shell-link {
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  min-height: var(--touch);
+  display: flex;
+  align-items: center;
+}
+
+.shell-link.active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.shell-user {
+  margin-top: auto;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.shell-user p,
+.eyebrow {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.shell-main {
+  padding: 22px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 18px;
+  min-width: 0;
+}
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.shell-header h2,
+.shell-nav h1 {
+  margin: 4px 0 0;
+}
+
+.ghost-btn {
+  min-height: var(--touch);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+}
+
+@media (max-width: 1100px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .shell-nav {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+</style>

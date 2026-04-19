@@ -1,0 +1,78 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+  background: linear-gradient(180deg, #f7fafc 0%, #edf2f7 100%);
+  color: var(--text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.panel {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.text-input {
+  width: 100%;
+  min-height: var(--touch);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 0 14px;
+  background: white;
+}
+
+.area {
+  min-height: 120px;
+  padding: 14px;
+  resize: vertical;
+}
+
+.primary-btn {
+  min-height: var(--touch);
+  border-radius: 16px;
+  padding: 0 18px;
+  background: var(--primary);
+  color: white;
+  font-weight: 600;
+}
+
+.primary-btn:disabled,
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  filter: saturate(0.7);
+}
+
+.primary-btn.slim {
+  min-height: 44px;
+}
+
+.section-title {
+  color: var(--muted);
+  font-size: 14px;
+}

@@ -1,0 +1,19 @@
+from app.services import (
+    assignment_service,
+    athlete_service,
+    demo_history_service,
+    exercise_service,
+    plan_service,
+    session_service,
+    training_report_service,
+)
+
+__all__ = [
+    "assignment_service",
+    "athlete_service",
+    "demo_history_service",
+    "exercise_service",
+    "plan_service",
+    "session_service",
+    "training_report_service",
+]
