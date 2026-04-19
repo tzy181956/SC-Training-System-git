@@ -97,27 +97,18 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [3/6] Initialize database...
+echo [3/5] Initialize database schema...
 set "PYTHONPATH=."
 "%VENV_PYTHON%" scripts\init_db.py
 if errorlevel 1 (
   popd
-  echo [ERROR] Failed to initialize database.
-  pause
-  exit /b 1
-)
-
-echo [4/6] Seed demo data...
-"%VENV_PYTHON%" scripts\seed_demo.py
-if errorlevel 1 (
-  popd
-  echo [ERROR] Failed to seed demo data.
+  echo [ERROR] Failed to initialize database schema.
   pause
   exit /b 1
 )
 popd
 
-echo [5/6] Install frontend dependencies...
+echo [4/5] Install frontend dependencies...
 pushd "%FRONTEND_DIR%"
 call npm install
 if errorlevel 1 (
@@ -128,13 +119,13 @@ if errorlevel 1 (
 )
 popd
 
-echo [6/6] Init complete.
+echo [5/5] Init complete.
 echo.
 echo Next step:
 echo Double-click scripts\start_system.bat
 echo.
-echo This version no longer requires login.
-echo The system opens directly in training mode.
+echo Initialization no longer clears existing data or seeds demo data.
+echo Import real athlete and test data separately when needed.
 echo.
 pause
 exit /b 0

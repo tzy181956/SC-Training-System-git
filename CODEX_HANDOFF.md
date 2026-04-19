@@ -39,6 +39,12 @@
 - [init_db.py](C:\Users\Tian Ziyu\Documents\New project\backend\scripts\init_db.py)
 - [schema_sync.py](C:\Users\Tian Ziyu\Documents\New project\backend\app\core\schema_sync.py)
 
+当前初始化链路已经改为非破坏式：
+
+- `init_system.bat` 只安装依赖并创建/补齐数据库结构
+- `start_system.bat` 自动触发初始化时也不会清库
+- 不再自动导入示例数据
+
 ## 已完成什么
 
 - 动作库、模板、计划分配、训练模式、训练报告、测试记录页面都已存在
@@ -56,6 +62,7 @@
   - 从双层表头 Excel 解析女篮青年队测试数据
   - 写入运动员主档和测试记录
   - 忽略排名、总分、总排名
+- 真实数据已成为默认长期工作模式，demo 初始化能力已移除
 
 ## 当前卡点是什么
 
@@ -103,6 +110,7 @@
 - 训练模式主流程：已经做过多轮交互修正，除非明确修 bug，不要顺手大改
 - Windows 启动脚本：已适配跨电脑环境，改动前要先验证现有行为
 - 当前真实数据导入脚本：优先修正和增强，不要随意推翻
+- 初始化与启动链路：默认应保证不覆盖已有真实数据
 
 ### 优先保持稳定
 

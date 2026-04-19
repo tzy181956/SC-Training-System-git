@@ -21,8 +21,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 set PYTHONPATH=.
 .\.venv\Scripts\python.exe scripts\init_db.py
-.\.venv\Scripts\python.exe scripts\seed_demo.py
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+如需恢复真实数据，再单独执行：
+
+```powershell
+set PYTHONPATH=.
+.\.venv\Scripts\python.exe scripts\import_real_test_data.py
 ```
 
 ## 推荐方式
@@ -39,7 +45,7 @@ set PYTHONPATH=.
 
 - `backend/training.db`
 
-当前初始化脚本是面向开发环境的，会重建数据库并导入示例数据。
+当前初始化脚本只负责创建/补齐数据库结构，不会清空已有数据，也不会导入示例数据。
 
 ## 上传前检查
 

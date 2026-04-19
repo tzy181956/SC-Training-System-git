@@ -21,6 +21,7 @@
   - [import_real_test_data.py](C:\Users\Tian Ziyu\Documents\New project\backend\scripts\import_real_test_data.py)
 - 增加运行时 schema 同步：
   - [schema_sync.py](C:\Users\Tian Ziyu\Documents\New project\backend\app\core\schema_sync.py)
+- 增加真实数据作为默认长期数据路径，初始化后可单独执行导入脚本恢复数据
 
 ### Changed
 
@@ -32,6 +33,8 @@
 - 测试数据页改为支持展示时间文本和力量体重比计算
 - 运动员页扩展为可编辑身体主档数据
 - 缺少测试基准时，计划分配不再被阻断，改为“训练时录入”
+- 初始化脚本改为只创建/补齐数据库结构，不再删库、不再自动灌入 demo 数据
+- 启动脚本的自动初始化链路不再导致真实数据被覆盖
 
 ### Fixed
 
@@ -55,3 +58,5 @@
 - 目前仍没有正式数据库迁移框架，模型扩展依赖：
   - `backend/scripts/init_db.py`
   - `backend/app/core/schema_sync.py`
+- demo 初始化入口已移除，真实数据恢复/导入入口为：
+  - `backend/scripts/import_real_test_data.py`
