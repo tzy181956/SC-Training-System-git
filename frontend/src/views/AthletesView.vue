@@ -24,9 +24,7 @@ const form = reactive({
 
 onMounted(async () => {
   await store.hydrate()
-  if (store.athletes[0]) {
-    selectAthlete(store.athletes[0])
-  }
+  if (store.athletes[0]) selectAthlete(store.athletes[0])
 })
 
 const selectedAthlete = computed(() => store.athletes.find((item) => item.id === selectedId.value) || null)
@@ -129,26 +127,11 @@ function resetForm() {
         </div>
 
         <div class="metrics-grid">
-          <label class="field">
-            <span>身高 (cm)</span>
-            <input v-model.number="form.height" type="number" step="0.1" class="text-input" />
-          </label>
-          <label class="field">
-            <span>体重 (kg)</span>
-            <input v-model.number="form.weight" type="number" step="0.1" class="text-input" />
-          </label>
-          <label class="field">
-            <span>体脂率 (%)</span>
-            <input v-model.number="form.body_fat_percentage" type="number" step="0.1" class="text-input" />
-          </label>
-          <label class="field">
-            <span>臂展 (cm)</span>
-            <input v-model.number="form.wingspan" type="number" step="0.1" class="text-input" />
-          </label>
-          <label class="field">
-            <span>站摸 (cm)</span>
-            <input v-model.number="form.standing_reach" type="number" step="0.1" class="text-input" />
-          </label>
+          <label class="field"><span>身高 (cm)</span><input v-model.number="form.height" type="number" step="0.1" class="text-input" /></label>
+          <label class="field"><span>体重 (kg)</span><input v-model.number="form.weight" type="number" step="0.1" class="text-input" /></label>
+          <label class="field"><span>体脂率 (%)</span><input v-model.number="form.body_fat_percentage" type="number" step="0.1" class="text-input" /></label>
+          <label class="field"><span>臂展 (cm)</span><input v-model.number="form.wingspan" type="number" step="0.1" class="text-input" /></label>
+          <label class="field"><span>站摸 (cm)</span><input v-model.number="form.standing_reach" type="number" step="0.1" class="text-input" /></label>
         </div>
 
         <textarea v-model="form.notes" class="text-input area" placeholder="备注" />
@@ -159,89 +142,16 @@ function resetForm() {
 </template>
 
 <style scoped>
-.split-view {
-  display: grid;
-  grid-template-columns: minmax(360px, 430px) 1fr;
-  gap: 18px;
-  height: 100%;
-  min-height: 0;
-}
-
-.list-panel,
-.form-panel,
-.field {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-  min-height: 0;
-}
-
-.list-panel {
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-}
-
-.list-scroll,
-.form-panel {
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
-
-.list-scroll {
-  display: grid;
-  gap: 12px;
-  padding-right: 8px;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.row-card {
-  background: var(--panel-soft);
-  border-radius: 16px;
-  padding: 16px 18px;
-  text-align: left;
-  display: grid;
-  grid-template-rows: auto auto auto;
-  gap: 8px;
-  min-height: 118px;
-  width: 100%;
-  justify-items: start;
-}
-
-.row-card.active {
-  background: #d1fae5;
-}
-
-.field span {
-  color: var(--muted);
-}
-
-.two-col {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 1100px) {
-  .split-view,
-  .two-col,
-  .metrics-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .split-view {
-    height: auto;
-  }
-}
+.split-view { display:grid; grid-template-columns:minmax(360px,430px) 1fr; gap:18px; height:100%; min-height:0; }
+.list-panel,.form-panel,.field { display:grid; gap:12px; align-content:start; min-height:0; }
+.list-panel { grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
+.list-scroll,.form-panel { min-height:0; overflow-y:auto; scrollbar-gutter:stable; }
+.list-scroll { display:grid; gap:12px; padding-right:8px; }
+.toolbar { display:flex; align-items:center; justify-content:space-between; }
+.row-card { background:var(--panel-soft); border-radius:16px; padding:16px 18px; text-align:left; display:grid; grid-template-rows:auto auto auto; gap:8px; min-height:118px; width:100%; justify-items:start; }
+.row-card.active { background:#d1fae5; }
+.field span { color:var(--muted); }
+.two-col { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.metrics-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+@media (max-width:1100px){ .split-view,.two-col,.metrics-grid{grid-template-columns:1fr;} .split-view{height:auto;} }
 </style>

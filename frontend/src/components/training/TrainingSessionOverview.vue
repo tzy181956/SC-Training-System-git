@@ -47,44 +47,9 @@ const items = computed(() => props.session?.items || props.assignment?.template?
 </template>
 
 <style scoped>
-.overview {
-  display: grid;
-  gap: 16px;
-  align-content: start;
-}
-
-.heading,
-.item-list,
-.empty-state {
-  display: grid;
-  gap: 12px;
-}
-
-.heading h3,
-.section-title,
-.meta span,
-.item-card span,
-.empty-state span {
-  margin: 0;
-  color: var(--muted);
-}
-
-.item-card {
-  background: var(--panel-soft);
-  border-radius: 18px;
-  padding: 16px;
-  display: grid;
-  gap: 6px;
-  text-align: left;
-}
-
-.item-card.active {
-  background: #dbeafe;
-}
-
-.item-card em {
-  font-style: normal;
-  color: var(--primary);
-  font-weight: 700;
-}
+.overview,.heading,.item-list,.empty-state{display:grid;gap:12px}.overview{gap:16px;align-content:start}
+.heading h3,.section-title,.meta span,.item-card span,.empty-state span{margin:0;color:var(--muted)}
+.item-card{background:var(--panel-soft);border-radius:18px;padding:16px;display:grid;gap:6px;text-align:left}
+.item-card.active{background:#dbeafe}
+.item-card em{font-style:normal;color:var(--primary);font-weight:700}
 </style>

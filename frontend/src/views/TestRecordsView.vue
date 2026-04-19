@@ -7,6 +7,13 @@ import { createTestRecord, fetchTestRecords } from '@/api/testRecords'
 import AppShell from '@/components/layout/AppShell.vue'
 import { todayString } from '@/utils/date'
 
+type MetricRangePoint = {
+  test_date: string
+  average_value: number
+  min_value: number
+  max_value: number
+}
+
 const athletes = ref<any[]>([])
 const records = ref<any[]>([])
 const chartRef = ref<HTMLDivElement | null>(null)
@@ -49,6 +56,44 @@ const selectedMetricRecords = computed(() =>
     .slice()
     .sort((left, right) => left.test_date.localeCompare(right.test_date)),
 )
+const teamRangeMetricRecords = computed<MetricRangePoint[]>(() => {
+  const grouped = records.value
+    .filter((item) => item.metric_name === form.metric_name)
+    .reduce(
+      (accumulator: Map<string, { total: number; count: number; min: number; max: number }>, item: any) => {
+        const value = Number(item.result_value || 0)
+        const entry = accumulator.get(item.test_date) || { total: 0, count: 0, min: value, max: value }
+        entry.total += value
+        entry.count += 1
+        entry.min = Math.min(entry.min, value)
+        entry.max = Math.max(entry.max, value)
+        accumulator.set(item.test_date, entry)
+        return accumulator
+      },
+      new Map<string, { total: number; count: number; min: number; max: number }>(),
+    )
+
+  return Array.from(grouped.entries())
+    .map(([testDate, entry]) => ({
+      test_date: testDate,
+      average_value: Number((entry.total / entry.count).toFixed(2)),
+      min_value: Number(entry.min.toFixed(2)),
+      max_value: Number(entry.max.toFixed(2)),
+    }))
+    .sort((left, right) => left.test_date.localeCompare(right.test_date))
+})
+const chartDates = computed<string[]>(() =>
+  Array.from(
+    new Set([
+      ...selectedMetricRecords.value.map((item) => item.test_date),
+      ...teamRangeMetricRecords.value.map((item) => item.test_date),
+    ]),
+  ).sort((left, right) => left.localeCompare(right)),
+)
+const chartTitle = computed(() => {
+  const athleteName = selectedAthlete.value?.full_name || '当前运动员'
+  return `${athleteName} - ${form.metric_name} 趋势`
+})
 
 async function hydrate() {
   ;[athletes.value, records.value] = await Promise.all([fetchAthletes(), fetchTestRecords()])
@@ -75,21 +120,152 @@ function displayResult(record: any) {
   return `${record.result_value} ${record.unit}`
 }
 
+function formatTooltipValue(value: unknown) {
+  if (value == null || value === '') return '--'
+  return value
+}
+
 function renderChart() {
   if (!chartRef.value) return
   chart ||= echarts.init(chartRef.value)
+
+  const athleteData = new Map<string, number>(selectedMetricRecords.value.map((item: any) => [item.test_date, Number(item.result_value)]))
+  const averageData = new Map<string, number>(teamRangeMetricRecords.value.map((item) => [item.test_date, item.average_value]))
+  const minData = new Map<string, number>(teamRangeMetricRecords.value.map((item) => [item.test_date, item.min_value]))
+  const maxData = new Map<string, number>(teamRangeMetricRecords.value.map((item) => [item.test_date, item.max_value]))
+  const rangeData = new Map<string, number>(
+    teamRangeMetricRecords.value.map((item) => [item.test_date, Number((item.max_value - item.min_value).toFixed(2))]),
+  )
+
   chart.setOption({
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: selectedMetricRecords.value.map((item) => item.test_date) },
-    yAxis: { type: 'value' },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: any) => {
+        const axisLabel = params?.[0]?.axisValueLabel || ''
+        const unit = form.unit || unitMap[form.metric_name] || ''
+        return [
+          axisLabel,
+          `个人成绩：${formatTooltipValue(athleteData.get(axisLabel))} ${unit}`.trim(),
+          `全队平均：${formatTooltipValue(averageData.get(axisLabel))} ${unit}`.trim(),
+          `全队最高：${formatTooltipValue(maxData.get(axisLabel))} ${unit}`.trim(),
+          `全队最低：${formatTooltipValue(minData.get(axisLabel))} ${unit}`.trim(),
+        ].join('<br/>')
+      },
+    },
+    legend: { data: ['个人成绩', '全队平均', '全队区间'] },
+    grid: { left: 56, right: 24, top: 48, bottom: 32 },
+    xAxis: { type: 'category', data: chartDates.value },
+    yAxis: { type: 'value', name: form.unit || unitMap[form.metric_name] || '' },
     series: [
+      {
+        type: 'custom',
+        name: '全队区间',
+        data: [0],
+        tooltip: { show: false },
+        emphasis: { disabled: true },
+        silent: true,
+        z: 1,
+        renderItem: (_params: any, api: any) => {
+          const upperPoints = chartDates.value
+            .map((date, index) => {
+              const value = maxData.get(date)
+              if (value == null) return null
+              return api.coord([index, value])
+            })
+            .filter(Boolean)
+
+          const lowerPoints = chartDates.value
+            .slice()
+            .reverse()
+            .map((date) => {
+              const value = minData.get(date)
+              if (value == null) return null
+              const index = chartDates.value.indexOf(date)
+              return api.coord([index, value])
+            })
+            .filter(Boolean)
+
+          if (upperPoints.length === 1 && lowerPoints.length === 1) {
+            const [upperX, upperY] = upperPoints[0] as [number, number]
+            const [, lowerY] = lowerPoints[0] as [number, number]
+            const bandHalfWidth = 14
+
+            return {
+              type: 'rect',
+              shape: {
+                x: upperX - bandHalfWidth,
+                y: upperY,
+                width: bandHalfWidth * 2,
+                height: Math.max(lowerY - upperY, 2),
+              },
+              style: {
+                fill: 'rgba(245,158,11,0.34)',
+              },
+            }
+          }
+
+          if (upperPoints.length < 2 || lowerPoints.length < 2) {
+            return null
+          }
+
+          return {
+            type: 'polygon',
+            shape: {
+              points: [...upperPoints, ...lowerPoints],
+            },
+            style: {
+              fill: 'rgba(245,158,11,0.34)',
+            },
+          }
+        },
+      },
       {
         type: 'line',
         smooth: true,
-        name: form.metric_name,
-        data: selectedMetricRecords.value.map((item) => item.result_value),
-        areaStyle: { color: 'rgba(15,118,110,0.15)' },
-        lineStyle: { color: '#0f766e' },
+        name: '__max__',
+        data: chartDates.value.map((date) => maxData.get(date) ?? null),
+        lineStyle: { color: 'rgba(245,158,11,0.88)', width: 2 },
+        itemStyle: { color: 'rgba(245,158,11,0.96)', borderColor: '#ffffff', borderWidth: 1 },
+        symbol: 'circle',
+        symbolSize: 8,
+        tooltip: { show: false },
+        emphasis: { disabled: true },
+        connectNulls: false,
+      },
+      {
+        type: 'line',
+        smooth: true,
+        name: '__min__',
+        data: chartDates.value.map((date) => minData.get(date) ?? null),
+        lineStyle: { color: 'rgba(245,158,11,0.88)', width: 2 },
+        itemStyle: { color: 'rgba(245,158,11,0.96)', borderColor: '#ffffff', borderWidth: 1 },
+        symbol: 'circle',
+        symbolSize: 8,
+        tooltip: { show: false },
+        emphasis: { disabled: true },
+        connectNulls: false,
+      },
+      {
+        type: 'line',
+        smooth: true,
+        name: '全队平均',
+        data: chartDates.value.map((date) => averageData.get(date) ?? null),
+        lineStyle: { color: '#f59e0b', width: 2.5, type: 'dashed' },
+        itemStyle: { color: '#f59e0b' },
+        symbolSize: 6,
+        connectNulls: false,
+        z: 4,
+      },
+      {
+        type: 'line',
+        smooth: true,
+        name: '个人成绩',
+        data: chartDates.value.map((date) => athleteData.get(date) ?? null),
+        lineStyle: { color: '#0f766e', width: 3 },
+        itemStyle: { color: '#0f766e' },
+        symbolSize: 7,
+        connectNulls: false,
+        z: 5,
       },
     ],
   })
@@ -103,7 +279,7 @@ watch(
   { immediate: true },
 )
 
-watch(selectedMetricRecords, () => renderChart())
+watch([selectedMetricRecords, teamRangeMetricRecords], () => renderChart())
 onMounted(hydrate)
 </script>
 
@@ -178,7 +354,7 @@ onMounted(hydrate)
         <div class="chart-head">
           <div>
             <p class="eyebrow">趋势图</p>
-            <h3>最近测试变化</h3>
+            <h3>{{ chartTitle }}</h3>
           </div>
         </div>
 
