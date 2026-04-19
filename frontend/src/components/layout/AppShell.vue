@@ -62,7 +62,9 @@ function switchMode() {
         </div>
         <slot name="header-actions" />
       </header>
-      <slot />
+      <div class="shell-body">
+        <slot />
+      </div>
     </main>
   </div>
 </template>
@@ -71,7 +73,10 @@ function switchMode() {
 .shell {
   display: grid;
   grid-template-columns: var(--nav-width) 1fr;
+  height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .shell-nav {
@@ -81,6 +86,9 @@ function switchMode() {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .shell-links {
@@ -95,6 +103,8 @@ function switchMode() {
   min-height: var(--touch);
   display: flex;
   align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .shell-link.active {
@@ -108,6 +118,7 @@ function switchMode() {
   padding: 16px;
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .shell-user p,
@@ -124,12 +135,21 @@ function switchMode() {
   grid-template-rows: auto 1fr;
   gap: 18px;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.shell-body {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .shell-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
 }
 
 .shell-header h2,
@@ -147,11 +167,14 @@ function switchMode() {
 @media (max-width: 1100px) {
   .shell {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .shell-nav {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    overflow: visible;
   }
 }
 </style>

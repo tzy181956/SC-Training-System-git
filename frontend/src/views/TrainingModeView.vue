@@ -184,12 +184,23 @@ onMounted(hydrate)
   display: grid;
   grid-template-columns: 320px 1.2fr 320px;
   gap: 18px;
+  height: 100%;
+  min-height: 0;
 }
 
 .help-panel {
   display: grid;
   gap: 10px;
   align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.center-column {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .help-panel span,
@@ -201,6 +212,7 @@ onMounted(hydrate)
 @media (max-width: 1360px) {
   .training-mode-layout {
     grid-template-columns: 1fr;
+    height: auto;
   }
 }
 </style>

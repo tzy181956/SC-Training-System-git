@@ -44,7 +44,7 @@ function buildDraft(item: any) {
       target_rir: rules.target_rir ?? 2,
       up_step: rules.up_step ?? 2.5,
       down_step: rules.down_step ?? 2.5,
-      miss_strategy: rules.miss_strategy || '降低重量后完成',
+      miss_strategy: rules.miss_strategy || '降重后完成',
       fatigue_strategy: rules.fatigue_strategy || '连续吃力时停止加重',
     },
     ai_adjust_enabled: item.ai_adjust_enabled || false,
@@ -73,10 +73,10 @@ function saveItem() {
 <template>
   <article class="item-card">
     <header class="item-header">
-      <div>
+      <div class="item-copy adaptive-card">
         <p class="item-index">动作 {{ draft.sort_order }}</p>
-        <h4>{{ selectedExercise?.name || item.exercise?.name || '未选择动作' }}</h4>
-        <span class="muted">{{ loadModeLabel }}</span>
+        <h4 class="adaptive-card-title">{{ selectedExercise?.name || item.exercise?.name || '未选择动作' }}</h4>
+        <span class="muted adaptive-card-subtitle adaptive-card-clamp-2">{{ loadModeLabel }}</span>
       </div>
       <div class="header-actions">
         <button class="slim-btn" type="button" @click="emit('move', item.id, 'up')">上移</button>
@@ -144,7 +144,7 @@ function saveItem() {
     <section class="progress-panel">
       <div class="progress-head">
         <h5>进阶逻辑</h5>
-        <span class="muted">按动作单独设置 RIR、加重和回退规则</span>
+        <span class="muted adaptive-card-subtitle adaptive-card-clamp-2">按动作单独设置 RIR、加重和回退规则</span>
       </div>
       <div class="grid two">
         <label class="field">
@@ -184,6 +184,13 @@ function saveItem() {
   border-radius: 20px;
   background: var(--panel-soft);
   border: 1px solid rgba(15, 118, 110, 0.12);
+}
+
+.item-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
 }
 
 .item-header,

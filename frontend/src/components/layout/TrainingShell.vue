@@ -32,19 +32,24 @@ function switchMode() {
       </div>
     </header>
     <main class="training-content">
-      <slot />
+      <div class="training-body">
+        <slot />
+      </div>
     </main>
   </div>
 </template>
 
 <style scoped>
 .training-shell {
+  height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
   background: linear-gradient(180deg, #f8fafc, #eefbf7);
   padding: 18px;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 18px;
+  overflow: hidden;
 }
 
 .training-header {
@@ -56,6 +61,7 @@ function switchMode() {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
+  min-width: 0;
 }
 
 .eyebrow,
@@ -72,6 +78,7 @@ function switchMode() {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .user-pill {
@@ -80,9 +87,17 @@ function switchMode() {
   padding: 12px 14px;
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .training-content {
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.training-body {
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

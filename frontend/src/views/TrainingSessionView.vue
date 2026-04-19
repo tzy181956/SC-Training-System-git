@@ -250,12 +250,17 @@ onMounted(hydrate)
   display: grid;
   grid-template-columns: 320px 1.2fr 360px;
   gap: 18px;
+  height: 100%;
+  min-height: 0;
 }
 
 .center-column {
   display: grid;
   gap: 18px;
   align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .hero {
@@ -263,6 +268,7 @@ onMounted(hydrate)
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  min-width: 0;
 }
 
 .hero h3,
@@ -279,6 +285,7 @@ onMounted(hydrate)
 @media (max-width: 1360px) {
   .training-mode-layout {
     grid-template-columns: 1fr;
+    height: auto;
   }
 
   .hero {

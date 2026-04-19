@@ -117,7 +117,8 @@ onMounted(() => hydrate())
           <button class="primary-btn slim" type="button" @click="createDraftTemplate">新建模板</button>
         </div>
         <input v-model="keyword" class="text-input" placeholder="搜索模板名称或说明" />
-        <div class="template-list">
+        <div class="template-scroll">
+          <div class="template-list">
           <button
             v-for="template in filteredTemplates"
             :key="template.id"
@@ -130,10 +131,12 @@ onMounted(() => hydrate())
             <span>{{ template.description || '暂无说明' }}</span>
             <small>{{ template.items.length }} 个动作</small>
           </button>
+          </div>
         </div>
       </aside>
 
       <TemplateBuilder
+        class="builder-panel"
         :template="selectedTemplate"
         :exercises="exercises"
         @save-template="saveTemplate"
@@ -152,6 +155,8 @@ onMounted(() => hydrate())
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 18px;
+  height: 100%;
+  min-height: 0;
 }
 
 .sidebar,
@@ -160,6 +165,27 @@ onMounted(() => hydrate())
   display: grid;
   gap: 14px;
   align-content: start;
+}
+
+.sidebar,
+.builder-panel {
+  min-height: 0;
+}
+
+.sidebar {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.template-scroll,
+.builder-panel {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.template-scroll {
+  padding-right: 4px;
 }
 
 .sidebar-head {
@@ -182,6 +208,15 @@ onMounted(() => hydrate())
   border: 1px solid transparent;
   display: grid;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.template-row strong,
+.template-row span,
+.template-row small {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .template-row.active {
@@ -197,6 +232,7 @@ onMounted(() => hydrate())
 @media (max-width: 1180px) {
   .template-layout {
     grid-template-columns: 1fr;
+    height: auto;
   }
 }
 </style>

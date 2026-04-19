@@ -55,32 +55,32 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
         <div
           v-for="athlete in athletes"
           :key="athlete.id"
-          class="athlete-card"
+          class="athlete-card adaptive-card"
           :class="{ active: athlete.id === selectedAthleteId }"
         >
           <button class="athlete-main" type="button" @click="emit('updateAthlete', athlete.id)">
             <div class="athlete-header">
-              <strong>{{ athlete.full_name }}</strong>
+              <strong class="adaptive-card-title">{{ athlete.full_name }}</strong>
               <span class="status-pill" :class="athlete.training_status">{{ statusLabel(athlete.training_status) }}</span>
             </div>
-            <span>{{ athlete.team?.name || '未分队' }}</span>
+            <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ athlete.team?.name || '未分队' }}</span>
           </button>
 
           <div v-if="athlete.assignments?.length" class="inline-plans">
             <button
               v-for="assignment in athlete.assignments"
               :key="assignment.id"
-              class="inline-plan"
+              class="inline-plan adaptive-card"
               :class="[assignment.training_status, { active: assignment.id === previewAssignmentId }]"
               type="button"
               @click="openAthletePlan(athlete.id, assignment.id)"
             >
               <span class="plan-dot" />
-              <span>{{ assignment.template.name }}</span>
+              <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ assignment.template.name }}</span>
             </button>
           </div>
 
-          <p v-else class="empty-plan-hint">当天没有可录入的训练计划</p>
+          <p v-else class="empty-plan-hint adaptive-card-meta adaptive-card-clamp-2">当天没有可录入的训练计划</p>
         </div>
       </div>
     </div>
@@ -91,12 +91,15 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 .sidebar {
   display: grid;
   gap: 18px;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .block {
   display: grid;
   gap: 12px;
+  min-height: 0;
 }
 
 .filters-row {
@@ -107,6 +110,10 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 .athlete-list {
   display: grid;
   gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
 }
 
 .athlete-card {
@@ -115,7 +122,7 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
   padding: 14px;
   display: grid;
   gap: 10px;
-  min-height: 76px;
+  min-height: 108px;
 }
 
 .athlete-card.active {
@@ -124,7 +131,7 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 
 .athlete-main {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   text-align: left;
   background: transparent;
   padding: 0;
@@ -133,13 +140,18 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 .athlete-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+  min-width: 0;
 }
 
-.athlete-main span,
+.athlete-header strong {
+  flex: 1;
+}
+
 .empty-plan-hint {
-  color: var(--muted);
+  margin: 0;
+  font-size: 14px;
 }
 
 .status-pill {
@@ -147,6 +159,7 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .status-pill.completed {
@@ -169,11 +182,6 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
   color: #4b5563;
 }
 
-.empty-plan-hint {
-  margin: 0;
-  font-size: 14px;
-}
-
 .inline-plans {
   display: grid;
   gap: 6px;
@@ -182,11 +190,10 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 
 .inline-plan {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   text-align: left;
   font-size: 14px;
-  line-height: 1.3;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.45);
   border-radius: 12px;
@@ -205,6 +212,7 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
   border-radius: 999px;
   background: #9ca3af;
   flex-shrink: 0;
+  margin-top: 4px;
 }
 
 .inline-plan.completed .plan-dot {

@@ -15,9 +15,9 @@ function adjustmentClass(type: string) {
 <template>
   <details class="session-card">
     <summary class="session-head">
-      <div>
+      <div class="session-copy adaptive-card">
         <p class="session-date">{{ session.session_date }}</p>
-        <h4>{{ session.template_name }}</h4>
+        <h4 class="adaptive-card-title">{{ session.template_name }}</h4>
       </div>
       <div class="session-meta">
         <span class="status-chip">{{ session.status }}</span>
@@ -34,16 +34,18 @@ function adjustmentClass(type: string) {
         class="item-card"
       >
         <div class="item-head">
-          <div>
-            <h5>{{ item.exercise_name }}</h5>
-            <p>{{ item.completed_sets }}/{{ item.prescribed_sets }} 组，目标 {{ item.prescribed_reps }} 次</p>
+          <div class="item-copy adaptive-card">
+            <h5 class="adaptive-card-title">{{ item.exercise_name }}</h5>
+            <p class="adaptive-card-subtitle adaptive-card-clamp-2">
+              {{ item.completed_sets }}/{{ item.prescribed_sets }} 组，目标 {{ item.prescribed_reps }} 次
+            </p>
           </div>
           <span class="item-badge" :class="{ main: item.is_main_lift }">
             {{ item.is_main_lift ? '主项动作' : '常规动作' }}
           </span>
         </div>
 
-        <p v-if="item.target_note" class="item-note">{{ item.target_note }}</p>
+        <p v-if="item.target_note" class="item-note adaptive-card-subtitle adaptive-card-clamp-2">{{ item.target_note }}</p>
 
         <div class="record-table-wrap">
           <table class="record-table">
@@ -94,7 +96,7 @@ function adjustmentClass(type: string) {
   list-style: none;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   padding: 18px 20px;
   cursor: pointer;
@@ -102,6 +104,12 @@ function adjustmentClass(type: string) {
 
 .session-head::-webkit-details-marker {
   display: none;
+}
+
+.session-copy,
+.item-copy {
+  min-width: 0;
+  flex: 1;
 }
 
 .session-date,
@@ -141,6 +149,7 @@ function adjustmentClass(type: string) {
 .item-badge {
   background: var(--panel-soft);
   color: var(--text);
+  flex-shrink: 0;
 }
 
 .item-badge.main {
@@ -179,7 +188,7 @@ function adjustmentClass(type: string) {
 
 .item-head {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }

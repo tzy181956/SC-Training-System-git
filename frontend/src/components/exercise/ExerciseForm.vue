@@ -91,6 +91,11 @@ function handleSubmit() {
 .form-grid {
   display: grid;
   gap: 12px;
+  height: 100%;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .tag-grid {

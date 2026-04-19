@@ -1,3 +1,9 @@
+html,
+body,
+#app {
+  height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -35,6 +41,7 @@ a {
   border-radius: var(--radius);
   padding: 18px;
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 
 .text-input {
@@ -44,6 +51,7 @@ a {
   border-radius: 16px;
   padding: 0 14px;
   background: white;
+  min-width: 0;
 }
 
 .area {
@@ -75,4 +83,52 @@ button:disabled {
 .section-title {
   color: var(--muted);
   font-size: 14px;
+}
+
+.adaptive-card {
+  min-width: 0;
+}
+
+.adaptive-card > * {
+  min-width: 0;
+}
+
+.adaptive-card-title,
+.adaptive-card-subtitle,
+.adaptive-card-meta {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.adaptive-card-title {
+  line-height: 1.35;
+}
+
+.adaptive-card-subtitle,
+.adaptive-card-meta {
+  line-height: 1.4;
+}
+
+.adaptive-card-subtitle,
+.adaptive-card-meta,
+.adaptive-card-muted {
+  color: var(--muted);
+}
+
+.adaptive-card-clamp-1,
+.adaptive-card-clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.adaptive-card-clamp-1 {
+  -webkit-line-clamp: 1;
+}
+
+.adaptive-card-clamp-2 {
+  -webkit-line-clamp: 2;
 }

@@ -396,6 +396,10 @@ function resetRecordDraft(record: any) {
   display: grid;
   gap: 18px;
   align-content: start;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .panel-head,
@@ -467,6 +471,7 @@ span {
   padding: 14px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.7);
+  min-width: 0;
 }
 
 .history-row.saving {
@@ -478,6 +483,7 @@ span {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .history-stack {

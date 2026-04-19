@@ -204,6 +204,12 @@ watch(
   gap: 16px;
 }
 
+.builder-wrap {
+  height: 100%;
+  min-height: 0;
+  align-content: start;
+}
+
 .header-actions,
 .quick-header {
   display: flex;

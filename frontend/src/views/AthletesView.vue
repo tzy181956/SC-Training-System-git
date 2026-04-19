@@ -89,19 +89,23 @@ function resetForm() {
           <h3>运动员列表</h3>
           <button class="primary-btn slim" @click="resetForm">新建</button>
         </div>
-        <button
-          v-for="athlete in store.athletes"
-          :key="athlete.id"
-          class="row-card"
-          :class="{ active: athlete.id === selectedId }"
-          @click="selectAthlete(athlete)"
-        >
-          <strong>{{ athlete.full_name }}</strong>
-          <span>{{ athlete.team?.name || '未分队' }} / {{ athlete.training_level || '未设置训练等级' }}</span>
-          <small v-if="athlete.weight || athlete.height">
-            {{ athlete.weight ? `${athlete.weight} kg` : '--' }} / {{ athlete.height ? `${athlete.height} cm` : '--' }}
-          </small>
-        </button>
+        <div class="list-scroll">
+          <button
+            v-for="athlete in store.athletes"
+            :key="athlete.id"
+            class="row-card adaptive-card"
+            :class="{ active: athlete.id === selectedId }"
+            @click="selectAthlete(athlete)"
+          >
+            <strong class="adaptive-card-title">{{ athlete.full_name }}</strong>
+            <span class="adaptive-card-subtitle adaptive-card-clamp-2">
+              {{ athlete.team?.name || '未分队' }} / {{ athlete.training_level || '未设置训练等级' }}
+            </span>
+            <small v-if="athlete.weight || athlete.height" class="adaptive-card-meta adaptive-card-clamp-1">
+              {{ athlete.weight ? `${athlete.weight} kg` : '--' }} / {{ athlete.height ? `${athlete.height} cm` : '--' }}
+            </small>
+          </button>
+        </div>
       </div>
 
       <div class="panel form-panel">
@@ -157,8 +161,9 @@ function resetForm() {
 <style scoped>
 .split-view {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: minmax(360px, 430px) 1fr;
   gap: 18px;
+  height: 100%;
   min-height: 0;
 }
 
@@ -168,6 +173,25 @@ function resetForm() {
   display: grid;
   gap: 12px;
   align-content: start;
+  min-height: 0;
+}
+
+.list-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.list-scroll,
+.form-panel {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.list-scroll {
+  display: grid;
+  gap: 12px;
+  padding-right: 8px;
 }
 
 .toolbar {
@@ -179,19 +203,20 @@ function resetForm() {
 .row-card {
   background: var(--panel-soft);
   border-radius: 16px;
-  padding: 16px;
+  padding: 16px 18px;
   text-align: left;
   display: grid;
-  gap: 5px;
-  min-height: var(--touch);
+  grid-template-rows: auto auto auto;
+  gap: 8px;
+  min-height: 118px;
+  width: 100%;
+  justify-items: start;
 }
 
 .row-card.active {
   background: #d1fae5;
 }
 
-.row-card span,
-.row-card small,
 .field span {
   color: var(--muted);
 }
@@ -213,6 +238,10 @@ function resetForm() {
   .two-col,
   .metrics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .split-view {
+    height: auto;
   }
 }
 </style>

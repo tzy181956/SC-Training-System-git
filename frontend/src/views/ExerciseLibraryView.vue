@@ -35,18 +35,20 @@ onMounted(hydrate)
           <h3>动作库</h3>
           <button class="primary-btn slim" @click="selected = null">新建</button>
         </div>
-        <button
-          v-for="exercise in exercises"
-          :key="exercise.id"
-          class="row-card"
-          :class="{ active: selected?.id === exercise.id }"
-          @click="selected = exercise"
-        >
-          <strong>{{ exercise.name }}</strong>
-          <span>{{ exercise.alias || exercise.load_profile }}</span>
-        </button>
+        <div class="list-scroll">
+          <button
+            v-for="exercise in exercises"
+            :key="exercise.id"
+            class="row-card adaptive-card"
+            :class="{ active: selected?.id === exercise.id }"
+            @click="selected = exercise"
+          >
+            <strong class="adaptive-card-title">{{ exercise.name }}</strong>
+            <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ exercise.alias || exercise.load_profile }}</span>
+          </button>
+        </div>
       </div>
-      <ExerciseForm :model-value="selected" :tags="tags" @submit="handleSubmit" />
+      <ExerciseForm class="form-panel" :model-value="selected" :tags="tags" @submit="handleSubmit" />
     </div>
   </AppShell>
 </template>
@@ -54,14 +56,31 @@ onMounted(hydrate)
 <style scoped>
 .split-view {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: minmax(360px, 420px) 1fr;
   gap: 18px;
+  height: 100%;
+  min-height: 0;
 }
 
 .list-panel {
   display: grid;
   gap: 12px;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.list-scroll,
+.form-panel {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.list-scroll {
+  display: grid;
+  gap: 12px;
+  padding-right: 8px;
 }
 
 .toolbar {
@@ -73,14 +92,23 @@ onMounted(hydrate)
 .row-card {
   background: var(--panel-soft);
   border-radius: 16px;
-  padding: 16px;
+  padding: 16px 18px;
   text-align: left;
   display: grid;
-  gap: 5px;
-  min-height: var(--touch);
+  gap: 8px;
+  min-height: 84px;
+  width: 100%;
+  justify-items: start;
 }
 
 .row-card.active {
   background: #d1fae5;
+}
+
+@media (max-width: 1100px) {
+  .split-view {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
 }
 </style>
