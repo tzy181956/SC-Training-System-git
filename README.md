@@ -66,6 +66,7 @@
 如果你需要恢复真实队伍数据，请额外执行：
 
 - `backend/scripts/import_real_test_data.py`
+- 该脚本会先要求输入固定确认词，确认后才会清理旧业务数据并重新导入
 
 ## iPad 访问方式
 

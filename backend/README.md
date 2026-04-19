@@ -31,6 +31,8 @@ set PYTHONPATH=.
 .\.venv\Scripts\python.exe scripts\import_real_test_data.py
 ```
 
+该脚本会先提示风险，并要求输入固定确认词后，才会清理旧业务数据并重新导入真实数据。
+
 ## 推荐方式
 
 优先使用项目根目录的脚本：

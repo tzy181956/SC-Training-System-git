@@ -29,6 +29,7 @@ from app.models import (  # noqa: E402
     TrainingSession,
     TrainingSessionItem,
 )
+from safety_utils import require_destructive_confirmation  # noqa: E402
 
 
 SOURCE_XLSX = Path(r"C:\Users\Tian Ziyu\OneDrive\上海\篮球中心\测试\20260314\测试结果带排名.xlsx")
@@ -37,6 +38,7 @@ TARGET_SPORT_NAME = "篮球"
 TARGET_SPORT_CODE = "basketball"
 TARGET_TEAM_NAME = "女篮青年队"
 TARGET_TEAM_CODE = "women-youth-basketball"
+CONFIRMATION_PHRASE = "DELETE REAL DATA"
 
 BODY_FIELDS = {
     "身高": ("height", "cm"),
@@ -255,6 +257,17 @@ def main() -> None:
         raise FileNotFoundError(f"Workbook not found: {SOURCE_XLSX}")
 
     ensure_runtime_schema()
+    require_destructive_confirmation(
+        action_label="Clear current business data and re-import real athlete/test data",
+        confirmation_phrase=CONFIRMATION_PHRASE,
+        affected_items=[
+            "运动员",
+            "测试记录",
+            "计划分配",
+            "training sessions",
+            "组记录",
+        ],
+    )
     with SessionLocal() as db:
         import_workbook(db, SOURCE_XLSX)
     print("Real athlete and test data imported.")
