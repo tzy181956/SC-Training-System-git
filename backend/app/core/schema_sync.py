@@ -22,3 +22,10 @@ def ensure_runtime_schema() -> None:
                 if "duplicate column" in message or "already exists" in message:
                     continue
                 raise
+
+        athlete_columns = {
+            row[1]
+            for row in connection.execute(text("PRAGMA table_info(athletes)")).fetchall()
+        }
+        if "training_level" in athlete_columns:
+            connection.execute(text("ALTER TABLE athletes DROP COLUMN training_level"))
