@@ -12,7 +12,6 @@ const form = reactive({
   sport_id: null as number | null,
   team_id: null as number | null,
   position: '',
-  training_level: '',
   height: null as number | null,
   weight: null as number | null,
   body_fat_percentage: null as number | null,
@@ -36,7 +35,6 @@ function selectAthlete(athlete: any) {
     sport_id: athlete.sport_id ?? null,
     team_id: athlete.team_id ?? null,
     position: athlete.position || '',
-    training_level: athlete.training_level || '',
     height: athlete.height ?? null,
     weight: athlete.weight ?? null,
     body_fat_percentage: athlete.body_fat_percentage ?? null,
@@ -67,7 +65,6 @@ function resetForm() {
     sport_id: null,
     team_id: null,
     position: '',
-    training_level: '',
     height: null,
     weight: null,
     body_fat_percentage: null,
@@ -97,7 +94,7 @@ function resetForm() {
           >
             <strong class="adaptive-card-title">{{ athlete.full_name }}</strong>
             <span class="adaptive-card-subtitle adaptive-card-clamp-2">
-              {{ athlete.team?.name || '未分队' }} / {{ athlete.training_level || '未设置训练等级' }}
+              {{ athlete.team?.name || '未分队' }}
             </span>
             <small v-if="athlete.weight || athlete.height" class="adaptive-card-meta adaptive-card-clamp-1">
               {{ athlete.weight ? `${athlete.weight} kg` : '--' }} / {{ athlete.height ? `${athlete.height} cm` : '--' }}
@@ -135,10 +132,6 @@ function resetForm() {
           <label class="field">
             <span class="field-label">位置 / 角色</span>
             <input v-model="form.position" class="text-input" placeholder="可选" />
-          </label>
-          <label class="field">
-            <span class="field-label">训练等级</span>
-            <input v-model="form.training_level" class="text-input" placeholder="可选" />
           </label>
         </div>
 

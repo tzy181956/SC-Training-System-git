@@ -162,7 +162,7 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
                     "load_mode_label": describe_load_mode(item),
                     "computed_load": override["initial_load_override"] if override else None,
                     "basis_label": "训练时录入" if is_manual_load else (override["basis_label"] if override else None),
-                    "status": "鍙垎閰?",
+                    "status": "missing_basis" if is_manual_load else "assignable",
                 }
             )
         rows.append({"athlete": athlete, "items": items})

@@ -91,13 +91,18 @@ function switchMode() {
 }
 
 .training-content {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
 .training-body {
+  display: grid;
+  min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 </style>

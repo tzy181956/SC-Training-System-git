@@ -256,8 +256,8 @@ onMounted(hydrate)
 
 .center-column {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
-  align-content: start;
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;

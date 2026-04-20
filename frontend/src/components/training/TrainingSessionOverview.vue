@@ -47,8 +47,9 @@ const items = computed(() => props.session?.items || props.assignment?.template?
 </template>
 
 <style scoped>
-.overview,.heading,.item-list,.empty-state{display:grid;gap:12px}.overview{gap:16px;align-content:start}
+.overview,.heading,.item-list,.empty-state{display:grid;gap:12px}.overview{gap:16px;grid-template-rows:auto minmax(0,1fr);min-height:0}
 .heading h3,.section-title,.meta span,.item-card span,.empty-state span{margin:0;color:var(--muted)}
+.item-list{min-height:0;overflow-y:auto;padding-right:6px;scrollbar-gutter:stable;align-content:start}
 .item-card{background:var(--panel-soft);border-radius:18px;padding:16px;display:grid;gap:6px;text-align:left}
 .item-card.active{background:#dbeafe}
 .item-card em{font-style:normal;color:var(--primary);font-weight:700}

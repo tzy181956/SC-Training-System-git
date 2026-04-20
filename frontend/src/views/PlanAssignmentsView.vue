@@ -309,7 +309,7 @@ onMounted(hydrate)
               </div>
               <div class="assigned-main">
                 <strong>{{ entry.athlete.full_name }}</strong>
-                <span>{{ entry.athlete.team?.name || '未分队' }} / {{ entry.athlete.training_level || '未设置训练等级' }}</span>
+                <span>{{ entry.athlete.team?.name || '未分队' }}</span>
               </div>
               <div class="assigned-side">
                 <strong>{{ entry.template.name }}</strong>
@@ -366,7 +366,7 @@ onMounted(hydrate)
             <div class="unassigned-list">
               <div v-for="athlete in filteredUnassignedAthletes" :key="athlete.id" class="overview-row">
                 <strong>{{ athlete.full_name }}</strong>
-                <span>{{ athlete.team?.name || '未分队' }} / {{ athlete.training_level || '未设置训练等级' }}</span>
+                <span>{{ athlete.team?.name || '未分队' }}</span>
               </div>
               <p v-if="!filteredUnassignedAthletes.length" class="muted">当前筛选条件下所有队员都已有计划。</p>
             </div>
@@ -403,8 +403,6 @@ onMounted(hydrate)
                   @click="toggleAthlete(athlete.id)"
                 >
                   <strong>{{ athlete.full_name }}</strong>
-                  <span>{{ athlete.team?.name || '未分队' }} / {{ athlete.position || '未填写位置' }}</span>
-                  <small>{{ athlete.training_level || '未填写训练等级' }}</small>
                 </button>
               </div>
             </div>

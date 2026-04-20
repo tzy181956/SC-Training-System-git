@@ -35,7 +35,7 @@ defineProps<{
             v-for="item in row.items"
             :key="`${row.athlete.id}-${item.template_item_id}`"
             class="item-row"
-            :class="{ warning: item.status !== '可分配' }"
+            :class="{ warning: item.status === 'missing_basis' }"
           >
             <div>
               <strong>{{ item.exercise_name }}</strong>
@@ -43,7 +43,7 @@ defineProps<{
             </div>
             <div class="item-side">
               <span>{{ item.computed_load ?? '--' }} <template v-if="item.computed_load !== null">公斤</template></span>
-              <small>{{ item.basis_label || item.status }}</small>
+              <small>{{ item.basis_label || (item.status === 'missing_basis' ? '缺少测试基准' : '可分配') }}</small>
             </div>
           </div>
         </div>

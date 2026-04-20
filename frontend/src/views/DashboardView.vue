@@ -43,7 +43,7 @@ const activeAssignments = computed(() => plansStore.assignments.filter((item) =>
     <div class="panel dashboard-panels">
       <button class="simple-card action-card" @click="router.push({ name: 'athletes' })">
         <strong>运动员管理</strong>
-        <span>维护基础资料、所属队伍、位置、训练等级和备注。</span>
+        <span>维护基础资料、所属队伍、位置和备注。</span>
       </button>
       <button class="simple-card action-card" @click="router.push({ name: 'exercises' })">
         <strong>动作库管理</strong>
