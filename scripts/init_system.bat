@@ -124,7 +124,7 @@ echo.
 echo Next step:
 echo Double-click scripts\start_system.bat
 echo.
-echo Initialization no longer clears existing data or seeds demo data.
+echo Initialization no longer clears existing data or imports any preset data.
 echo Import real athlete and test data separately when needed.
 echo.
 pause

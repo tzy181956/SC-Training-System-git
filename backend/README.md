@@ -1,18 +1,18 @@
-# 后端说明
+﻿# 鍚庣璇存槑
 
-后端技术栈：
+鍚庣鎶€鏈爤锛?
 
 - FastAPI
 - SQLAlchemy
 - SQLite
 
-## 环境要求
+## 鐜瑕佹眰
 
 - Python `3.12.x`
 
-不要使用 Python `3.14`。当前依赖栈在 Windows 下会触发 `pydantic-core` 源码构建，增加 Rust 和编译工具要求，不适合当前项目。
+涓嶈浣跨敤 Python `3.14`銆傚綋鍓嶄緷璧栨爤鍦?Windows 涓嬩細瑙﹀彂 `pydantic-core` 婧愮爜鏋勫缓锛屽鍔?Rust 鍜岀紪璇戝伐鍏疯姹傦紝涓嶉€傚悎褰撳墠椤圭洰銆?
 
-## 手动启动方式
+## 鎵嬪姩鍚姩鏂瑰紡
 
 ```powershell
 cd backend
@@ -24,32 +24,31 @@ set PYTHONPATH=.
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-如需恢复真实数据，再单独执行：
+濡傞渶鎭㈠鐪熷疄鏁版嵁锛屽啀鍗曠嫭鎵ц锛?
 
 ```powershell
 set PYTHONPATH=.
 .\.venv\Scripts\python.exe scripts\import_real_test_data.py
 ```
 
-该脚本会先提示风险，并要求输入固定确认词后，才会清理旧业务数据并重新导入真实数据。
+璇ヨ剼鏈細鍏堟彁绀洪闄╋紝骞惰姹傝緭鍏ュ浐瀹氱‘璁よ瘝鍚庯紝鎵嶄細娓呯悊鏃т笟鍔℃暟鎹苟閲嶆柊瀵煎叆鐪熷疄鏁版嵁銆?
 
-## 推荐方式
+## 鎺ㄨ崘鏂瑰紡
 
-优先使用项目根目录的脚本：
+浼樺厛浣跨敤椤圭洰鏍圭洰褰曠殑鑴氭湰锛?
 
 - `scripts/start_system.bat`
 
-如果环境缺失，它会自动调用初始化脚本。
+濡傛灉鐜缂哄け锛屽畠浼氳嚜鍔ㄨ皟鐢ㄥ垵濮嬪寲鑴氭湰銆?
 
-## 数据库说明
+## 鏁版嵁搴撹鏄?
 
-开发环境数据库位于：
+寮€鍙戠幆澧冩暟鎹簱浣嶄簬锛?
 
 - `backend/training.db`
 
-当前初始化脚本只负责创建/补齐数据库结构，不会清空已有数据，也不会导入示例数据。
-
-## 上传前检查
+褰撳墠鍒濆鍖栬剼鏈彧璐熻矗鍒涘缓/琛ラ綈鏁版嵁搴撶粨鏋勶紝涓嶄細娓呯┖宸叉湁鏁版嵁锛屼篃涓嶄細鑷姩瀵煎叆浠讳綍棰勭疆鏁版嵁銆?
+## 涓婁紶鍓嶆鏌?
 
 ```powershell
 python -m compileall backend\app
