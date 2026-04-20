@@ -125,6 +125,7 @@ echo Next step:
 echo Double-click scripts\start_system.bat
 echo.
 echo Initialization no longer clears existing data or imports any preset data.
+echo Shared business data is stored in backend\training.db and should be synced via Git.
 echo Import real athlete and test data separately when needed.
 echo.
 pause

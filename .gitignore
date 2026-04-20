@@ -6,7 +6,6 @@ backend/**/*.pyo
 backend/**/*.pyd
 
 # Database
-backend/training.db
 backend/*.sqlite3
 
 # Frontend

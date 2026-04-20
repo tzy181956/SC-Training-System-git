@@ -53,3 +53,11 @@ set PYTHONPATH=.
 ```powershell
 python -m compileall backend\app
 ```
+
+## Git Database Workflow
+
+- `backend/training.db` is tracked in Git and is the shared backend data file.
+- After changing athlete or test data, commit `backend/training.db` together with the related code or documentation changes.
+- On a new computer, pull the latest repository so the latest `backend/training.db` is available locally.
+- `scripts/init_db.py` and `scripts/init_system.bat` only create or align schema. They do not restore business data into an empty database.
+- Do not make different database edits on multiple computers in parallel unless you are prepared to choose one side manually.

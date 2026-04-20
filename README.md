@@ -225,3 +225,12 @@ git --version
 - 鍚庣娌℃湁鎴愬姛鍚姩
 - 鐢佃剳闃茬伀澧欐嫤鎴簡 `8000`
 - iPad 鍜岀數鑴戜笉鍦ㄥ悓涓€涓?Wi-Fi
+
+## GitHub Data Sync
+
+- `backend/training.db` is the shared project database file and should be committed to Git.
+- When switching to another computer, `git pull` the latest repo before starting the system.
+- If you modify athlete or test data and want that data on another computer, commit and push `backend/training.db`.
+- `scripts/init_system.bat` only ensures schema and dependencies. It does not restore business data.
+- The shared business data source is the `backend/training.db` file stored in Git.
+- Avoid editing the database on two computers at the same time. SQLite conflicts are not safely mergeable.

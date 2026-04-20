@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import sys
 from datetime import date
 from pathlib import Path
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from sqlalchemy import select
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -14,11 +16,9 @@ VENV_SITE_PACKAGES = ROOT_DIR / ".venv" / "Lib" / "site-packages"
 if VENV_SITE_PACKAGES.exists() and str(VENV_SITE_PACKAGES) not in sys.path:
     sys.path.append(str(VENV_SITE_PACKAGES))
 
-from sqlalchemy import select
-
-from app.core.schema_sync import ensure_runtime_schema
 from app.core.database import SessionLocal
-from app.models import (  # noqa: E402
+from app.core.schema_sync import ensure_runtime_schema
+from app.models import (
     AssignmentItemOverride,
     Athlete,
     AthletePlanAssignment,
@@ -29,10 +29,10 @@ from app.models import (  # noqa: E402
     TrainingSession,
     TrainingSessionItem,
 )
-from safety_utils import require_destructive_confirmation  # noqa: E402
+from safety_utils import require_destructive_confirmation
 
 
-SOURCE_XLSX = Path(r"C:\Users\Tian Ziyu\OneDrive\上海\篮球中心\测试\20260314\测试结果带排名.xlsx")
+DEFAULT_SOURCE_XLSX = Path(r"C:\Users\tzy\OneDrive\上海\篮球中心\测试\20260314\测试结果带排名.xlsx")
 TARGET_DATE = date(2026, 3, 14)
 TARGET_SPORT_NAME = "篮球"
 TARGET_SPORT_CODE = "basketball"
@@ -52,7 +52,7 @@ METRIC_DEFINITIONS = {
     ("卧推", "重量"): ("力量测试", "卧推", "kg"),
     ("卧拉", "重量"): ("力量测试", "卧拉", "kg"),
     ("深蹲", "重量"): ("力量测试", "深蹲", "kg"),
-    ("臀桥", "重量"): ("力量测试", "臀桥", "kg"),
+    ("挺举", "重量"): ("力量测试", "挺举", "kg"),
     ("引体向上", "次数"): ("力量测试", "引体向上", "次"),
     ("反向跳", "高度"): ("体能测试", "反向跳", "cm"),
     ("静蹲跳", "高度"): ("体能测试", "静蹲跳", "cm"),
@@ -66,15 +66,15 @@ METRIC_DEFINITIONS = {
     ("505变向", "总用时"): ("速度测试", "505变向-总用时", "s"),
     ("限制区移动", "时间"): ("速度测试", "限制区移动", "s"),
     ("3000m", "秒数"): ("耐力测试", "3000m", "s"),
-    ("17折*4", "秒数"): ("耐力测试", "17折*4", "s"),
+    ("17折返", "秒数"): ("耐力测试", "17折返", "s"),
 }
 
 TEXT_VALUE_COLUMNS = {
     ("3000m", "秒数"): ("3000m", "用时"),
-    ("17折*4", "秒数"): ("17折*4", "平均用时"),
+    ("17折返", "秒数"): ("17折返", "平均用时"),
 }
-SKIP_NAME_MARKERS = ("平均", "汇总", "合计", "总计")
 
+SKIP_NAME_MARKERS = ("平均", "汇总", "合计", "总计")
 IGNORED_SUB_HEADERS = {"排名"}
 IGNORED_TOP_HEADERS = {"总分", "总排名"}
 
@@ -83,6 +83,17 @@ def normalize_text(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def resolve_source_xlsx() -> Path:
+    if len(sys.argv) > 1 and sys.argv[1].strip():
+        return Path(sys.argv[1]).expanduser()
+
+    env_value = os.environ.get("REAL_TEST_DATA_XLSX", "").strip()
+    if env_value:
+        return Path(env_value).expanduser()
+
+    return DEFAULT_SOURCE_XLSX
 
 
 def parse_header_rows(ws) -> tuple[dict[int, tuple[str, str]], dict[tuple[str, str], int]]:
@@ -182,7 +193,15 @@ def build_or_update_athlete(db, team: Team, row_map: dict[str, object]) -> Athle
     return athlete
 
 
-def add_test_record(db, athlete: Athlete, test_type: str, metric_name: str, unit: str, result_value: float, result_text: str | None = None) -> None:
+def add_test_record(
+    db,
+    athlete: Athlete,
+    test_type: str,
+    metric_name: str,
+    unit: str,
+    result_value: float,
+    result_text: str | None = None,
+) -> None:
     db.add(
         TestRecord(
             athlete_id=athlete.id,
@@ -208,7 +227,10 @@ def import_workbook(db, workbook_path: Path) -> None:
 
     seen_names: set[str] = set()
     for row_index in range(3, worksheet.max_row + 1):
-        row_values = {columns[column][0] or get_column_letter(column): worksheet.cell(row_index, column).value for column in columns}
+        row_values = {
+            columns[column][0] or get_column_letter(column): worksheet.cell(row_index, column).value
+            for column in columns
+        }
         full_name = normalize_text(row_values.get("姓名"))
         if not full_name:
             continue
@@ -253,8 +275,9 @@ def import_workbook(db, workbook_path: Path) -> None:
 
 
 def main() -> None:
-    if not SOURCE_XLSX.exists():
-        raise FileNotFoundError(f"Workbook not found: {SOURCE_XLSX}")
+    source_xlsx = resolve_source_xlsx()
+    if not source_xlsx.exists():
+        raise FileNotFoundError(f"Workbook not found: {source_xlsx}")
 
     ensure_runtime_schema()
     require_destructive_confirmation(
@@ -269,7 +292,7 @@ def main() -> None:
         ],
     )
     with SessionLocal() as db:
-        import_workbook(db, SOURCE_XLSX)
+        import_workbook(db, source_xlsx)
     print("Real athlete and test data imported.")
 
 
