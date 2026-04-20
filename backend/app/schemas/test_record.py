@@ -34,3 +34,9 @@ class TestRecordUpdate(BaseModel):
 class TestRecordRead(ORMModel, TestRecordBase):
     id: int
     athlete: AthleteRead | None = None
+
+
+class TestRecordImportRead(BaseModel):
+    total_rows: int
+    imported_rows: int
+    skipped_rows: int

@@ -114,21 +114,23 @@ watch(
         <button v-if="template?.id" class="ghost-btn slim danger" type="button" @click="removeTemplate">删除模板</button>
         <button class="primary-btn slim" type="button" @click="saveTemplate">保存模板</button>
       </div>
+
       <div class="grid two">
         <label class="field">
-          <span>模板名称</span>
+          <span class="field-label">模板名称 <strong class="required-mark">*</strong></span>
           <input v-model="templateForm.name" class="text-input" placeholder="例如：力量训练 A、下肢爆发 B" />
         </label>
         <label class="field">
-          <span>状态</span>
+          <span class="field-label">状态</span>
           <select v-model="templateForm.is_active" class="text-input">
             <option :value="true">启用</option>
             <option :value="false">停用</option>
           </select>
         </label>
       </div>
+
       <label class="field">
-        <span>模板说明</span>
+        <span class="field-label">模板说明</span>
         <textarea
           v-model="templateForm.description"
           class="text-input area"
@@ -146,24 +148,25 @@ watch(
         <button class="primary-btn slim" type="button" :disabled="!canAddItem" @click="addItem">新增动作卡片</button>
       </div>
       <p class="hint">{{ addItemHint }}</p>
+
       <div class="grid four">
         <label class="field">
-          <span>动作</span>
+          <span class="field-label">动作 <strong class="required-mark">*</strong></span>
           <select v-model.number="newItem.exercise_id" class="text-input">
             <option :value="0">请选择动作</option>
             <option v-for="exercise in exercises" :key="exercise.id" :value="exercise.id">{{ exercise.name }}</option>
           </select>
         </label>
         <label class="field">
-          <span>组数</span>
+          <span class="field-label">组数</span>
           <input v-model.number="newItem.prescribed_sets" type="number" class="text-input" />
         </label>
         <label class="field">
-          <span>次数</span>
+          <span class="field-label">次数</span>
           <input v-model.number="newItem.prescribed_reps" type="number" class="text-input" />
         </label>
         <label class="field">
-          <span>负荷方式</span>
+          <span class="field-label">负荷方式</span>
           <select v-model="newItem.initial_load_mode" class="text-input">
             <option value="fixed_weight">固定重量</option>
             <option value="percent_1rm">按最近测试的 1RM 百分比</option>
@@ -188,7 +191,7 @@ watch(
       </div>
       <div v-if="!sortedItems.length" class="panel empty-panel">
         <h4>当前模板还没有动作</h4>
-        <p>先填写模板基本信息并保存，然后在上方选择动作，逐个加入这份训练计划。</p>
+        <p>先填写模板基础信息并保存，然后在上方选择动作，逐个加入这份训练计划。</p>
       </div>
     </div>
   </section>
@@ -232,12 +235,6 @@ watch(
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.field {
-  display: grid;
-  gap: 6px;
-}
-
-.field span,
 .eyebrow,
 .hint {
   color: var(--muted);

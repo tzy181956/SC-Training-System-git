@@ -73,10 +73,8 @@ function switchMode() {
 .shell {
   display: grid;
   grid-template-columns: var(--nav-width) 1fr;
-  height: 100vh;
-  height: 100dvh;
   min-height: 100vh;
-  overflow: hidden;
+  align-items: start;
 }
 
 .shell-nav {
@@ -86,7 +84,9 @@ function switchMode() {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  min-height: 0;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
@@ -132,16 +132,15 @@ function switchMode() {
 .shell-main {
   padding: 22px;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto;
   gap: 18px;
   min-width: 0;
-  min-height: 0;
-  overflow: hidden;
+  align-content: start;
 }
 
 .shell-body {
-  min-height: 0;
-  overflow: hidden;
+  min-height: auto;
+  overflow: visible;
 }
 
 .shell-header {
@@ -174,6 +173,8 @@ function switchMode() {
   .shell-nav {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    position: static;
+    max-height: none;
     overflow: visible;
   }
 }

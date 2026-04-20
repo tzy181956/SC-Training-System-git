@@ -60,6 +60,23 @@ a {
   resize: vertical;
 }
 
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label,
+.field > span {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.required-mark {
+  color: #dc2626;
+  font-weight: 700;
+}
+
 .primary-btn {
   min-height: var(--touch);
   border-radius: 16px;

@@ -116,21 +116,26 @@ onMounted(() => hydrate())
           </div>
           <button class="primary-btn slim" type="button" @click="createDraftTemplate">新建模板</button>
         </div>
-        <input v-model="keyword" class="text-input" placeholder="搜索模板名称或说明" />
+
+        <label class="field">
+          <span class="field-label">搜索模板</span>
+          <input v-model="keyword" class="text-input" placeholder="按模板名称或说明搜索" />
+        </label>
+
         <div class="template-scroll">
           <div class="template-list">
-          <button
-            v-for="template in filteredTemplates"
-            :key="template.id"
-            class="template-row"
-            :class="{ active: template.id === selectedTemplateId }"
-            type="button"
-            @click="selectedTemplateId = template.id"
-          >
-            <strong>{{ template.name }}</strong>
-            <span>{{ template.description || '暂无说明' }}</span>
-            <small>{{ template.items.length }} 个动作</small>
-          </button>
+            <button
+              v-for="template in filteredTemplates"
+              :key="template.id"
+              class="template-row"
+              :class="{ active: template.id === selectedTemplateId }"
+              type="button"
+              @click="selectedTemplateId = template.id"
+            >
+              <strong>{{ template.name }}</strong>
+              <span>{{ template.description || '暂无说明' }}</span>
+              <small>{{ template.items.length }} 个动作</small>
+            </button>
           </div>
         </div>
       </aside>

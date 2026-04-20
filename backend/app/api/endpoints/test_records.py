@@ -1,14 +1,62 @@
-from fastapi import APIRouter, Depends
+from io import BytesIO
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.core.exceptions import not_found
 from app.models import TestRecord
-from app.schemas.test_record import TestRecordCreate, TestRecordRead, TestRecordUpdate
+from app.schemas.test_record import TestRecordCreate, TestRecordImportRead, TestRecordRead, TestRecordUpdate
+from app.services.test_record_excel_service import (
+    build_import_template_workbook,
+    build_test_record_library_workbook,
+    import_test_records_from_workbook,
+)
 
 
 router = APIRouter(prefix="/test-records", tags=["test-records"])
+
+
+@router.get("/template")
+def download_test_record_template(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+    content = build_import_template_workbook(db)
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="test-record-import-template.xlsx"'},
+    )
+
+
+@router.post("/import", response_model=TestRecordImportRead)
+async def import_test_records(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="未提供导入文件")
+    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx 文件导入")
+
+    try:
+        summary = import_test_records_from_workbook(db, await file.read())
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return TestRecordImportRead(
+        total_rows=summary.total_rows,
+        imported_rows=summary.imported_rows,
+        skipped_rows=summary.skipped_rows,
+    )
+
+
+@router.get("/export")
+def export_test_record_library(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+    content = build_test_record_library_workbook(db)
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="test-record-library.xlsx"'},
+    )
 
 
 @router.get("", response_model=list[TestRecordRead])
