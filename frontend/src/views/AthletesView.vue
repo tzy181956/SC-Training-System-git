@@ -7,10 +7,19 @@ import { useAthletesStore } from '@/stores/athletes'
 
 const store = useAthletesStore()
 const selectedId = ref<number | null>(null)
+
+const filters = reactive({
+  keyword: '',
+  sportId: '',
+  teamId: '',
+  gender: '',
+})
+
 const form = reactive({
   full_name: '',
   sport_id: null as number | null,
   team_id: null as number | null,
+  gender: '',
   position: '',
   height: null as number | null,
   weight: null as number | null,
@@ -28,12 +37,35 @@ onMounted(async () => {
 
 const selectedAthlete = computed(() => store.athletes.find((item) => item.id === selectedId.value) || null)
 
+const filteredTeams = computed(() => {
+  if (!filters.sportId) return store.teams
+  return store.teams.filter((team) => String(team.sport_id) === filters.sportId)
+})
+
+const filteredAthletes = computed(() =>
+  store.athletes.filter((athlete) => {
+    const keyword = filters.keyword.trim().toLowerCase()
+    if (keyword) {
+      const targets = [athlete.full_name, athlete.sport?.name, athlete.team?.name, athlete.gender]
+      if (!targets.some((value) => String(value || '').toLowerCase().includes(keyword))) {
+        return false
+      }
+    }
+
+    if (filters.sportId && String(athlete.sport_id || athlete.sport?.id || '') !== filters.sportId) return false
+    if (filters.teamId && String(athlete.team_id || athlete.team?.id || '') !== filters.teamId) return false
+    if (filters.gender && String(athlete.gender || '') !== filters.gender) return false
+    return true
+  }),
+)
+
 function selectAthlete(athlete: any) {
   selectedId.value = athlete.id
   Object.assign(form, {
     full_name: athlete.full_name || '',
     sport_id: athlete.sport_id ?? null,
     team_id: athlete.team_id ?? null,
+    gender: athlete.gender || '',
     position: athlete.position || '',
     height: athlete.height ?? null,
     weight: athlete.weight ?? null,
@@ -51,6 +83,7 @@ async function saveAthlete() {
   } else {
     await createAthlete(form)
   }
+
   await store.hydrate()
   if (selectedId.value) {
     const refreshed = store.athletes.find((item) => item.id === selectedId.value)
@@ -64,6 +97,7 @@ function resetForm() {
     full_name: '',
     sport_id: null,
     team_id: null,
+    gender: '',
     position: '',
     height: null,
     weight: null,
@@ -73,6 +107,12 @@ function resetForm() {
     notes: '',
     is_active: true,
   })
+}
+
+function handleSportFilterChange() {
+  if (filters.teamId && !filteredTeams.value.some((team) => String(team.id) === filters.teamId)) {
+    filters.teamId = ''
+  }
 }
 </script>
 
@@ -84,9 +124,40 @@ function resetForm() {
           <h3>运动员列表</h3>
           <button class="primary-btn slim" @click="resetForm">新建</button>
         </div>
+
+        <div class="filters-grid">
+          <label class="field">
+            <span class="field-label">搜索</span>
+            <input v-model="filters.keyword" class="text-input" placeholder="姓名 / 项目 / 队伍 / 性别" />
+          </label>
+          <label class="field">
+            <span class="field-label">项目</span>
+            <select v-model="filters.sportId" class="text-input" @change="handleSportFilterChange">
+              <option value="">全部项目</option>
+              <option v-for="sport in store.sports" :key="sport.id" :value="String(sport.id)">{{ sport.name }}</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">队伍</span>
+            <select v-model="filters.teamId" class="text-input">
+              <option value="">全部队伍</option>
+              <option v-for="team in filteredTeams" :key="team.id" :value="String(team.id)">{{ team.name }}</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">性别</span>
+            <select v-model="filters.gender" class="text-input">
+              <option value="">全部性别</option>
+              <option value="男">男</option>
+              <option value="女">女</option>
+            </select>
+          </label>
+        </div>
+
         <div class="list-scroll">
+          <p class="filter-summary">共 {{ filteredAthletes.length }} 人</p>
           <button
-            v-for="athlete in store.athletes"
+            v-for="athlete in filteredAthletes"
             :key="athlete.id"
             class="row-card adaptive-card"
             :class="{ active: athlete.id === selectedId }"
@@ -94,12 +165,13 @@ function resetForm() {
           >
             <strong class="adaptive-card-title">{{ athlete.full_name }}</strong>
             <span class="adaptive-card-subtitle adaptive-card-clamp-2">
-              {{ athlete.team?.name || '未分队' }}
+              {{ athlete.sport?.name || '未分项目' }} / {{ athlete.team?.name || '未分队' }}
             </span>
-            <small v-if="athlete.weight || athlete.height" class="adaptive-card-meta adaptive-card-clamp-1">
-              {{ athlete.weight ? `${athlete.weight} kg` : '--' }} / {{ athlete.height ? `${athlete.height} cm` : '--' }}
+            <small class="adaptive-card-meta adaptive-card-clamp-1">
+              {{ athlete.gender || '未填写性别' }}
             </small>
           </button>
+          <div v-if="!filteredAthletes.length" class="empty-state">没有符合筛选条件的运动员。</div>
         </div>
       </div>
 
@@ -129,6 +201,14 @@ function resetForm() {
         </div>
 
         <div class="two-col">
+          <label class="field">
+            <span class="field-label">性别</span>
+            <select v-model="form.gender" class="text-input">
+              <option value="">未选择</option>
+              <option value="男">男</option>
+              <option value="女">女</option>
+            </select>
+          </label>
           <label class="field">
             <span class="field-label">位置 / 角色</span>
             <input v-model="form.position" class="text-input" placeholder="可选" />
@@ -172,10 +252,9 @@ function resetForm() {
 <style scoped>
 .split-view {
   display: grid;
-  grid-template-columns: minmax(360px, 430px) 1fr;
+  grid-template-columns: minmax(380px, 480px) 1fr;
   gap: 18px;
-  height: 100%;
-  min-height: 0;
+  align-items: start;
 }
 
 .list-panel,
@@ -187,7 +266,8 @@ function resetForm() {
 }
 
 .list-panel {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  max-height: calc(100vh - 140px);
   overflow: hidden;
 }
 
@@ -202,12 +282,25 @@ function resetForm() {
   display: grid;
   gap: 12px;
   padding-right: 8px;
+  align-content: start;
 }
 
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.filter-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .row-card {
@@ -218,13 +311,22 @@ function resetForm() {
   display: grid;
   grid-template-rows: auto auto auto;
   gap: 8px;
-  min-height: 118px;
+  min-height: 108px;
   width: 100%;
   justify-items: start;
 }
 
 .row-card.active {
   background: #d1fae5;
+}
+
+.empty-state {
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  padding: 20px 16px;
+  color: var(--muted);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.65);
 }
 
 .two-col {
@@ -242,12 +344,13 @@ function resetForm() {
 @media (max-width: 1100px) {
   .split-view,
   .two-col,
-  .metrics-grid {
+  .metrics-grid,
+  .filters-grid {
     grid-template-columns: 1fr;
   }
 
-  .split-view {
-    height: auto;
+  .list-panel {
+    max-height: none;
   }
 }
 </style>

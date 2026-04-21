@@ -26,8 +26,12 @@ def tree_categories(db: Session = Depends(get_db), _=Depends(require_roles("coac
 
 
 @router.post("/import-exos-preview", response_model=ExerciseImportPreview)
-def preview_exos_import(_payload: ExosImportPayload | None = None, _=Depends(require_roles("coach"))):
-    return exercise_category_service.preview_exos_import()
+def preview_exos_import(
+    _payload: ExosImportPayload | None = None,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("coach")),
+):
+    return exercise_category_service.preview_exos_import(db)
 
 
 @router.post("/import-exos", response_model=ExerciseImportPreview)

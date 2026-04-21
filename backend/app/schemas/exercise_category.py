@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel, TimestampRead
 
@@ -18,7 +18,7 @@ class ExerciseCategoryRead(TimestampRead, ExerciseCategoryBase):
 
 
 class ExerciseCategoryTreeNode(ExerciseCategoryRead):
-    children: list["ExerciseCategoryTreeNode"] = []
+    children: list["ExerciseCategoryTreeNode"] = Field(default_factory=list)
 
 
 class ExerciseCategoryPathNode(ORMModel):
@@ -31,10 +31,15 @@ class ExerciseCategoryPathNode(ORMModel):
 
 class ExerciseImportPreview(BaseModel):
     source_path: str
+    total_rows: int
+    valid_rows: int
+    unique_codes: int
     level1_categories: int
     level2_categories: int
     level3_categories: int
     exercises: int
+    to_create: int
+    to_update: int
     skipped_duplicates: int
 
 

@@ -234,3 +234,43 @@ git --version
 - `scripts/init_system.bat` only ensures schema and dependencies. It does not restore business data.
 - The shared business data source is the `backend/training.db` file stored in Git.
 - Avoid editing the database on two computers at the same time. SQLite conflicts are not safely mergeable.
+
+## 动作库数据源与导入
+
+- 当前动作库的唯一权威数据源是 `C:\Users\tzy\Downloads\exos_action_library_tagged_for_codex.xlsx`
+- 正式导入只读取 sheet `动作库_标签版`
+- 关键字段来源：
+  - `动作ID建议` -> `exercises.code`
+  - `动作名称` -> `exercises.name`
+  - `动作英文原名` -> `exercises.name_en`
+  - `一级分类 / 二级分类 / 基础动作` -> 分类字段与 `exercise_categories`
+  - 所有 `标签_...` 列 -> `exercises.structured_tags`
+  - `标签_检索关键词` + 中文名 + 英文名 + 标签词条 + 分类路径 -> `exercises.search_keywords`
+  - `标签词条` -> `exercises.tag_text`
+  - `分类路径` -> `exercises.category_path`
+- 动作库导入脚本：
+  - `backend/scripts/import_exos_action_library.py --preview`
+  - `backend/scripts/import_exos_action_library.py --apply --replace-existing`
+- 导入结果会写入：
+  - `exercise_categories`：一级分类、二级分类、基础动作
+  - `exercises`：具体动作及结构化标签元数据
+- 动作库页面支持：
+  - 一级分类筛选
+  - 二级分类联动筛选
+  - 关键词搜索
+  - 结构化标签筛选
+  - 动作详情查看
+
+## 动作库维护方式
+
+- EXOS 动作库初始化导入已经完成，网页端不再提供 `导入预览` 或 `导入 Excel` 入口。
+- 日常维护请直接使用网页端的：
+  - 新建动作
+  - 编辑动作
+  - 删除动作
+- 导入能力仅保留为维护级后备通道：
+  - 后端导入 API
+  - `backend/scripts/import_exos_action_library.py`
+- 删除动作时会检查训练模板项和训练执行记录引用；存在引用时，系统会拒绝删除并提示先清理业务引用。
+
+更多字段结构和导入规则见 `EXERCISE_LIBRARY_SPEC.md`。

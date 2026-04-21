@@ -20,6 +20,11 @@ export async function fetchExercises() {
   return data
 }
 
+export async function fetchExerciseCategoriesTree() {
+  const { data } = await client.get('/exercise-categories/tree')
+  return data
+}
+
 export async function createExercise(payload: Record<string, unknown>) {
   const { data } = await client.post('/exercises', payload)
   return data
@@ -28,4 +33,8 @@ export async function createExercise(payload: Record<string, unknown>) {
 export async function updateExercise(id: number, payload: Record<string, unknown>) {
   const { data } = await client.patch(`/exercises/${id}`, payload)
   return data
+}
+
+export async function deleteExercise(id: number) {
+  await client.delete(`/exercises/${id}`)
 }

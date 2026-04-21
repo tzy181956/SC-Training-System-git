@@ -11,6 +11,7 @@ class Athlete(BaseModel, ActiveMixin):
     sport_id: Mapped[int | None] = mapped_column(ForeignKey("sports.id"))
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    gender: Mapped[str | None] = mapped_column(String(20))
     position: Mapped[str | None] = mapped_column(String(100))
     height: Mapped[float | None] = mapped_column(nullable=True)
     weight: Mapped[float | None] = mapped_column(nullable=True)

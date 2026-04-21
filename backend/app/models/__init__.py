@@ -1,5 +1,6 @@
 from app.models.assignment import AssignmentItemOverride, AthletePlanAssignment
 from app.models.athlete import Athlete
+from app.models.exercise_category import ExerciseCategory
 from app.models.exercise import Exercise, ExerciseTag
 from app.models.organization import Sport, Team
 from app.models.tag import Tag
@@ -13,6 +14,7 @@ __all__ = [
     "Athlete",
     "AthletePlanAssignment",
     "Exercise",
+    "ExerciseCategory",
     "ExerciseTag",
     "SetRecord",
     "Sport",

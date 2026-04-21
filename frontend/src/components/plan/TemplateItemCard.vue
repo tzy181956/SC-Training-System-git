@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
+import { buildExerciseOptionLabel } from '@/utils/exerciseLibrary'
 
 const props = defineProps<{
   item: any
@@ -89,7 +90,9 @@ function saveItem() {
       <label class="field">
         <span>动作</span>
         <select v-model.number="draft.exercise_id" class="text-input">
-          <option v-for="exercise in exercises" :key="exercise.id" :value="exercise.id">{{ exercise.name }}</option>
+          <option v-for="exercise in exercises" :key="exercise.id" :value="exercise.id">
+            {{ buildExerciseOptionLabel(exercise) }}
+          </option>
         </select>
       </label>
       <label class="field">

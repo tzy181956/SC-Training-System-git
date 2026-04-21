@@ -1,6 +1,7 @@
 from app.services import (
     assignment_service,
     athlete_service,
+    exercise_category_service,
     exercise_service,
     plan_service,
     session_service,
@@ -10,6 +11,7 @@ from app.services import (
 __all__ = [
     "assignment_service",
     "athlete_service",
+    "exercise_category_service",
     "exercise_service",
     "plan_service",
     "session_service",

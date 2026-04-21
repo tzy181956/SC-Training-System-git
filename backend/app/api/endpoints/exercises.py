@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,12 @@ def get_exercise(exercise_id: int, db: Session = Depends(get_db), _=Depends(requ
 @router.patch("/{exercise_id}", response_model=ExerciseRead)
 def update_exercise(exercise_id: int, payload: ExerciseUpdate, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
     return exercise_service.update_exercise(db, exercise_id, payload)
+
+
+@router.delete("/{exercise_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_exercise(exercise_id: int, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+    exercise_service.delete_exercise(db, exercise_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{exercise_id}/tags", response_model=ExerciseRead)

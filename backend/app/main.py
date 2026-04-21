@@ -23,6 +23,16 @@ app.include_router(api_router, prefix=settings.api_prefix)
 @app.on_event("startup")
 def startup_sync_schema() -> None:
     ensure_runtime_schema()
+    registered_paths = {route.path for route in app.routes}
+    expected_paths = {
+        f"{settings.api_prefix}/exercise-categories",
+        f"{settings.api_prefix}/exercise-categories/tree",
+    }
+    missing_paths = sorted(expected_paths - registered_paths)
+    if missing_paths:
+        print(f"[STARTUP] Missing exercise category routes: {', '.join(missing_paths)}")
+    else:
+        print(f"[STARTUP] Exercise category routes registered: {', '.join(sorted(expected_paths))}")
 
 
 @app.get("/health")

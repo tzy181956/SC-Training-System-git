@@ -38,6 +38,7 @@ class AthleteBase(BaseModel):
     sport_id: int | None = None
     team_id: int | None = None
     full_name: str
+    gender: str | None = None
     position: str | None = None
     height: float | None = None
     weight: float | None = None
@@ -57,6 +58,7 @@ class AthleteUpdate(BaseModel):
     sport_id: int | None = None
     team_id: int | None = None
     full_name: str | None = None
+    gender: str | None = None
     position: str | None = None
     height: float | None = None
     weight: float | None = None

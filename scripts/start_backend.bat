@@ -17,9 +17,9 @@ if /i not "!VENV_STATUS!"=="healthy" (
 )
 
 pushd "%BACKEND_DIR%"
-set "PYTHONPATH=."
+set "PYTHONPATH=%BACKEND_DIR%"
 echo [BACKEND] Starting FastAPI at http://127.0.0.1:8000
-"%VENV_PYTHON%" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+"%VENV_PYTHON%" -m uvicorn app.main:app --app-dir "%BACKEND_DIR%" --reload --host 0.0.0.0 --port 8000
 popd
 exit /b 0
 

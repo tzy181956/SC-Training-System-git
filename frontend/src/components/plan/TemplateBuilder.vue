@@ -2,6 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 import TemplateItemCard from './TemplateItemCard.vue'
+import { buildExerciseOptionLabel } from '@/utils/exerciseLibrary'
 
 const props = defineProps<{
   exercises: any[]
@@ -154,7 +155,9 @@ watch(
           <span class="field-label">动作 <strong class="required-mark">*</strong></span>
           <select v-model.number="newItem.exercise_id" class="text-input">
             <option :value="0">请选择动作</option>
-            <option v-for="exercise in exercises" :key="exercise.id" :value="exercise.id">{{ exercise.name }}</option>
+            <option v-for="exercise in exercises" :key="exercise.id" :value="exercise.id">
+              {{ buildExerciseOptionLabel(exercise) }}
+            </option>
           </select>
         </label>
         <label class="field">
