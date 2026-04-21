@@ -116,6 +116,14 @@ function syncSelectedAthleteForFilter() {
   }
 }
 
+function handleDateInput(event: Event) {
+  trainingStore.sessionDate = (event.target as HTMLInputElement).value
+}
+
+function handleTeamFilterInput(event: Event) {
+  selectedTeamFilter.value = (event.target as HTMLSelectElement).value
+}
+
 watch(
   () => [trainingStore.selectedAthleteId, trainingStore.sessionDate],
   async ([athleteId, sessionDate], [prevAthleteId, prevDate]) => {
@@ -146,32 +154,44 @@ onMounted(hydrate)
 
 <template>
   <TrainingShell>
+    <template #header-filters>
+      <div class="header-filter-bar">
+        <label class="compact-field compact-field--date">
+          <span class="compact-label">训练日期</span>
+          <input :value="trainingStore.sessionDate" class="text-input header-filter-control" type="date" @input="handleDateInput" />
+        </label>
+        <label class="compact-field compact-field--team">
+          <span class="compact-label">队伍</span>
+          <select :value="selectedTeamFilter" class="text-input header-filter-control header-team-select" @input="handleTeamFilterInput">
+            <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
+          </select>
+        </label>
+      </div>
+    </template>
+
     <div class="training-mode-layout">
       <TrainingModeSidebar
         :athletes="filteredAthletes"
         :selected-athlete-id="trainingStore.selectedAthleteId"
-        :session-date="trainingStore.sessionDate"
-        :team-options="teamOptions"
-        :selected-team-filter="selectedTeamFilter"
         :assignments="trainingStore.assignments"
         :preview-assignment-id="trainingStore.previewAssignmentId"
         @update-athlete="trainingStore.selectedAthleteId = $event"
-        @update-date="trainingStore.sessionDate = $event"
-        @update-team-filter="selectedTeamFilter = $event"
         @open-plan="openPlanById"
       />
 
       <TrainingSessionOverview :assignment="selectedPreview" />
 
       <section class="panel help-panel">
-        <p class="section-title">3. 训练提示</p>
+        <p class="section-title">2. 训练提示</p>
         <strong v-if="loading">正在同步当天训练状态...</strong>
         <template v-else-if="selectedPreview">
           <strong>当前选中：{{ selectedPreview.template.name }}</strong>
-          <span>点击左侧计划卡片会直接打开当天训练记录。红色表示未开始，黄色表示仍有未完成动作，绿色表示当天计划已经完成。</span>
+          <span>
+            点击左侧计划卡片会直接打开当天训练记录。红色表示未开始，黄色表示仍有未完成动作，绿色表示当天计划已经完成。
+          </span>
         </template>
         <template v-else>
-          <strong>先选择日期和队员，再点击左侧计划开始录入。</strong>
+          <strong>先选择日期、队伍和队员，再点击左侧计划开始录入。</strong>
           <span>列表里的颜色会直接提醒教练今天哪些人还没开始，哪些人做了一半，哪些人已经全部完成。</span>
         </template>
       </section>
@@ -186,6 +206,45 @@ onMounted(hydrate)
   gap: 18px;
   height: 100%;
   min-height: 0;
+}
+
+.header-filter-bar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.compact-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.compact-field--date {
+  width: 170px;
+}
+
+.compact-field--team {
+  width: 220px;
+}
+
+.compact-label {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.1;
+  color: var(--text-soft);
+}
+
+.header-filter-control {
+  min-height: 42px;
+  border-radius: 14px;
+}
+
+.header-team-select {
+  appearance: none;
+  padding-right: 36px;
 }
 
 .help-panel {
@@ -213,6 +272,18 @@ onMounted(hydrate)
   .training-mode-layout {
     grid-template-columns: 1fr;
     height: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .header-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compact-field--date,
+  .compact-field--team {
+    width: 100%;
   }
 }
 </style>

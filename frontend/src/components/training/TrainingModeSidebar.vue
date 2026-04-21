@@ -2,27 +2,14 @@
 defineProps<{
   athletes: any[]
   selectedAthleteId: number
-  sessionDate: string
-  teamOptions: { id: string; name: string }[]
-  selectedTeamFilter: string
   assignments: any[]
   previewAssignmentId: number
 }>()
 
 const emit = defineEmits<{
   updateAthlete: [athleteId: number]
-  updateDate: [value: string]
-  updateTeamFilter: [value: string]
   openPlan: [assignmentId: number]
 }>()
-
-function handleDateInput(event: Event) {
-  emit('updateDate', (event.target as HTMLInputElement).value)
-}
-
-function handleTeamFilterInput(event: Event) {
-  emit('updateTeamFilter', (event.target as HTMLSelectElement).value)
-}
 
 function statusLabel(status?: string) {
   if (status === 'completed') return '已完成'
@@ -39,18 +26,8 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 
 <template>
   <aside class="panel sidebar">
-    <div class="block">
-      <p class="section-title">1. 选择日期和队伍</p>
-      <div class="filters-row">
-        <input :value="sessionDate" class="text-input date-input" type="date" @input="handleDateInput" />
-        <select :value="selectedTeamFilter" class="text-input team-select" @input="handleTeamFilterInput">
-          <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
-        </select>
-      </div>
-    </div>
-
     <div class="block roster-block">
-      <p class="section-title">2. 选择队员</p>
+      <p class="section-title">1. 选择队员</p>
       <div class="athlete-list">
         <article
           v-for="athlete in athletes"
@@ -100,17 +77,12 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 }
 
 .sidebar {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
 
 .roster-block {
   grid-template-rows: auto minmax(0, 1fr);
-}
-
-.filters-row {
-  display: grid;
-  gap: 10px;
 }
 
 .athlete-list {
@@ -279,15 +251,6 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.55);
   line-height: 1.4;
-}
-
-.date-input,
-.team-select {
-  min-height: 56px;
-}
-
-.team-select {
-  appearance: none;
 }
 
 .section-title {

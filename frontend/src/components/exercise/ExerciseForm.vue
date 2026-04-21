@@ -16,7 +16,6 @@ const form = reactive({
   coaching_points: '',
   common_errors: '',
   notes: '',
-  load_profile: 'general',
   default_increment: 2.5,
   is_main_lift_candidate: false,
   tag_ids: [] as number[],
@@ -34,7 +33,6 @@ watch(
         coaching_points: '',
         common_errors: '',
         notes: '',
-        load_profile: 'general',
         default_increment: 2.5,
         is_main_lift_candidate: false,
         tag_ids: [],
@@ -65,16 +63,6 @@ function handleSubmit() {
     <label class="field">
       <span class="field-label">别名</span>
       <input v-model="form.alias" class="text-input" placeholder="可选" />
-    </label>
-
-    <label class="field">
-      <span class="field-label">负荷类型</span>
-      <select v-model="form.load_profile" class="text-input">
-        <option value="general">通用</option>
-        <option value="push">推类</option>
-        <option value="squat">蹲类</option>
-        <option value="pull">拉类</option>
-      </select>
     </label>
 
     <label class="field">

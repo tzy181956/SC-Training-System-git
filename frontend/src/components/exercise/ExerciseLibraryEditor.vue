@@ -217,21 +217,10 @@ function handleDelete() {
           </select>
         </label>
       </div>
-      <div class="grid two">
-        <label class="field">
-          <span class="field-label">负荷类型</span>
-          <select v-model="form.load_profile" class="text-input">
-            <option value="general">通用</option>
-            <option value="push">推类</option>
-            <option value="squat">蹲类</option>
-            <option value="pull">拉类</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">默认步长</span>
-          <input v-model.number="form.default_increment" type="number" step="0.5" class="text-input" />
-        </label>
-      </div>
+      <label class="field">
+        <span class="field-label">默认步长</span>
+        <input v-model.number="form.default_increment" type="number" step="0.5" class="text-input" />
+      </label>
       <label class="field">
         <span class="field-label">视频链接</span>
         <input v-model="form.video_url" class="text-input" />
