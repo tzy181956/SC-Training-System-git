@@ -37,7 +37,7 @@ const items = computed(() => props.session?.items || props.assignment?.template?
         :class="{ active: session && item.id === activeItemId }"
         @click="session && onSelectItem && onSelectItem(item.id)"
       >
-        <strong>{{ item.sort_order }}. {{ item.exercise.name }}</strong>
+        <strong>{{ item.exercise.name }}</strong>
         <span>{{ item.prescribed_sets }} 组 × {{ item.prescribed_reps }} 次</span>
         <span>{{ item.target_note || '按设定目标完成本动作' }}</span>
         <em v-if="session">{{ item.records.length }}/{{ item.prescribed_sets }} 已完成</em>

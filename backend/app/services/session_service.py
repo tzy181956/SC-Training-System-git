@@ -213,18 +213,23 @@ def _recompute_item_records(item: TrainingSessionItem) -> None:
         previous_two_rirs = [previous.actual_rir for previous in previous_records[-2:]]
         expected_weight = item.initial_load if not previous_records else previous_records[-1].suggestion_weight
         target_weight = item.initial_load if index == 0 else previous_records[-1].final_weight
-        suggestion = compute_next_weight(
-            current_weight=record.final_weight,
-            target_reps=item.prescribed_reps,
-            actual_reps=record.actual_reps,
-            actual_rir=record.actual_rir,
-            default_increment=item.exercise.default_increment,
-            previous_rirs=previous_two_rirs,
-        )
         record.target_weight = target_weight
         record.target_reps = item.prescribed_reps
-        record.suggestion_weight = suggestion.suggestion_weight
-        record.suggestion_reason = suggestion.reason_text
+        if item.enable_auto_load:
+            suggestion = compute_next_weight(
+                current_weight=record.final_weight,
+                target_reps=item.prescribed_reps,
+                actual_reps=record.actual_reps,
+                actual_rir=record.actual_rir,
+                default_increment=item.exercise.default_increment,
+                previous_rirs=previous_two_rirs,
+            )
+            record.suggestion_weight = suggestion.suggestion_weight
+            record.suggestion_reason = suggestion.reason_text
+        else:
+            suggestion = None
+            record.suggestion_weight = None
+            record.suggestion_reason = None
         if expected_weight is None:
             record.user_decision = "modified"
         else:
@@ -261,7 +266,7 @@ def _sync_session_state(session: TrainingSession) -> None:
 
 
 def _get_next_suggestion(item: TrainingSessionItem):
-    if item.status == "completed" or not item.records:
+    if not item.enable_auto_load or item.status == "completed" or not item.records:
         return None
 
     latest_record = item.records[-1]

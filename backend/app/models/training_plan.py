@@ -34,7 +34,6 @@ class TrainingPlanTemplateItem(BaseModel):
     enable_auto_load: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     initial_load_mode: Mapped[str] = mapped_column(String(30), default="fixed_weight", nullable=False)
     initial_load_value: Mapped[float | None] = mapped_column(Float)
-    rest_seconds: Mapped[int | None] = mapped_column(Integer)
     progression_goal: Mapped[str | None] = mapped_column(String(30))
     progression_rules: Mapped[dict | None] = mapped_column(JSON)
     ai_adjust_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

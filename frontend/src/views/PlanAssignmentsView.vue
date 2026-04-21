@@ -419,7 +419,7 @@ onMounted(hydrate)
                 <p>{{ selectedTemplate.description || '暂无模板说明' }}</p>
                 <div class="preview-list">
                   <div v-for="item in selectedTemplate.items" :key="item.id" class="preview-row">
-                    <strong>{{ item.sort_order }}. {{ item.exercise.name }}</strong>
+                        <strong>{{ item.exercise.name }}</strong>
                     <span>
                       {{ item.prescribed_sets }} 组 x {{ item.prescribed_reps }} 次
                       <template v-if="item.initial_load_mode === 'percent_1rm'"> / 按最近测试的 {{ item.initial_load_value }}%</template>

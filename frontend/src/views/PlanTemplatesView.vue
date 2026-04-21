@@ -18,6 +18,7 @@ const templates = ref<any[]>([])
 const exercises = ref<any[]>([])
 const selectedTemplateId = ref<number | null>(null)
 const keyword = ref('')
+const saveNoticeKey = ref(0)
 
 const selectedTemplate = computed(
   () => templates.value.find((template) => template.id === selectedTemplateId.value) || null,
@@ -48,58 +49,48 @@ function createDraftTemplate() {
   selectedTemplateId.value = null
 }
 
-async function saveTemplate(payload: Record<string, unknown>) {
+async function saveTemplate(payload: Record<string, any>) {
+  const templatePayload = payload.template || {}
+  const itemsPayload = (payload.items || []) as Record<string, any>[]
+  const removedItemIds = (payload.removedItemIds || []) as number[]
+
   if (selectedTemplate.value?.id) {
-    await updatePlanTemplate(selectedTemplate.value.id, payload)
+    await updatePlanTemplate(selectedTemplate.value.id, templatePayload)
+    for (const itemId of removedItemIds) {
+      await deletePlanTemplateItem(itemId)
+    }
+    for (const item of itemsPayload) {
+      const normalized = { ...item }
+      delete normalized.id
+      if (item.id > 0) {
+        await updatePlanTemplateItem(item.id, normalized)
+      } else {
+        await addPlanTemplateItem(selectedTemplate.value.id, normalized)
+      }
+    }
     await hydrate(selectedTemplate.value.id)
+    saveNoticeKey.value += 1
     return
   }
 
   const created = await createPlanTemplate({
-    ...payload,
+    ...templatePayload,
     sport_id: null,
     team_id: null,
   })
+  for (const item of itemsPayload) {
+    const normalized = { ...item }
+    delete normalized.id
+    await addPlanTemplateItem(created.id, normalized)
+  }
   await hydrate(created.id)
+  saveNoticeKey.value += 1
 }
 
 async function removeTemplate(templateId: number) {
   await deletePlanTemplate(templateId)
   selectedTemplateId.value = null
   await hydrate()
-}
-
-async function addItem(payload: Record<string, unknown>) {
-  if (!selectedTemplate.value?.id) return
-  await addPlanTemplateItem(selectedTemplate.value.id, payload)
-  await hydrate(selectedTemplate.value.id)
-}
-
-async function updateItem(itemId: number, payload: Record<string, unknown>) {
-  await updatePlanTemplateItem(itemId, payload)
-  await hydrate(selectedTemplate.value?.id)
-}
-
-async function removeItem(itemId: number) {
-  await deletePlanTemplateItem(itemId)
-  await hydrate(selectedTemplate.value?.id)
-}
-
-async function moveItem(itemId: number, direction: 'up' | 'down') {
-  if (!selectedTemplate.value) return
-  const items = [...selectedTemplate.value.items].sort((left, right) => left.sort_order - right.sort_order)
-  const index = items.findIndex((item) => item.id === itemId)
-  const targetIndex = direction === 'up' ? index - 1 : index + 1
-  if (index < 0 || targetIndex < 0 || targetIndex >= items.length) return
-
-  const current = items[index]
-  const target = items[targetIndex]
-
-  await Promise.all([
-    updatePlanTemplateItem(current.id, { sort_order: target.sort_order }),
-    updatePlanTemplateItem(target.id, { sort_order: current.sort_order }),
-  ])
-  await hydrate(selectedTemplate.value.id)
 }
 
 onMounted(() => hydrate())
@@ -144,12 +135,9 @@ onMounted(() => hydrate())
         class="builder-panel"
         :template="selectedTemplate"
         :exercises="exercises"
+        :save-notice-key="saveNoticeKey"
         @save-template="saveTemplate"
         @delete-template="removeTemplate"
-        @add-item="addItem"
-        @update-item="updateItem"
-        @delete-item="removeItem"
-        @move-item="moveItem"
       />
     </div>
   </AppShell>

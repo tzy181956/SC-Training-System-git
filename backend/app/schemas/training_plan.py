@@ -14,7 +14,6 @@ class PlanTemplateItemBase(BaseModel):
     enable_auto_load: bool = False
     initial_load_mode: str = "fixed_weight"
     initial_load_value: float | None = None
-    rest_seconds: int | None = None
     progression_goal: str | None = None
     progression_rules: dict | None = None
     ai_adjust_enabled: bool = False
@@ -34,7 +33,6 @@ class PlanTemplateItemUpdate(BaseModel):
     enable_auto_load: bool | None = None
     initial_load_mode: str | None = None
     initial_load_value: float | None = None
-    rest_seconds: int | None = None
     progression_goal: str | None = None
     progression_rules: dict | None = None
     ai_adjust_enabled: bool | None = None

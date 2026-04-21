@@ -2,20 +2,16 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 import TemplateItemCard from './TemplateItemCard.vue'
-import { buildExerciseOptionLabel } from '@/utils/exerciseLibrary'
 
 const props = defineProps<{
   exercises: any[]
   template: any | null
+  saveNoticeKey?: number
 }>()
 
 const emit = defineEmits<{
   saveTemplate: [payload: Record<string, unknown>]
   deleteTemplate: [templateId: number]
-  addItem: [payload: Record<string, unknown>]
-  updateItem: [itemId: number, payload: Record<string, unknown>]
-  deleteItem: [itemId: number]
-  moveItem: [itemId: number, direction: 'up' | 'down']
 }>()
 
 const templateForm = reactive({
@@ -24,29 +20,13 @@ const templateForm = reactive({
   is_active: true,
 })
 
-const newItem = reactive({
-  exercise_id: 0,
-  prescribed_sets: 4,
-  prescribed_reps: 5,
-  target_note: '',
-  is_main_lift: true,
-  enable_auto_load: true,
-  initial_load_mode: 'fixed_weight',
-  initial_load_value: 60,
-  rest_seconds: 120,
-  progression_goal: '力量',
-  progression_rules: {
-    target_rir: 2,
-    up_step: 2.5,
-    down_step: 2.5,
-    miss_strategy: '降低重量后完成目标次数',
-    fatigue_strategy: '连续吃力则停止加重',
-  },
-  ai_adjust_enabled: false,
-})
-
 const pendingScrollToNewItem = ref(false)
 const lastItemElement = ref<HTMLElement | null>(null)
+const draftItems = ref<any[]>([])
+const removedItemIds = ref<number[]>([])
+const nextTempId = ref(-1)
+const saveNotice = ref('')
+let saveNoticeTimer: number | null = null
 
 watch(
   () => props.template,
@@ -54,42 +34,126 @@ watch(
     templateForm.name = template?.name || ''
     templateForm.description = template?.description || ''
     templateForm.is_active = template?.is_active ?? true
+    draftItems.value = [...(template?.items || [])]
+      .sort((left, right) => left.sort_order - right.sort_order)
+      .map((item) => ({
+        ...item,
+        progression_rules: { ...(item.progression_rules || {}) },
+      }))
+    removedItemIds.value = []
+    nextTempId.value = -1
   },
   { immediate: true },
 )
 
-const sortedItems = computed(() =>
-  [...(props.template?.items || [])].sort((left, right) => left.sort_order - right.sort_order),
+watch(
+  () => props.saveNoticeKey,
+  (current, previous) => {
+    if (!current || current === previous) return
+    saveNotice.value = '模板已保存'
+    if (saveNoticeTimer) {
+      window.clearTimeout(saveNoticeTimer)
+    }
+    saveNoticeTimer = window.setTimeout(() => {
+      saveNotice.value = ''
+      saveNoticeTimer = null
+    }, 2200)
+  },
 )
 
-const canAddItem = computed(() => Boolean(props.template?.id) && newItem.exercise_id > 0)
-const addItemHint = computed(() => {
-  if (!props.template?.id) return '请先保存模板，再继续添加训练动作。'
-  if (!newItem.exercise_id) return '请先选择一个训练动作，再添加到模板中。'
-  return `当前模板已有 ${sortedItems.value.length} 个动作，可继续扩展到 8-15 个或更多。`
-})
+const sortedItems = computed(() => [...draftItems.value].sort((left, right) => left.sort_order - right.sort_order))
+
+function buildNewItemDraft() {
+  return {
+    id: nextTempId.value--,
+    exercise_id: 0,
+    sort_order: sortedItems.value.length + 1,
+    prescribed_sets: 4,
+    prescribed_reps: 5,
+    target_note: '',
+    is_main_lift: false,
+    enable_auto_load: false,
+    initial_load_mode: 'fixed_weight',
+    initial_load_value: 60,
+    progression_goal: '',
+    progression_rules: {
+      target_rir: 2,
+      up_step: 2.5,
+      down_step: 2.5,
+      miss_strategy: '降低重量后完成目标次数',
+      fatigue_strategy: '连续吃力则停止加重',
+    },
+    ai_adjust_enabled: false,
+  }
+}
 
 function saveTemplate() {
   emit('saveTemplate', {
-    name: templateForm.name,
-    description: templateForm.description,
-    is_active: templateForm.is_active,
+    template: {
+      name: templateForm.name,
+      description: templateForm.description,
+      is_active: templateForm.is_active,
+    },
+    items: sortedItems.value.map((item, index) => ({
+      id: item.id,
+      exercise_id: item.exercise_id,
+      sort_order: index + 1,
+      prescribed_sets: item.prescribed_sets,
+      prescribed_reps: item.prescribed_reps,
+      target_note: item.target_note,
+      is_main_lift: item.is_main_lift,
+      enable_auto_load: item.enable_auto_load,
+      initial_load_mode: item.initial_load_mode,
+      initial_load_value: item.initial_load_value,
+      progression_goal: item.progression_goal,
+      progression_rules: { ...(item.progression_rules || {}) },
+      ai_adjust_enabled: item.ai_adjust_enabled,
+    })),
+    removedItemIds: [...removedItemIds.value],
   })
 }
 
 function addItem() {
-  if (!canAddItem.value) return
-  const lastItem = sortedItems.value.length ? sortedItems.value[sortedItems.value.length - 1] : null
   pendingScrollToNewItem.value = true
-  emit('addItem', {
-    ...newItem,
-    sort_order: (lastItem?.sort_order || 0) + 1,
-    progression_rules: { ...newItem.progression_rules },
-  })
+  draftItems.value = [...sortedItems.value, buildNewItemDraft()]
+}
+
+function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
+  draftItems.value = draftItems.value.map((item) =>
+    item.id === itemId
+      ? {
+          ...item,
+          ...payload,
+          progression_rules: payload.progression_rules ? { ...payload.progression_rules } : { ...(item.progression_rules || {}) },
+        }
+      : item,
+  )
+}
+
+function removeItemDraft(itemId: number) {
+  const target = draftItems.value.find((item) => item.id === itemId)
+  if (!target) return
+  if (target.id > 0) {
+    removedItemIds.value = [...removedItemIds.value, target.id]
+  }
+  draftItems.value = draftItems.value
+    .filter((item) => item.id !== itemId)
+    .map((item, index) => ({ ...item, sort_order: index + 1 }))
+}
+
+function moveItemDraft(itemId: number, direction: 'up' | 'down') {
+  const items = [...sortedItems.value]
+  const index = items.findIndex((item) => item.id === itemId)
+  const targetIndex = direction === 'up' ? index - 1 : index + 1
+  if (index < 0 || targetIndex < 0 || targetIndex >= items.length) return
+  ;[items[index], items[targetIndex]] = [items[targetIndex], items[index]]
+  draftItems.value = items.map((item, currentIndex) => ({ ...item, sort_order: currentIndex + 1 }))
 }
 
 function removeTemplate() {
   if (!props.template?.id) return
+  const confirmed = window.confirm('确认删除这个训练模板吗？删除后模板及其动作将不可恢复。')
+  if (!confirmed) return
   emit('deleteTemplate', props.template.id)
 }
 
@@ -112,9 +176,11 @@ watch(
         <h3>{{ template?.id ? '编辑训练模板' : '新建训练模板' }}</h3>
       </div>
       <div class="header-actions">
-        <button v-if="template?.id" class="ghost-btn slim danger" type="button" @click="removeTemplate">删除模板</button>
+        <button v-if="template?.id" class="ghost-btn slim danger-btn" type="button" @click="removeTemplate">删除模板</button>
         <button class="primary-btn slim" type="button" @click="saveTemplate">保存模板</button>
       </div>
+
+      <p v-if="saveNotice" class="save-notice">{{ saveNotice }}</p>
 
       <div class="grid two">
         <label class="field">
@@ -143,39 +209,12 @@ watch(
     <div class="panel quick-add-panel">
       <div class="quick-header">
         <div>
-          <p class="eyebrow">快速添加动作</p>
+          <p class="eyebrow">添加动作</p>
           <h3>继续往模板里追加新的训练动作</h3>
         </div>
-        <button class="primary-btn slim" type="button" :disabled="!canAddItem" @click="addItem">新增动作卡片</button>
+        <button class="primary-btn slim" type="button" @click="addItem">添加动作</button>
       </div>
-      <p class="hint">{{ addItemHint }}</p>
-
-      <div class="grid four">
-        <label class="field">
-          <span class="field-label">动作 <strong class="required-mark">*</strong></span>
-          <select v-model.number="newItem.exercise_id" class="text-input">
-            <option :value="0">请选择动作</option>
-            <option v-for="exercise in exercises" :key="exercise.id" :value="exercise.id">
-              {{ buildExerciseOptionLabel(exercise) }}
-            </option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">组数</span>
-          <input v-model.number="newItem.prescribed_sets" type="number" class="text-input" />
-        </label>
-        <label class="field">
-          <span class="field-label">次数</span>
-          <input v-model.number="newItem.prescribed_reps" type="number" class="text-input" />
-        </label>
-        <label class="field">
-          <span class="field-label">负荷方式</span>
-          <select v-model="newItem.initial_load_mode" class="text-input">
-            <option value="fixed_weight">固定重量</option>
-            <option value="percent_1rm">按最近测试的 1RM 百分比</option>
-          </select>
-        </label>
-      </div>
+      <p class="hint">点击“添加动作”后会生成一个新的空白动作卡片，再在卡片里选择动作并填写细节。</p>
     </div>
 
     <div class="item-list">
@@ -187,14 +226,14 @@ watch(
         <TemplateItemCard
           :item="item"
           :exercises="exercises"
-          @save="(itemId, payload) => emit('updateItem', itemId, payload)"
-          @remove="(itemId) => emit('deleteItem', itemId)"
-          @move="(itemId, direction) => emit('moveItem', itemId, direction)"
+          @change="updateItemDraft"
+          @remove="removeItemDraft"
+          @move="moveItemDraft"
         />
       </div>
       <div v-if="!sortedItems.length" class="panel empty-panel">
         <h4>当前模板还没有动作</h4>
-        <p>先填写模板基础信息并保存，然后在上方选择动作，逐个加入这份训练计划。</p>
+        <p>先填写模板基础信息，再在上方选择动作，统一调整后点击保存模板。</p>
       </div>
     </div>
   </section>
@@ -239,17 +278,27 @@ watch(
 }
 
 .eyebrow,
-.hint {
+.hint,
+.save-notice {
   color: var(--muted);
   font-size: 13px;
 }
 
 .eyebrow,
-.hint {
+.hint,
+.save-notice {
   margin: 0;
 }
 
-.danger {
+.save-notice {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #dcfce7;
+  color: #166534;
+  font-weight: 600;
+}
+
+.danger-btn {
   color: #b91c1c;
 }
 
