@@ -20,6 +20,11 @@ export async function fetchExercises() {
   return data
 }
 
+export async function fetchExerciseFacets() {
+  const { data } = await client.get('/exercises/facets')
+  return data
+}
+
 export async function fetchExerciseCategoriesTree() {
   const { data } = await client.get('/exercise-categories/tree')
   return data

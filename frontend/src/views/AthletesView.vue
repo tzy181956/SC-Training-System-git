@@ -125,33 +125,36 @@ function handleSportFilterChange() {
           <button class="primary-btn slim" @click="resetForm">新建</button>
         </div>
 
-        <div class="filters-grid">
-          <label class="field">
+        <div class="stacked-filters">
+          <label class="field filter-row filter-row--search">
             <span class="field-label">搜索</span>
-            <input v-model="filters.keyword" class="text-input" placeholder="姓名 / 项目 / 队伍 / 性别" />
+            <input v-model="filters.keyword" class="text-input filter-control" placeholder="搜索姓名、项目、队伍或性别" />
           </label>
-          <label class="field">
-            <span class="field-label">项目</span>
-            <select v-model="filters.sportId" class="text-input" @change="handleSportFilterChange">
-              <option value="">全部项目</option>
-              <option v-for="sport in store.sports" :key="sport.id" :value="String(sport.id)">{{ sport.name }}</option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">队伍</span>
-            <select v-model="filters.teamId" class="text-input">
-              <option value="">全部队伍</option>
-              <option v-for="team in filteredTeams" :key="team.id" :value="String(team.id)">{{ team.name }}</option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">性别</span>
-            <select v-model="filters.gender" class="text-input">
-              <option value="">全部性别</option>
-              <option value="男">男</option>
-              <option value="女">女</option>
-            </select>
-          </label>
+
+          <div class="filter-row filter-row--triple">
+            <label class="field">
+              <span class="field-label">项目</span>
+              <select v-model="filters.sportId" class="text-input filter-control filter-select" @change="handleSportFilterChange">
+                <option value="">全部项目</option>
+                <option v-for="sport in store.sports" :key="sport.id" :value="String(sport.id)">{{ sport.name }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">队伍</span>
+              <select v-model="filters.teamId" class="text-input filter-control filter-select">
+                <option value="">全部队伍</option>
+                <option v-for="team in filteredTeams" :key="team.id" :value="String(team.id)">{{ team.name }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">性别</span>
+              <select v-model="filters.gender" class="text-input filter-control filter-select">
+                <option value="">全部性别</option>
+                <option value="男">男</option>
+                <option value="女">女</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <div class="list-scroll">
@@ -165,7 +168,7 @@ function handleSportFilterChange() {
           >
             <strong class="adaptive-card-title">{{ athlete.full_name }}</strong>
             <span class="adaptive-card-subtitle adaptive-card-clamp-2">
-              {{ athlete.sport?.name || '未分项目' }} / {{ athlete.team?.name || '未分队' }}
+              {{ athlete.sport?.name || '未分项目' }} / {{ athlete.team?.name || '未分队伍' }}
             </span>
             <small class="adaptive-card-meta adaptive-card-clamp-1">
               {{ athlete.gender || '未填写性别' }}
@@ -291,12 +294,6 @@ function handleSportFilterChange() {
   justify-content: space-between;
 }
 
-.filters-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
 .filter-summary {
   margin: 0;
   color: var(--muted);
@@ -344,8 +341,7 @@ function handleSportFilterChange() {
 @media (max-width: 1100px) {
   .split-view,
   .two-col,
-  .metrics-grid,
-  .filters-grid {
+  .metrics-grid {
     grid-template-columns: 1fr;
   }
 

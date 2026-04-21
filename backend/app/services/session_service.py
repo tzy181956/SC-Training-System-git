@@ -218,7 +218,6 @@ def _recompute_item_records(item: TrainingSessionItem) -> None:
             target_reps=item.prescribed_reps,
             actual_reps=record.actual_reps,
             actual_rir=record.actual_rir,
-            load_profile=item.exercise.load_profile,
             default_increment=item.exercise.default_increment,
             previous_rirs=previous_two_rirs,
         )

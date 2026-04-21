@@ -5,23 +5,27 @@ import {
   createExercise,
   deleteExercise,
   fetchExerciseCategoriesTree,
+  fetchExerciseFacets,
   fetchExercises,
   updateExercise,
 } from '@/api/exercises'
 import ExerciseLibraryEditor from '@/components/exercise/ExerciseLibraryEditor.vue'
 import AppShell from '@/components/layout/AppShell.vue'
-import type { ExerciseCategoryNode, ExerciseLibraryItem } from '@/types/exerciseLibrary'
+import type { ExerciseCategoryNode, ExerciseFacetValues, ExerciseLibraryItem } from '@/types/exerciseLibrary'
 import {
   EXERCISE_TAG_FACETS,
-  buildExerciseLibraryFacets,
   filterExerciseLibrary,
-  getLevel1Options,
-  getLevel2Options,
   summarizeExerciseTags,
 } from '@/utils/exerciseLibrary'
 
 const exercises = ref<ExerciseLibraryItem[]>([])
 const categoryTree = ref<ExerciseCategoryNode[]>([])
+const exerciseFacets = ref<ExerciseFacetValues>({
+  level1_options: [],
+  level2_options: [],
+  level2_options_by_level1: {},
+  facets: {},
+})
 const selected = ref<ExerciseLibraryItem | null>(null)
 const layoutRef = ref<HTMLElement | null>(null)
 const layoutHeight = ref<number | null>(null)
@@ -33,9 +37,12 @@ const filters = reactive({
   tags: Object.fromEntries(EXERCISE_TAG_FACETS.map(({ key }) => [key, [] as string[]])),
 })
 
-const level1Options = computed(() => getLevel1Options(exercises.value))
-const level2Options = computed(() => getLevel2Options(exercises.value, filters.level1))
-const facetOptions = computed(() => buildExerciseLibraryFacets(exercises.value))
+const level1Options = computed(() => exerciseFacets.value.level1_options || [])
+const level2Options = computed(() => {
+  if (!filters.level1) return exerciseFacets.value.level2_options || []
+  return exerciseFacets.value.level2_options_by_level1?.[filters.level1] || []
+})
+const facetOptions = computed(() => exerciseFacets.value.facets || {})
 const hasActiveFilters = computed(() => {
   if (filters.keyword.trim()) return true
   if (filters.level1) return true
@@ -48,9 +55,14 @@ const filteredExercises = computed(() => {
 })
 
 async function hydrate(preferredId?: number | null) {
-  const [exerciseData, categoryData] = await Promise.all([fetchExercises(), fetchExerciseCategoriesTree()])
+  const [exerciseData, categoryData, facetData] = await Promise.all([
+    fetchExercises(),
+    fetchExerciseCategoriesTree(),
+    fetchExerciseFacets(),
+  ])
   exercises.value = exerciseData
   categoryTree.value = categoryData
+  exerciseFacets.value = facetData
   if (!hasActiveFilters.value) {
     selected.value = null
     return
@@ -159,36 +171,40 @@ watch(
         <div class="toolbar">
           <div>
             <p class="eyebrow">动作库</p>
-            <h3>EXOS 动作库</h3>
+            <h3>动作库</h3>
           </div>
           <div class="toolbar-actions">
             <button class="primary-btn slim" @click="createCustomExercise">新建动作</button>
           </div>
         </div>
 
-        <div class="grid search-grid">
-          <label class="field">
-            <span class="field-label">关键词搜索</span>
-            <input
-              v-model="filters.keyword"
-              class="text-input"
-              placeholder="动作名称 / 英文名 / 检索词 / 标签词条"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label">一级分类</span>
-            <select v-model="filters.level1" class="text-input">
-              <option value="">全部一级分类</option>
-              <option v-for="option in level1Options" :key="option" :value="option">{{ option }}</option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">二级分类</span>
-            <select v-model="filters.level2" class="text-input">
-              <option value="">全部二级分类</option>
-              <option v-for="option in level2Options" :key="option" :value="option">{{ option }}</option>
-            </select>
-          </label>
+        <div class="stacked-filters">
+          <div class="filter-row filter-row--search">
+            <label class="field filter-control">
+              <span class="field-label">关键词搜索</span>
+              <input
+                v-model="filters.keyword"
+                class="text-input"
+                placeholder="动作名称 / 英文名 / 检索词 / 标签"
+              />
+            </label>
+          </div>
+          <div class="filter-row filter-row--selects">
+            <label class="field filter-control">
+              <span class="field-label">一级分类</span>
+              <select v-model="filters.level1" class="text-input filter-select">
+                <option value="">全部一级分类</option>
+                <option v-for="option in level1Options" :key="option" :value="option">{{ option }}</option>
+              </select>
+            </label>
+            <label class="field filter-control">
+              <span class="field-label">二级分类</span>
+              <select v-model="filters.level2" class="text-input filter-select">
+                <option value="">全部二级分类</option>
+                <option v-for="option in level2Options" :key="option" :value="option">{{ option }}</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <div class="filter-actions">
@@ -298,7 +314,6 @@ watch(
 .toolbar-actions,
 .filter-actions,
 .list-head,
-.search-grid,
 .facet-group,
 .facet-options,
 .row-head,
@@ -323,12 +338,6 @@ watch(
 .facet-options,
 .tag-line {
   flex-wrap: wrap;
-}
-
-.search-grid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
-  gap: 12px;
 }
 
 .facet-panel,
@@ -377,7 +386,8 @@ watch(
   max-height: 100%;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   padding-right: 8px;
 }
@@ -415,10 +425,6 @@ watch(
     min-height: auto;
     height: auto;
     max-height: none;
-  }
-
-  .search-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>

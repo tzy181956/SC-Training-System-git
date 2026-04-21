@@ -65,7 +65,6 @@ export interface ExerciseLibraryItem {
   coaching_points?: string | null
   common_errors?: string | null
   notes?: string | null
-  load_profile: string
   default_increment?: number | null
   is_main_lift_candidate: boolean
 }
@@ -89,4 +88,11 @@ export interface ExerciseLibraryFilters {
   level1: string
   level2: string
   tags: Record<string, string[]>
+}
+
+export interface ExerciseFacetValues {
+  level1_options: string[]
+  level2_options: string[]
+  level2_options_by_level1: Record<string, string[]>
+  facets: Record<string, string[]>
 }

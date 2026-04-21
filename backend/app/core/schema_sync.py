@@ -43,6 +43,13 @@ def ensure_runtime_schema() -> None:
         if "training_level" in athlete_columns:
             connection.execute(text("ALTER TABLE athletes DROP COLUMN training_level"))
 
+        exercise_columns = {
+            row[1]
+            for row in connection.execute(text("PRAGMA table_info(exercises)")).fetchall()
+        }
+        if "load_profile" in exercise_columns:
+            connection.execute(text("ALTER TABLE exercises DROP COLUMN load_profile"))
+
         connection.execute(
             text("UPDATE exercises SET structured_tags = '{}' WHERE structured_tags IS NULL")
         )

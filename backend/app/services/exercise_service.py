@@ -8,6 +8,22 @@ from app.schemas.exercise import ExerciseCreate, ExerciseUpdate
 from app.schemas.tag import TagCreate
 from app.services.exercise_library_import import _slugify
 
+EXERCISE_FACET_KEYS = (
+    "bodyRegion",
+    "primaryPattern",
+    "secondaryPattern",
+    "direction",
+    "lowerDominance",
+    "limbCombination",
+    "laterality",
+    "powerType",
+    "equipment",
+    "bodyPosition",
+    "usageScene",
+    "trainingGoal",
+    "functionType",
+)
+
 
 def _normalize_exercise_payload_defaults(data: dict) -> dict:
     data.setdefault("structured_tags", {})
@@ -62,6 +78,52 @@ def list_exercises(db: Session) -> list[Exercise]:
         .all()
     )
     return [_normalize_exercise_record(item) for item in items]
+
+
+def list_exercise_facets(db: Session) -> dict:
+    items = (
+        db.query(Exercise.level1_category, Exercise.level2_category, Exercise.structured_tags)
+        .order_by(Exercise.name)
+        .all()
+    )
+
+    level1_values: set[str] = set()
+    level2_values: set[str] = set()
+    level2_by_level1: dict[str, set[str]] = defaultdict(set)
+    facet_values: dict[str, set[str]] = defaultdict(set)
+
+    for level1, level2, structured_tags in items:
+        level1_value = (level1 or "").strip()
+        level2_value = (level2 or "").strip()
+        normalized_tags = structured_tags if isinstance(structured_tags, dict) else {}
+
+        if level1_value:
+            level1_values.add(level1_value)
+        if level2_value:
+            level2_values.add(level2_value)
+        if level1_value and level2_value:
+            level2_by_level1[level1_value].add(level2_value)
+
+        for key, values in normalized_tags.items():
+            if key not in EXERCISE_FACET_KEYS:
+                continue
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                normalized_value = str(value or "").strip()
+                if normalized_value:
+                    facet_values[key].add(normalized_value)
+
+    return {
+        "level1_options": sorted(level1_values),
+        "level2_options": sorted(level2_values),
+        "level2_options_by_level1": {
+            key: sorted(values) for key, values in sorted(level2_by_level1.items(), key=lambda item: item[0])
+        },
+        "facets": {
+            key: sorted(values) for key, values in sorted(facet_values.items(), key=lambda item: item[0])
+        },
+    }
 
 
 def get_exercise(db: Session, exercise_id: int) -> Exercise:

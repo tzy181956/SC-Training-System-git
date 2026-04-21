@@ -27,7 +27,6 @@ class ExerciseBase(BaseModel):
     coaching_points: str | None = None
     common_errors: str | None = None
     notes: str | None = None
-    load_profile: str = "general"
     default_increment: float | None = None
     is_main_lift_candidate: bool = False
 
@@ -58,7 +57,6 @@ class ExerciseUpdate(BaseModel):
     coaching_points: str | None = None
     common_errors: str | None = None
     notes: str | None = None
-    load_profile: str | None = None
     default_increment: float | None = None
     is_main_lift_candidate: bool | None = None
     tag_ids: list[int] | None = None
@@ -73,3 +71,10 @@ class ExerciseRead(ORMModel, ExerciseBase):
     id: int
     base_category: ExerciseCategoryPathNode | None = None
     tags: list[ExerciseTagLinkRead] = Field(default_factory=list)
+
+
+class ExerciseFacetValuesRead(BaseModel):
+    level1_options: list[str] = Field(default_factory=list)
+    level2_options: list[str] = Field(default_factory=list)
+    level2_options_by_level1: dict[str, list[str]] = Field(default_factory=dict)
+    facets: dict[str, list[str]] = Field(default_factory=dict)

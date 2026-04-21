@@ -54,7 +54,7 @@ def describe_load_mode(item: TrainingPlanTemplateItem) -> str:
 
 
 def _match_keywords(exercise: Exercise) -> list[str]:
-    name_blob = f"{exercise.name} {exercise.alias or ''} {exercise.load_profile}".lower()
+    name_blob = f"{exercise.name} {exercise.alias or ''}".lower()
     if "深蹲" in name_blob or "squat" in name_blob:
         return ["深蹲", "squat"]
     if "卧推" in name_blob or "bench" in name_blob:

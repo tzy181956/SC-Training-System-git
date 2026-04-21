@@ -27,7 +27,6 @@ class Exercise(BaseModel):
     coaching_points: Mapped[str | None] = mapped_column(Text)
     common_errors: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
-    load_profile: Mapped[str] = mapped_column(String(50), default="general", nullable=False)
     default_increment: Mapped[float | None] = mapped_column(Float)
     is_main_lift_candidate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     base_category_id: Mapped[int | None] = mapped_column(ForeignKey("exercise_categories.id"))

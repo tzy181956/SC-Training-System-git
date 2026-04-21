@@ -72,6 +72,33 @@ a {
   color: var(--text-soft);
 }
 
+.stacked-filters {
+  display: grid;
+  gap: 12px;
+}
+
+.filter-row {
+  min-width: 0;
+}
+
+.filter-row--search {
+  width: 100%;
+}
+
+.filter-row--triple {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.filter-control {
+  min-height: 48px;
+}
+
+.filter-select {
+  padding-right: 40px;
+}
+
 .required-mark {
   color: #dc2626;
   font-weight: 700;
@@ -148,4 +175,10 @@ button:disabled {
 
 .adaptive-card-clamp-2 {
   -webkit-line-clamp: 2;
+}
+
+@media (max-width: 1100px) {
+  .filter-row--triple {
+    grid-template-columns: 1fr;
+  }
 }

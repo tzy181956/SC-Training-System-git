@@ -388,7 +388,6 @@ def import_exos_library(db: Session, *, source_path: Path | None = None, replace
                 alias=row["nameEn"] or None,
                 code=row["code"],
                 source_type="exos_excel",
-                load_profile="general",
                 is_main_lift_candidate=False,
             )
             db.add(exercise)

@@ -11,13 +11,13 @@ class ProgressionSuggestion:
     should_stop_progression: bool = False
 
 
-PROFILE_DEFAULTS = {"push": 2.5, "squat": 5.0, "pull": 5.0, "general": 2.5}
+DEFAULT_INCREMENT = 2.5
 
 
-def resolve_increment(load_profile: str, default_increment: float | None) -> float:
+def resolve_increment(default_increment: float | None) -> float:
     if default_increment and default_increment > 0:
         return default_increment
-    return PROFILE_DEFAULTS.get(load_profile, PROFILE_DEFAULTS["general"])
+    return DEFAULT_INCREMENT
 
 
 def compute_next_weight(
@@ -26,11 +26,10 @@ def compute_next_weight(
     target_reps: int,
     actual_reps: int,
     actual_rir: int,
-    load_profile: str,
     default_increment: float | None,
     previous_rirs: list[int],
 ) -> ProgressionSuggestion:
-    step = resolve_increment(load_profile, default_increment)
+    step = resolve_increment(default_increment)
     hard_streak = len(previous_rirs) >= 1 and previous_rirs[-1] <= 1 and actual_rir <= 1
     if actual_reps < target_reps:
         return ProgressionSuggestion(

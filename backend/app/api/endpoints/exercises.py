@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
-from app.schemas.exercise import ExerciseCreate, ExerciseRead, ExerciseUpdate
+from app.schemas.exercise import ExerciseCreate, ExerciseFacetValuesRead, ExerciseRead, ExerciseUpdate
 from app.services import exercise_service
 
 
@@ -18,6 +18,11 @@ class ExerciseTagPayload(BaseModel):
 @router.get("", response_model=list[ExerciseRead])
 def list_exercises(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
     return exercise_service.list_exercises(db)
+
+
+@router.get("/facets", response_model=ExerciseFacetValuesRead)
+def list_exercise_facets(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+    return exercise_service.list_exercise_facets(db)
 
 
 @router.post("", response_model=ExerciseRead)
