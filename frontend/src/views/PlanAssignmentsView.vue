@@ -28,8 +28,8 @@ const preview = ref<any | null>(null)
 const loadingPreview = ref(false)
 const submitting = ref(false)
 const cancelling = ref(false)
-const showAssignedList = ref(false)
-const selectedAssignedIds = ref<number[]>([])
+const cancelTargetAthleteId = ref<number | null>(null)
+const confirmCancelAssignmentId = ref<number | null>(null)
 
 const filters = reactive({
   sportId: 0,
@@ -91,13 +91,26 @@ const filteredAssignedEntries = computed(() =>
       })),
   ),
 )
-const previewHasMissingBasis = computed(() =>
-  Boolean(preview.value?.rows.some((row: any) => row.items.some((item: any) => item.status !== '可分配'))),
+const assignedEntriesByAthleteId = computed(() => {
+  const map = new Map<number, any[]>()
+  filteredAssignedEntries.value.forEach((entry: any) => {
+    const bucket = map.get(entry.athlete.id)
+    if (bucket) {
+      bucket.push(entry)
+      return
+    }
+    map.set(entry.athlete.id, [entry])
+  })
+  return map
+})
+const cancelTargetAthlete = computed(() =>
+  cancelTargetAthleteId.value ? athletes.value.find((athlete) => athlete.id === cancelTargetAthleteId.value) || null : null,
 )
-const allVisibleAssignedSelected = computed(
-  () =>
-    filteredAssignedEntries.value.length > 0 &&
-    filteredAssignedEntries.value.every((entry: any) => selectedAssignedIds.value.includes(entry.assignment_id)),
+const cancelTargetAssignments = computed(() =>
+  cancelTargetAthleteId.value ? assignedEntriesByAthleteId.value.get(cancelTargetAthleteId.value) ?? [] : [],
+)
+const previewHasMissingBasis = computed(() =>
+  Boolean(preview.value?.rows.some((row: any) => row.items.some((item: any) => item.status === 'missing_basis'))),
 )
 
 async function hydrate() {
@@ -116,9 +129,10 @@ async function hydrate() {
 
 async function loadOverview() {
   overview.value = await fetchAssignmentOverview(form.start_date)
-  selectedAssignedIds.value = selectedAssignedIds.value.filter((assignmentId) =>
-    overview.value.assignment_groups.some((group: any) => group.assignment_ids.includes(assignmentId)),
-  )
+  if (cancelTargetAthleteId.value && !(assignedEntriesByAthleteId.value.get(cancelTargetAthleteId.value)?.length)) {
+    cancelTargetAthleteId.value = null
+    confirmCancelAssignmentId.value = null
+  }
 }
 
 function toggleAthlete(id: number) {
@@ -129,30 +143,33 @@ function toggleAthlete(id: number) {
   form.athlete_ids = [...form.athlete_ids, id]
 }
 
-function toggleAssignedList() {
-  showAssignedList.value = !showAssignedList.value
-  if (!showAssignedList.value) {
-    selectedAssignedIds.value = []
-  }
-}
-
-function toggleAssignedSelection(assignmentId: number) {
-  if (selectedAssignedIds.value.includes(assignmentId)) {
-    selectedAssignedIds.value = selectedAssignedIds.value.filter((id) => id !== assignmentId)
+function handleAthleteCardClick(athlete: any) {
+  const assignedEntries = assignedEntriesByAthleteId.value.get(athlete.id) ?? []
+  if (assignedEntries.length) {
+    cancelTargetAthleteId.value = cancelTargetAthleteId.value === athlete.id ? null : athlete.id
+    confirmCancelAssignmentId.value = null
     return
   }
-  selectedAssignedIds.value = [...selectedAssignedIds.value, assignmentId]
+  toggleAthlete(athlete.id)
 }
 
-function selectVisibleAssigned() {
-  if (allVisibleAssignedSelected.value) {
-    const visibleIds = new Set(filteredAssignedEntries.value.map((entry: any) => entry.assignment_id))
-    selectedAssignedIds.value = selectedAssignedIds.value.filter((id) => !visibleIds.has(id))
-    return
+function requestCancelAssignment(assignmentId: number) {
+  confirmCancelAssignmentId.value = assignmentId
+}
+
+function resetCancelFlow() {
+  confirmCancelAssignmentId.value = null
+}
+
+async function cancelAssignment(assignmentId: number) {
+  cancelling.value = true
+  try {
+    await cancelBatchAssignments([assignmentId])
+    confirmCancelAssignmentId.value = null
+    await loadOverview()
+  } finally {
+    cancelling.value = false
   }
-  selectedAssignedIds.value = Array.from(
-    new Set([...selectedAssignedIds.value, ...filteredAssignedEntries.value.map((entry: any) => entry.assignment_id)]),
-  )
 }
 
 function selectUnassignedAthletes() {
@@ -204,18 +221,6 @@ async function submitAssignments() {
   }
 }
 
-async function cancelSelectedAssignments() {
-  if (!selectedAssignedIds.value.length) return
-  cancelling.value = true
-  try {
-    await cancelBatchAssignments(selectedAssignedIds.value)
-    selectedAssignedIds.value = []
-    await loadOverview()
-  } finally {
-    cancelling.value = false
-  }
-}
-
 watch(
   () => [form.start_date, filters.sportId, filters.teamId],
   async () => {
@@ -249,7 +254,7 @@ onMounted(hydrate)
         <div class="section-head">
           <div>
             <p class="eyebrow">计划分配概览</p>
-            <h3>先看当前有哪些计划在执行</h3>
+            <h3>先看当前和后续已经安排的计划</h3>
           </div>
           <div class="overview-toolbar">
             <label class="field compact">
@@ -268,76 +273,45 @@ onMounted(hydrate)
         </div>
 
         <div class="summary-grid">
-          <button class="summary-card summary-button" type="button" @click="toggleAssignedList">
+          <article class="summary-card">
             <span class="summary-label">已有计划人数</span>
             <strong>{{ overview.assigned_count }}</strong>
-            <small>{{ showAssignedList ? '点击收起已分配列表' : '点击展开并直接取消计划' }}</small>
-          </button>
-          <article class="summary-card">
-            <span class="summary-label">未分配人数</span>
-            <strong>{{ overview.unassigned_count }}</strong>
-            <small>当前日期下还没有有效计划</small>
+            <small>在下方队员卡片中直接打开并取消计划</small>
           </article>
           <article class="summary-card">
-            <span class="summary-label">进行中的计划组</span>
+            <span class="summary-label">当前与后续计划组</span>
             <strong>{{ overview.group_count }}</strong>
-            <small>按模板和时间段聚合</small>
+            <small>按模板和时间段聚合展示</small>
+          </article>
+          <article class="summary-card summary-card--subtle">
+            <span class="summary-label">未分配人数</span>
+            <strong>{{ overview.unassigned_count }}</strong>
+            <small>从当前日期往后仍无计划</small>
           </article>
         </div>
 
-        <section v-if="showAssignedList" class="assigned-expand">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">已分配列表</p>
-              <h4>勾选需要取消计划的队员</h4>
-            </div>
-            <div class="assigned-actions">
-              <button class="ghost-btn slim dark-btn" type="button" @click="selectVisibleAssigned">
-                {{ allVisibleAssignedSelected ? '取消全选' : '全选当前列表' }}
-              </button>
-              <button class="ghost-btn slim danger-btn" type="button" :disabled="!selectedAssignedIds.length || cancelling" @click="cancelSelectedAssignments">
-                {{ cancelling ? '正在取消...' : `取消已选 ${selectedAssignedIds.length} 人计划` }}
-              </button>
-              <button class="ghost-btn slim dark-btn" type="button" @click="toggleAssignedList">收起</button>
-            </div>
-          </div>
-          <p class="muted">取消后会保留历史记录，但不再作为当前有效计划统计。</p>
-          <div class="assigned-list">
-            <label v-for="entry in filteredAssignedEntries" :key="entry.assignment_id" class="assigned-row">
-              <div class="assigned-check">
-                <input :checked="selectedAssignedIds.includes(entry.assignment_id)" type="checkbox" @change="toggleAssignedSelection(entry.assignment_id)" />
-              </div>
-              <div class="assigned-main">
-                <strong>{{ entry.athlete.full_name }}</strong>
-                <span>{{ entry.athlete.team?.name || '未分队' }}</span>
-              </div>
-              <div class="assigned-side">
-                <strong>{{ entry.template.name }}</strong>
-                <span>{{ entry.start_date }} 至 {{ entry.end_date }}</span>
-                <small>{{ entry.notes || '无分配备注' }}</small>
-              </div>
-            </label>
-            <p v-if="!filteredAssignedEntries.length" class="muted">当前筛选条件下没有可以取消的分配记录。</p>
-          </div>
-        </section>
-
         <div class="overview-grid">
-          <article class="overview-card">
+          <article class="overview-card overview-card--primary">
             <div class="section-head">
               <div>
-                <p class="eyebrow">进行中的计划</p>
-                <h4>同模板同时间段的队员已归并展示</h4>
+                <p class="eyebrow">当前与后续计划</p>
+                <h4>按模板和时间段归并展示当前进行中和即将开始的计划</h4>
               </div>
               <span class="muted">共 {{ filteredAssignmentGroups.length }} 组</span>
             </div>
-            <div class="group-list">
+            <div v-if="filteredAssignmentGroups.length" class="group-list">
               <div v-for="group in filteredAssignmentGroups" :key="group.assignment_ids.join('-')" class="group-card">
                 <div class="group-head">
                   <div>
                     <strong>{{ group.template.name }}</strong>
                     <p>{{ group.start_date }} 至 {{ group.end_date }}</p>
                   </div>
-                  <span class="badge">{{ group.athlete_count }} 人</span>
+                  <div class="group-badges">
+                    <span class="status-badge" :class="group.group_status === 'active_now' ? 'status-badge--active' : 'status-badge--upcoming'">
+                      {{ group.group_status === 'active_now' ? '进行中' : '即将开始' }}
+                    </span>
+                    <span class="badge">{{ group.athlete_count }} 人</span>
+                  </div>
                 </div>
                 <p v-if="group.template.description" class="muted">{{ group.template.description }}</p>
                 <div class="athlete-chip-list">
@@ -348,27 +322,33 @@ onMounted(hydrate)
                 </div>
                 <p v-if="group.notes.length" class="group-notes">备注：{{ group.notes.join('；') }}</p>
               </div>
-              <p v-if="!filteredAssignmentGroups.length" class="muted">当前筛选条件下没有进行中的计划组。</p>
+            </div>
+            <div v-else class="overview-empty">
+              <strong>从当前日期往后还没有有效计划组</strong>
+              <p class="muted">先在下方为队员分配模板后，这里会自动展示当前进行中和即将开始的计划。</p>
             </div>
           </article>
 
-          <article class="overview-card">
-            <div class="section-head">
-              <div>
+          <article class="overview-card overview-card--secondary">
+            <div class="section-head section-head--tight">
+              <div class="overview-side-meta">
                 <p class="eyebrow">未分配队员</p>
-                <h4>当前日期下还没有计划的人</h4>
+                <h4>从当前日期往后还没有任何计划的人</h4>
+                <span class="muted">共 {{ filteredUnassignedAthletes.length }} 人</span>
               </div>
-              <label class="checkbox-row">
-                <input v-model="filters.onlyUnassigned" type="checkbox" />
-                <span>下方分配区只看未分配</span>
-              </label>
             </div>
-            <div class="unassigned-list">
-              <div v-for="athlete in filteredUnassignedAthletes" :key="athlete.id" class="overview-row">
-                <strong>{{ athlete.full_name }}</strong>
-                <span>{{ athlete.team?.name || '未分队' }}</span>
+            <label class="checkbox-row checkbox-row--compact">
+              <input v-model="filters.onlyUnassigned" type="checkbox" />
+              <span>下方分配区只看未分配</span>
+            </label>
+            <div class="unassigned-list-wrap">
+              <div class="unassigned-list">
+                <div v-for="athlete in filteredUnassignedAthletes" :key="athlete.id" class="overview-row overview-row--compact">
+                  <strong>{{ athlete.full_name }}</strong>
+                  <span>{{ athlete.team?.name || '未分队' }}</span>
+                </div>
               </div>
-              <p v-if="!filteredUnassignedAthletes.length" class="muted">当前筛选条件下所有队员都已有计划。</p>
+              <p v-if="!filteredUnassignedAthletes.length" class="muted">当前筛选条件下所有队员从当前日期往后都已有计划。</p>
             </div>
           </article>
         </div>
@@ -398,12 +378,52 @@ onMounted(hydrate)
                   v-for="athlete in filteredAthletes"
                   :key="athlete.id"
                   class="athlete-card"
-                  :class="{ active: form.athlete_ids.includes(athlete.id) }"
+                  :class="{
+                    active: form.athlete_ids.includes(athlete.id),
+                    'athlete-card--assigned': (assignedEntriesByAthleteId.get(athlete.id)?.length ?? 0) > 0,
+                    'athlete-card--managing': cancelTargetAthleteId === athlete.id,
+                  }"
                   type="button"
-                  @click="toggleAthlete(athlete.id)"
+                  @click="handleAthleteCardClick(athlete)"
                 >
                   <strong>{{ athlete.full_name }}</strong>
+                  <span>{{ athlete.team?.name || '未分队' }}</span>
+                  <small v-if="assignedEntriesByAthleteId.get(athlete.id)?.length">
+                    已安排 {{ assignedEntriesByAthleteId.get(athlete.id)?.length }} 条计划，点击管理
+                  </small>
+                  <small v-else>{{ form.athlete_ids.includes(athlete.id) ? '已加入本次分配' : '点击加入本次分配' }}</small>
                 </button>
+              </div>
+              <div v-if="cancelTargetAthlete && cancelTargetAssignments.length" class="cancel-panel">
+                <div class="section-head section-head--tight">
+                  <div>
+                    <p class="eyebrow">已分配计划</p>
+                    <h4>管理 {{ cancelTargetAthlete.full_name }} 的当前与后续计划</h4>
+                  </div>
+                  <button class="ghost-btn slim dark-btn" type="button" @click="cancelTargetAthleteId = null">关闭</button>
+                </div>
+                <p class="muted">点击删除按钮后还需要再次确认。取消后，这条计划将不再计入当前与后续有效计划。</p>
+                <div class="cancel-list">
+                  <div v-for="entry in cancelTargetAssignments" :key="entry.assignment_id" class="cancel-row">
+                    <div class="cancel-main">
+                      <strong>{{ entry.template.name }}</strong>
+                      <span>{{ entry.start_date }} 至 {{ entry.end_date }}</span>
+                      <small>{{ entry.notes || '无分配备注' }}</small>
+                    </div>
+                    <div class="cancel-actions">
+                      <template v-if="confirmCancelAssignmentId === entry.assignment_id">
+                        <span class="warning-text">确认删除这条计划？</span>
+                        <button class="ghost-btn slim" type="button" :disabled="cancelling" @click="resetCancelFlow">取消</button>
+                        <button class="ghost-btn slim danger-btn" type="button" :disabled="cancelling" @click="cancelAssignment(entry.assignment_id)">
+                          {{ cancelling ? '删除中...' : '确认删除' }}
+                        </button>
+                      </template>
+                      <button v-else class="ghost-btn slim danger-btn" type="button" :disabled="cancelling" @click="requestCancelAssignment(entry.assignment_id)">
+                        删除计划
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -414,20 +434,7 @@ onMounted(hydrate)
                 <option :value="0">请选择训练模板</option>
                 <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
               </select>
-              <div v-if="selectedTemplate" class="template-preview">
-                <h5>{{ selectedTemplate.name }}</h5>
-                <p>{{ selectedTemplate.description || '暂无模板说明' }}</p>
-                <div class="preview-list">
-                  <div v-for="item in selectedTemplate.items" :key="item.id" class="preview-row">
-                        <strong>{{ item.exercise.name }}</strong>
-                    <span>
-                      {{ item.prescribed_sets }} 组 x {{ item.prescribed_reps }} 次
-                      <template v-if="item.initial_load_mode === 'percent_1rm'"> / 按最近测试的 {{ item.initial_load_value }}%</template>
-                      <template v-else> / 固定重量 {{ item.initial_load_value ?? 0 }} 公斤</template>
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <p v-if="selectedTemplate" class="muted">模板详情请查看右侧预览。</p>
             </div>
 
             <div class="section-block">
@@ -458,7 +465,7 @@ onMounted(hydrate)
             </div>
           </div>
 
-          <AssignmentPreviewPanel :preview="preview" />
+          <AssignmentPreviewPanel :preview="preview" :selected-template="selectedTemplate" />
         </div>
       </section>
     </div>
@@ -474,10 +481,7 @@ onMounted(hydrate)
 .unassigned-list,
 .wizard-panel,
 .section-block,
-.template-preview,
-.preview-list,
-.assigned-expand,
-.assigned-list {
+.cancel-list {
   display: grid;
   gap: 16px;
 }
@@ -489,15 +493,15 @@ onMounted(hydrate)
 .assignment-layout,
 .overview-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr;
+  grid-template-columns: 1.6fr 0.75fr;
   gap: 18px;
+  align-items: start;
 }
 
 .section-head,
 .overview-toolbar,
 .submit-row,
-.group-head,
-.assigned-actions {
+.group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -520,12 +524,8 @@ onMounted(hydrate)
   background: var(--panel-soft);
 }
 
-.summary-button {
-  text-align: left;
-}
-
-.summary-button:hover {
-  background: #d1fae5;
+.summary-card--subtle {
+  background: rgba(241, 245, 249, 0.76);
 }
 
 .summary-label,
@@ -540,8 +540,7 @@ onMounted(hydrate)
 .athlete-card span,
 .athlete-card small,
 .preview-row span,
-.assigned-row span,
-.assigned-side small {
+.cancel-main small {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
@@ -559,6 +558,33 @@ onMounted(hydrate)
   background: rgba(15, 118, 110, 0.12);
   color: var(--primary);
   font-weight: 600;
+}
+
+.group-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.status-badge {
+  min-width: 72px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge--active {
+  background: rgba(15, 118, 110, 0.16);
+  color: var(--primary);
+}
+
+.status-badge--upcoming {
+  background: rgba(59, 130, 246, 0.14);
+  color: #1d4ed8;
 }
 
 .athlete-chip-list,
@@ -584,7 +610,7 @@ onMounted(hydrate)
 .overview-row,
 .preview-row,
 .athlete-card,
-.assigned-row {
+.cancel-row {
   display: grid;
   gap: 4px;
   text-align: left;
@@ -593,29 +619,56 @@ onMounted(hydrate)
   background: rgba(255, 255, 255, 0.72);
 }
 
-.assigned-row {
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 16px;
+.overview-card--primary {
+  gap: 14px;
 }
 
-.assigned-main,
-.assigned-side {
+.overview-card--secondary {
+  gap: 12px;
+  align-self: start;
+}
+
+.overview-empty {
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+  padding: 18px;
+  border-radius: 18px;
+  place-content: center start;
+  background: rgba(241, 245, 249, 0.72);
+}
+
+.overview-empty strong {
+  font-size: 18px;
+}
+
+.section-head--tight {
+  align-items: start;
+}
+
+.overview-side-meta {
   display: grid;
   gap: 4px;
 }
 
-.assigned-side {
-  text-align: right;
-}
-
 .athlete-card {
+  border: 1px solid transparent;
   background: var(--panel-soft);
 }
 
 .athlete-card.active {
   background: #d1fae5;
   border: 1px solid rgba(15, 118, 110, 0.18);
+}
+
+.athlete-card--assigned {
+  background: rgba(239, 246, 255, 0.82);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.athlete-card--managing {
+  background: rgba(224, 231, 255, 0.8);
+  border-color: rgba(79, 70, 229, 0.24);
 }
 
 .field {
@@ -643,6 +696,71 @@ onMounted(hydrate)
   font-size: 13px;
 }
 
+.checkbox-row--compact {
+  align-self: start;
+}
+
+.group-list {
+  gap: 12px;
+}
+
+.group-card {
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.cancel-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.86);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.cancel-list {
+  gap: 12px;
+}
+
+.cancel-row {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.cancel-main,
+.cancel-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.cancel-actions {
+  justify-items: end;
+  text-align: right;
+}
+
+.unassigned-list-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.unassigned-list {
+  gap: 10px;
+  max-height: 420px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.overview-row--compact {
+  gap: 2px;
+  padding: 12px 14px;
+}
+
+.overview-row--compact strong {
+  font-size: 15px;
+}
+
 .dark-btn {
   background: #0f172a;
   color: white;
@@ -658,6 +776,12 @@ onMounted(hydrate)
   .assignment-layout {
     grid-template-columns: 1fr;
   }
+
+  .unassigned-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
 }
 
 @media (max-width: 900px) {
@@ -665,12 +789,13 @@ onMounted(hydrate)
   .athlete-grid,
   .athlete-chip-list,
   .grid.three,
-  .assigned-row {
+  .cancel-row {
     grid-template-columns: 1fr;
   }
 
-  .assigned-side {
+  .cancel-actions {
     text-align: left;
+    justify-items: start;
   }
 }
 </style>

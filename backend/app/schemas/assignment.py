@@ -99,6 +99,7 @@ class AssignmentOverviewGroupRead(BaseModel):
     template: PlanTemplateRead
     start_date: date
     end_date: date
+    group_status: str
     entries: list[AssignmentOverviewEntryRead]
     athletes: list[AthleteRead]
     assignment_ids: list[int]

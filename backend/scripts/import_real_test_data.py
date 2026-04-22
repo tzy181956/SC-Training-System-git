@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import sys
@@ -32,51 +32,54 @@ from app.models import (
 from safety_utils import require_destructive_confirmation
 
 
-DEFAULT_SOURCE_XLSX = Path(r"C:\Users\tzy\OneDrive\涓婃捣\绡悆涓績\娴嬭瘯\20260314\娴嬭瘯缁撴灉甯︽帓鍚?xlsx")
+DEFAULT_SOURCE_XLSX = Path(
+    r"C:\Users\tzy\OneDrive\上海\篮球中心\测试\20260314\测试结果带排名.xlsx"
+)
 TARGET_DATE = date(2026, 3, 14)
-TARGET_SPORT_NAME = "绡悆"
+TARGET_SPORT_NAME = "篮球"
 TARGET_SPORT_CODE = "basketball"
-TARGET_TEAM_NAME = "濂崇闈掑勾闃?
+TARGET_TEAM_NAME = "女篮青年队"
 TARGET_TEAM_CODE = "women-youth-basketball"
+TARGET_GENDER = "女"
 CONFIRMATION_PHRASE = "DELETE REAL DATA"
 
 BODY_FIELDS = {
-    "韬珮": ("height", "cm"),
-    "浣撻噸": ("weight", "kg"),
-    "浣撹剛鐜?: ("body_fat_percentage", "%"),
-    "鑷傚睍": ("wingspan", "cm"),
-    "绔欐懜": ("standing_reach", "cm"),
+    "身高": ("height", "cm"),
+    "体重": ("weight", "kg"),
+    "体脂率": ("body_fat_percentage", "%"),
+    "臂展": ("wingspan", "cm"),
+    "站摸": ("standing_reach", "cm"),
 }
 
 METRIC_DEFINITIONS = {
-    ("鍗ф帹", "閲嶉噺"): ("鍔涢噺娴嬭瘯", "鍗ф帹", "kg"),
-    ("鍗ф媺", "閲嶉噺"): ("鍔涢噺娴嬭瘯", "鍗ф媺", "kg"),
-    ("娣辫共", "閲嶉噺"): ("鍔涢噺娴嬭瘯", "娣辫共", "kg"),
-    ("鎸轰妇", "閲嶉噺"): ("鍔涢噺娴嬭瘯", "鎸轰妇", "kg"),
-    ("寮曚綋鍚戜笂", "娆℃暟"): ("鍔涢噺娴嬭瘯", "寮曚綋鍚戜笂", "娆?),
-    ("鍙嶅悜璺?, "楂樺害"): ("浣撹兘娴嬭瘯", "鍙嶅悜璺?, "cm"),
-    ("闈欒共璺?, "楂樺害"): ("浣撹兘娴嬭瘯", "闈欒共璺?, "cm"),
-    ("鐩磋吙璺?, "RSI"): ("浣撹兘娴嬭瘯", "鐩磋吙璺?, "RSI"),
-    ("鍔╄窇鎽搁珮", "楂樺害"): ("浣撹兘娴嬭瘯", "鍔╄窇鎽搁珮", "cm"),
-    ("鍘熷湴鎽搁珮", "楂樺害"): ("浣撹兘娴嬭瘯", "鍘熷湴鎽搁珮", "cm"),
-    ("30m璺?, "10m"): ("閫熷害娴嬭瘯", "30m璺?10m", "s"),
-    ("30m璺?, "30m"): ("閫熷害娴嬭瘯", "30m璺?30m", "s"),
-    ("505鍙樺悜", "宸﹁吙"): ("閫熷害娴嬭瘯", "505鍙樺悜-宸﹁吙", "s"),
-    ("505鍙樺悜", "鍙宠吙"): ("閫熷害娴嬭瘯", "505鍙樺悜-鍙宠吙", "s"),
-    ("505鍙樺悜", "鎬荤敤鏃?): ("閫熷害娴嬭瘯", "505鍙樺悜-鎬荤敤鏃?, "s"),
-    ("闄愬埗鍖虹Щ鍔?, "鏃堕棿"): ("閫熷害娴嬭瘯", "闄愬埗鍖虹Щ鍔?, "s"),
-    ("3000m", "绉掓暟"): ("鑰愬姏娴嬭瘯", "3000m", "s"),
-    ("17鎶樿繑", "绉掓暟"): ("鑰愬姏娴嬭瘯", "17鎶樿繑", "s"),
+    ("卧推", "重量"): ("力量测试", "卧推", "kg"),
+    ("卧拉", "重量"): ("力量测试", "卧拉", "kg"),
+    ("深蹲", "重量"): ("力量测试", "深蹲", "kg"),
+    ("臀桥", "重量"): ("力量测试", "臀桥", "kg"),
+    ("引体向上", "次数"): ("力量测试", "引体向上", "次"),
+    ("反向跳", "高度"): ("体能测试", "反向跳", "cm"),
+    ("静蹲跳", "高度"): ("体能测试", "静蹲跳", "cm"),
+    ("直腿跳", "RSI"): ("体能测试", "直腿跳", "RSI"),
+    ("助跑摸高", "高度"): ("体能测试", "助跑摸高", "cm"),
+    ("原地摸高", "高度"): ("体能测试", "原地摸高", "cm"),
+    ("30m跑", "10m"): ("速度测试", "30m跑-10m", "s"),
+    ("30m跑", "30m"): ("速度测试", "30m跑-30m", "s"),
+    ("505变向", "左腿"): ("速度测试", "505变向-左腿", "s"),
+    ("505变向", "右腿"): ("速度测试", "505变向-右腿", "s"),
+    ("505变向", "总用时"): ("速度测试", "505变向-总用时", "s"),
+    ("限制区移动", "时间"): ("速度测试", "限制区移动", "s"),
+    ("3000m", "秒数"): ("耐力测试", "3000m", "s"),
+    ("17折*4", "秒数"): ("耐力测试", "17折*4", "s"),
 }
 
 TEXT_VALUE_COLUMNS = {
-    ("3000m", "绉掓暟"): ("3000m", "鐢ㄦ椂"),
-    ("17鎶樿繑", "绉掓暟"): ("17鎶樿繑", "骞冲潎鐢ㄦ椂"),
+    ("3000m", "秒数"): ("3000m", "用时"),
+    ("17折*4", "秒数"): ("17折*4", "平均用时"),
 }
 
-SKIP_NAME_MARKERS = ("骞冲潎", "姹囨€?, "鍚堣", "鎬昏")
-IGNORED_SUB_HEADERS = {"鎺掑悕"}
-IGNORED_TOP_HEADERS = {"鎬诲垎", "鎬绘帓鍚?}
+SKIP_NAME_MARKERS = ("平均", "汇总", "合计", "总计")
+IGNORED_SUB_HEADERS = {"排名"}
+IGNORED_TOP_HEADERS = {"总分", "总排名"}
 
 
 def normalize_text(value: object) -> str:
@@ -123,12 +126,12 @@ def parse_time_text(value: str) -> float:
         raise ValueError("empty time text")
 
     minutes = 0
-    if "鈥? in text:
-        minute_text, text = text.split("鈥?, 1)
+    if "′" in text:
+        minute_text, text = text.split("′", 1)
         minutes = int(minute_text)
 
-    if "鈥? in text:
-        second_text, fraction_text = text.split("鈥?, 1)
+    if "″" in text:
+        second_text, fraction_text = text.split("″", 1)
         seconds = int(second_text or 0)
         fraction = 0.0
         if fraction_text:
@@ -141,13 +144,24 @@ def parse_time_text(value: str) -> float:
 def ensure_target_org(db) -> tuple[Sport, Team]:
     sport = db.execute(select(Sport).where(Sport.name == TARGET_SPORT_NAME)).scalar_one_or_none()
     if not sport:
-        sport = Sport(name=TARGET_SPORT_NAME, code=TARGET_SPORT_CODE, notes="鐪熷疄瀵煎叆鏁版嵁鎵€灞為」鐩?)
+        sport = Sport(
+            name=TARGET_SPORT_NAME,
+            code=TARGET_SPORT_CODE,
+            notes="真实导入数据所属项目",
+        )
         db.add(sport)
         db.flush()
 
-    team = db.execute(select(Team).where(Team.sport_id == sport.id, Team.name == TARGET_TEAM_NAME)).scalar_one_or_none()
+    team = db.execute(
+        select(Team).where(Team.sport_id == sport.id, Team.name == TARGET_TEAM_NAME)
+    ).scalar_one_or_none()
     if not team:
-        team = Team(sport_id=sport.id, name=TARGET_TEAM_NAME, code=TARGET_TEAM_CODE, notes="鐪熷疄瀵煎叆濂崇闈掑勾闃?)
+        team = Team(
+            sport_id=sport.id,
+            name=TARGET_TEAM_NAME,
+            code=TARGET_TEAM_CODE,
+            notes="真实导入女篮青年队",
+        )
         db.add(team)
         db.flush()
 
@@ -166,19 +180,20 @@ def clear_business_data(db) -> None:
 
 
 def build_or_update_athlete(db, team: Team, row_map: dict[str, object]) -> Athlete:
-    full_name = normalize_text(row_map["濮撳悕"])
+    full_name = normalize_text(row_map["姓名"])
     athlete = db.execute(select(Athlete).where(Athlete.full_name == full_name)).scalar_one_or_none()
     payload = {
         "user_id": None,
         "sport_id": team.sport_id,
         "team_id": team.id,
         "full_name": full_name,
+        "gender": TARGET_GENDER,
         "position": None,
-        "height": row_map.get("韬珮"),
-        "weight": row_map.get("浣撻噸"),
-        "body_fat_percentage": row_map.get("浣撹剛鐜?),
-        "wingspan": row_map.get("鑷傚睍"),
-        "standing_reach": row_map.get("绔欐懜"),
+        "height": row_map.get("身高"),
+        "weight": row_map.get("体重"),
+        "body_fat_percentage": row_map.get("体脂率"),
+        "wingspan": row_map.get("臂展"),
+        "standing_reach": row_map.get("站摸"),
         "notes": None,
         "is_active": True,
     }
@@ -230,7 +245,7 @@ def import_workbook(db, workbook_path: Path) -> None:
             columns[column][0] or get_column_letter(column): worksheet.cell(row_index, column).value
             for column in columns
         }
-        full_name = normalize_text(row_values.get("濮撳悕"))
+        full_name = normalize_text(row_values.get("姓名"))
         if not full_name:
             continue
         if any(marker in full_name for marker in SKIP_NAME_MARKERS):
@@ -245,7 +260,7 @@ def import_workbook(db, workbook_path: Path) -> None:
             value = row_values.get(body_metric)
             if value is None:
                 continue
-            add_test_record(db, athlete, "鍩虹韬綋", body_metric, unit, float(value))
+            add_test_record(db, athlete, "基础身体", body_metric, unit, float(value))
 
         for header_key, (test_type, metric_name, unit) in METRIC_DEFINITIONS.items():
             column = reverse_lookup.get(header_key)
@@ -265,7 +280,8 @@ def import_workbook(db, workbook_path: Path) -> None:
                     parsed_seconds = parse_time_text(result_text)
                     if abs(parsed_seconds - result_value) > 0.11:
                         raise ValueError(
-                            f"Time parse mismatch for {full_name} / {metric_name}: text={result_text}, seconds={result_value}"
+                            f"Time parse mismatch for {full_name} / {metric_name}: "
+                            f"text={result_text}, seconds={result_value}"
                         )
 
             add_test_record(db, athlete, test_type, metric_name, unit, result_value, result_text)
@@ -283,11 +299,11 @@ def main() -> None:
         action_label="Clear current business data and re-import real athlete/test data",
         confirmation_phrase=CONFIRMATION_PHRASE,
         affected_items=[
-            "杩愬姩鍛?,
-            "娴嬭瘯璁板綍",
-            "璁″垝鍒嗛厤",
+            "运动员",
+            "测试记录",
+            "计划分配",
             "training sessions",
-            "缁勮褰?,
+            "组记录",
         ],
     )
     with SessionLocal() as db:
@@ -297,4 +313,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -241,10 +241,9 @@ def assignment_overview(db: Session, target_date: date) -> dict:
         )
         .filter(
             AthletePlanAssignment.status == "active",
-            AthletePlanAssignment.start_date <= target_date,
             AthletePlanAssignment.end_date >= target_date,
         )
-        .order_by(AthletePlanAssignment.start_date.desc(), AthletePlanAssignment.id.desc())
+        .order_by(AthletePlanAssignment.start_date.asc(), AthletePlanAssignment.id.asc())
         .all()
     )
 
@@ -257,6 +256,7 @@ def assignment_overview(db: Session, target_date: date) -> dict:
                 "template": assignment.template,
                 "start_date": assignment.start_date,
                 "end_date": assignment.end_date,
+                "group_status": "active_now" if assignment.start_date <= target_date else "upcoming",
                 "entries": [],
                 "athletes": [],
                 "assignment_ids": [],
@@ -285,11 +285,10 @@ def assignment_overview(db: Session, target_date: date) -> dict:
 
     assignment_groups.sort(
         key=lambda group: (
+            0 if group["group_status"] == "active_now" else 1,
             group["start_date"],
-            group["end_date"],
             group["template"].name.lower(),
         ),
-        reverse=True,
     )
 
     assigned_ids = {assignment.athlete_id for assignment in assignments}

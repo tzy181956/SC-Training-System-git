@@ -1,7 +1,85 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   preview: any | null
+  selectedTemplate: any | null
 }>()
+
+const displayTemplate = computed(() => props.preview?.template ?? props.selectedTemplate ?? null)
+const hasGeneratedPreview = computed(() => Boolean(props.preview))
+
+const athleteSummaries = computed(() =>
+  (props.preview?.rows ?? []).map((row: any) => ({
+    id: row.athlete.id,
+    fullName: row.athlete.full_name,
+    teamName: row.athlete.team?.name || '未分队',
+  })),
+)
+
+const previewItems = computed(() => {
+  const templateItems = displayTemplate.value?.items ?? []
+  const firstRowItems = new Map<number, any>(
+    (props.preview?.rows?.[0]?.items ?? []).map((item: any) => [item.template_item_id, item]),
+  )
+
+  return templateItems.map((item: any) => {
+    const previewItem = firstRowItems.get(item.id)
+    return {
+      id: item.id,
+      exerciseName: item.exercise?.name || previewItem?.exercise_name || '未命名动作',
+      loadModeLabel: buildLoadRuleLabel(item, previewItem),
+      detailText: buildLoadDetailText(item),
+    }
+  })
+})
+
+const missingBasisGroups = computed(() =>
+  (props.preview?.rows ?? [])
+    .map((row: any) => {
+      const missingItems = (row.items ?? []).filter((item: any) => item.status === 'missing_basis')
+      if (!missingItems.length) {
+        return null
+      }
+      return {
+        athleteId: row.athlete.id,
+        fullName: row.athlete.full_name,
+        teamName: row.athlete.team?.name || '未分队',
+        exerciseNames: missingItems.map((item: any) => item.exercise_name),
+      }
+    })
+    .filter(Boolean),
+)
+
+const missingBasisCount = computed(() => missingBasisGroups.value.length)
+
+function buildLoadRuleLabel(templateItem: any, previewItem?: any) {
+  if (templateItem.initial_load_mode === 'fixed_weight') {
+    return '固定重量'
+  }
+  if (templateItem.initial_load_mode === 'percent_1rm') {
+    return '按最近测试百分比'
+  }
+  return previewItem?.load_mode_label || '训练时设置'
+}
+
+function buildLoadDetailText(templateItem: any) {
+  const value = templateItem.initial_load_value
+  if (templateItem.initial_load_mode === 'fixed_weight') {
+    return value === null || value === undefined ? '固定重量未设置' : `${formatNumber(value)} 公斤`
+  }
+  if (templateItem.initial_load_mode === 'percent_1rm') {
+    return value === null || value === undefined ? '按最近测试结果计算' : `按最近测试的 ${formatNumber(value)}%`
+  }
+  return '训练时设置'
+}
+
+function formatNumber(value: number) {
+  if (Number.isInteger(value)) {
+    return `${value}`
+  }
+  return `${value}`.replace(/\.?0+$/, '')
+}
 </script>
 
 <template>
@@ -11,40 +89,79 @@ defineProps<{
         <p class="eyebrow">第四步</p>
         <h3>分配预览</h3>
       </div>
-      <div v-if="preview" class="meta">
-        <span>{{ preview.start_date }} 至 {{ preview.end_date }}</span>
-        <strong>{{ preview.template.name }}</strong>
+      <div v-if="displayTemplate" class="meta">
+        <span v-if="preview">{{ preview.start_date }} 至 {{ preview.end_date }}</span>
+        <span v-else>已加载模板内容</span>
+        <strong>{{ displayTemplate.name }}</strong>
       </div>
     </div>
 
-    <div v-if="!preview" class="empty-state">
-      <h4>请先完成前面的选择</h4>
-      <p>选择运动员、模板和周期后，将在这里展示批量分配的详细预览。</p>
+    <div v-if="!displayTemplate" class="empty-state">
+      <h4>请先选择训练模板</h4>
+      <p>模板一经选中，这里就会先显示模板内容；选择队员和时间范围后，会继续显示完整分配预览。</p>
     </div>
 
     <div v-else class="preview-body">
-      <article v-for="row in preview.rows" :key="row.athlete.id" class="preview-card">
-        <header class="card-head">
+      <article v-if="hasGeneratedPreview" class="preview-card">
+        <div class="card-head">
           <div>
-            <strong>{{ row.athlete.full_name }}</strong>
-            <span>{{ row.athlete.team?.name || '未分组' }} / {{ row.athlete.position || '未填写位置' }}</span>
+            <p class="eyebrow">将分配给以下队员</p>
+            <h4>共 {{ athleteSummaries.length }} 人</h4>
           </div>
-        </header>
+        </div>
+        <div class="athlete-list">
+          <div v-for="athlete in athleteSummaries" :key="athlete.id" class="athlete-chip">
+            <strong>{{ athlete.fullName }}</strong>
+            <span>{{ athlete.teamName }}</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="preview-card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">本次分配的训练模板</p>
+            <h4>{{ displayTemplate.name }}</h4>
+          </div>
+        </div>
+        <p v-if="displayTemplate.description" class="template-description">{{ displayTemplate.description }}</p>
         <div class="item-grid">
-          <div
-            v-for="item in row.items"
-            :key="`${row.athlete.id}-${item.template_item_id}`"
-            class="item-row"
-            :class="{ warning: item.status === 'missing_basis' }"
-          >
+          <div v-for="item in previewItems" :key="item.id" class="item-row">
             <div>
-              <strong>{{ item.exercise_name }}</strong>
-              <p>{{ item.load_mode_label }}</p>
+              <strong>{{ item.exerciseName }}</strong>
+              <p>{{ item.loadModeLabel }}</p>
             </div>
             <div class="item-side">
-              <span>{{ item.computed_load ?? '--' }} <template v-if="item.computed_load !== null">公斤</template></span>
-              <small>{{ item.basis_label || (item.status === 'missing_basis' ? '缺少测试基准' : '可分配') }}</small>
+              <span>{{ item.detailText }}</span>
             </div>
+          </div>
+        </div>
+      </article>
+
+      <article v-if="!hasGeneratedPreview" class="preview-card helper-panel">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">下一步</p>
+            <h4>继续选择队员和时间范围</h4>
+          </div>
+        </div>
+        <p class="muted">当前先展示模板内容。选择队员和时间范围后，这里会继续显示分配对象与异常提示。</p>
+      </article>
+
+      <article v-if="hasGeneratedPreview && missingBasisGroups.length" class="preview-card warning-panel">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">需要先补齐的测试基准</p>
+            <h4>{{ missingBasisCount }} 名队员存在缺失项</h4>
+          </div>
+        </div>
+        <div class="warning-list">
+          <div v-for="group in missingBasisGroups" :key="group.athleteId" class="warning-row">
+            <div>
+              <strong>{{ group.fullName }}</strong>
+              <span>{{ group.teamName }}</span>
+            </div>
+            <small>{{ group.exerciseNames.join('、') }}</small>
           </div>
         </div>
       </article>
@@ -56,7 +173,9 @@ defineProps<{
 .preview-panel,
 .preview-body,
 .preview-card,
-.item-grid {
+.item-grid,
+.athlete-list,
+.warning-list {
   display: grid;
   gap: 14px;
 }
@@ -72,9 +191,10 @@ defineProps<{
 
 .eyebrow,
 .meta span,
-.card-head span,
+.athlete-chip span,
 .item-row p,
-.item-side small {
+.warning-row span,
+.warning-row small {
   margin: 0;
   color: var(--text-soft);
   font-size: 13px;
@@ -93,24 +213,66 @@ defineProps<{
   background: var(--panel-soft);
 }
 
-.item-row {
+.template-description {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.athlete-list {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.athlete-chip,
+.item-row,
+.warning-row {
   display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.item-row {
   grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: center;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.7);
 }
 
-.item-row.warning {
-  border: 1px solid rgba(220, 38, 38, 0.22);
-  background: rgba(254, 226, 226, 0.7);
+.warning-panel {
+  border: 1px solid rgba(220, 38, 38, 0.16);
+  background: rgba(254, 242, 242, 0.86);
+}
+
+.helper-panel {
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: rgba(240, 253, 250, 0.8);
+}
+
+.warning-list {
+  gap: 10px;
+}
+
+.warning-row {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .empty-state {
   padding: 28px;
   border-radius: 18px;
   background: var(--panel-soft);
+}
+
+@media (max-width: 900px) {
+  .item-row,
+  .warning-row {
+    grid-template-columns: 1fr;
+  }
+
+  .item-side {
+    text-align: left;
+  }
 }
 </style>
