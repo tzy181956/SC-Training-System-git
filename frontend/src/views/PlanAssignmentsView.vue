@@ -28,8 +28,8 @@ const preview = ref<any | null>(null)
 const loadingPreview = ref(false)
 const submitting = ref(false)
 const cancelling = ref(false)
-const cancelTargetAthleteId = ref<number | null>(null)
-const confirmCancelAssignmentId = ref<number | null>(null)
+const selectedAssignmentsByGroupKey = ref<Record<string, number[]>>({})
+const confirmDeleteGroupKey = ref<string | null>(null)
 
 const filters = reactive({
   sportId: 0,
@@ -103,15 +103,27 @@ const assignedEntriesByAthleteId = computed(() => {
   })
   return map
 })
-const cancelTargetAthlete = computed(() =>
-  cancelTargetAthleteId.value ? athletes.value.find((athlete) => athlete.id === cancelTargetAthleteId.value) || null : null,
-)
-const cancelTargetAssignments = computed(() =>
-  cancelTargetAthleteId.value ? assignedEntriesByAthleteId.value.get(cancelTargetAthleteId.value) ?? [] : [],
-)
 const previewHasMissingBasis = computed(() =>
   Boolean(preview.value?.rows.some((row: any) => row.items.some((item: any) => item.status === 'missing_basis'))),
 )
+
+function getGroupKey(group: any) {
+  return group.assignment_ids.join('-')
+}
+
+function getSelectedAssignmentIds(group: any) {
+  return selectedAssignmentsByGroupKey.value[getGroupKey(group)] ?? []
+}
+
+function getSelectedCount(group: any) {
+  return getSelectedAssignmentIds(group).length
+}
+
+function isGroupAthleteSelected(group: any, athleteId: number) {
+  const selectedIds = getSelectedAssignmentIds(group)
+  const entry = group.entries.find((item: any) => item.athlete.id === athleteId)
+  return Boolean(entry && selectedIds.includes(entry.assignment_id))
+}
 
 async function hydrate() {
   const [athleteData, templateData, sportData, teamData] = await Promise.all([
@@ -129,10 +141,8 @@ async function hydrate() {
 
 async function loadOverview() {
   overview.value = await fetchAssignmentOverview(form.start_date)
-  if (cancelTargetAthleteId.value && !(assignedEntriesByAthleteId.value.get(cancelTargetAthleteId.value)?.length)) {
-    cancelTargetAthleteId.value = null
-    confirmCancelAssignmentId.value = null
-  }
+  selectedAssignmentsByGroupKey.value = {}
+  confirmDeleteGroupKey.value = null
 }
 
 function toggleAthlete(id: number) {
@@ -146,26 +156,45 @@ function toggleAthlete(id: number) {
 function handleAthleteCardClick(athlete: any) {
   const assignedEntries = assignedEntriesByAthleteId.value.get(athlete.id) ?? []
   if (assignedEntries.length) {
-    cancelTargetAthleteId.value = cancelTargetAthleteId.value === athlete.id ? null : athlete.id
-    confirmCancelAssignmentId.value = null
     return
   }
   toggleAthlete(athlete.id)
 }
 
-function requestCancelAssignment(assignmentId: number) {
-  confirmCancelAssignmentId.value = assignmentId
+function toggleGroupAthlete(group: any, athleteId: number) {
+  const entry = group.entries.find((item: any) => item.athlete.id === athleteId)
+  if (!entry) return
+
+  const key = getGroupKey(group)
+  const current = selectedAssignmentsByGroupKey.value[key] ?? []
+  selectedAssignmentsByGroupKey.value = {
+    ...selectedAssignmentsByGroupKey.value,
+    [key]: current.includes(entry.assignment_id)
+      ? current.filter((assignmentId) => assignmentId !== entry.assignment_id)
+      : [...current, entry.assignment_id],
+  }
+
+  if (!selectedAssignmentsByGroupKey.value[key].length && confirmDeleteGroupKey.value === key) {
+    confirmDeleteGroupKey.value = null
+  }
 }
 
-function resetCancelFlow() {
-  confirmCancelAssignmentId.value = null
+function requestDeleteGroupAssignments(group: any) {
+  if (!getSelectedCount(group)) return
+  confirmDeleteGroupKey.value = getGroupKey(group)
 }
 
-async function cancelAssignment(assignmentId: number) {
+function resetGroupDeleteFlow() {
+  confirmDeleteGroupKey.value = null
+}
+
+async function cancelSelectedGroupAssignments(group: any) {
+  const assignmentIds = getSelectedAssignmentIds(group)
+  if (!assignmentIds.length) return
+
   cancelling.value = true
   try {
-    await cancelBatchAssignments([assignmentId])
-    confirmCancelAssignmentId.value = null
+    await cancelBatchAssignments(assignmentIds)
     await loadOverview()
   } finally {
     cancelling.value = false
@@ -229,7 +258,7 @@ watch(
 )
 
 watch(
-  () => [form.start_date, form.end_date, form.template_id, form.athlete_ids.join(',')],
+  () => [form.start_date, form.end_date, form.template_id, form.athlete_ids.join(','), form.notes],
   async () => {
     await generatePreview()
   },
@@ -276,7 +305,7 @@ onMounted(hydrate)
           <article class="summary-card">
             <span class="summary-label">已有计划人数</span>
             <strong>{{ overview.assigned_count }}</strong>
-            <small>在下方队员卡片中直接打开并取消计划</small>
+            <small>在上方计划组中选择队员后删除分配</small>
           </article>
           <article class="summary-card">
             <span class="summary-label">当前与后续计划组</span>
@@ -315,12 +344,46 @@ onMounted(hydrate)
                 </div>
                 <p v-if="group.template.description" class="muted">{{ group.template.description }}</p>
                 <div class="athlete-chip-list">
-                  <span v-for="athlete in group.athletes" :key="athlete.id" class="athlete-chip">
+                  <button
+                    v-for="athlete in group.athletes"
+                    :key="athlete.id"
+                    class="athlete-chip athlete-chip--selectable"
+                    :class="{ 'athlete-chip--selected': isGroupAthleteSelected(group, athlete.id) }"
+                    type="button"
+                    @click="toggleGroupAthlete(group, athlete.id)"
+                  >
                     {{ athlete.full_name }}
                     <small v-if="athlete.team?.name"> / {{ athlete.team.name }}</small>
-                  </span>
+                  </button>
                 </div>
                 <p v-if="group.notes.length" class="group-notes">备注：{{ group.notes.join('；') }}</p>
+                <div class="group-delete-row">
+                  <span v-if="getSelectedCount(group)" class="muted">已选 {{ getSelectedCount(group) }} 人</span>
+                  <span v-else class="muted">在组内选择队员后可删除分配</span>
+                  <div class="group-delete-actions">
+                    <template v-if="confirmDeleteGroupKey === getGroupKey(group)">
+                      <span class="warning-text">确认删除当前所选 {{ getSelectedCount(group) }} 人的计划？</span>
+                      <button class="ghost-btn slim" type="button" :disabled="cancelling" @click="resetGroupDeleteFlow">取消</button>
+                      <button
+                        class="ghost-btn slim danger-btn"
+                        type="button"
+                        :disabled="cancelling"
+                        @click="cancelSelectedGroupAssignments(group)"
+                      >
+                        {{ cancelling ? '删除中...' : '确认删除' }}
+                      </button>
+                    </template>
+                    <button
+                      v-else
+                      class="ghost-btn slim danger-btn"
+                      type="button"
+                      :disabled="!getSelectedCount(group) || cancelling"
+                      @click="requestDeleteGroupAssignments(group)"
+                    >
+                      删除分配
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
             <div v-else class="overview-empty">
@@ -381,7 +444,6 @@ onMounted(hydrate)
                   :class="{
                     active: form.athlete_ids.includes(athlete.id),
                     'athlete-card--assigned': (assignedEntriesByAthleteId.get(athlete.id)?.length ?? 0) > 0,
-                    'athlete-card--managing': cancelTargetAthleteId === athlete.id,
                   }"
                   type="button"
                   @click="handleAthleteCardClick(athlete)"
@@ -389,41 +451,10 @@ onMounted(hydrate)
                   <strong>{{ athlete.full_name }}</strong>
                   <span>{{ athlete.team?.name || '未分队' }}</span>
                   <small v-if="assignedEntriesByAthleteId.get(athlete.id)?.length">
-                    已安排 {{ assignedEntriesByAthleteId.get(athlete.id)?.length }} 条计划，点击管理
+                    已安排 {{ assignedEntriesByAthleteId.get(athlete.id)?.length }} 条计划，请在上方概览中删除
                   </small>
                   <small v-else>{{ form.athlete_ids.includes(athlete.id) ? '已加入本次分配' : '点击加入本次分配' }}</small>
                 </button>
-              </div>
-              <div v-if="cancelTargetAthlete && cancelTargetAssignments.length" class="cancel-panel">
-                <div class="section-head section-head--tight">
-                  <div>
-                    <p class="eyebrow">已分配计划</p>
-                    <h4>管理 {{ cancelTargetAthlete.full_name }} 的当前与后续计划</h4>
-                  </div>
-                  <button class="ghost-btn slim dark-btn" type="button" @click="cancelTargetAthleteId = null">关闭</button>
-                </div>
-                <p class="muted">点击删除按钮后还需要再次确认。取消后，这条计划将不再计入当前与后续有效计划。</p>
-                <div class="cancel-list">
-                  <div v-for="entry in cancelTargetAssignments" :key="entry.assignment_id" class="cancel-row">
-                    <div class="cancel-main">
-                      <strong>{{ entry.template.name }}</strong>
-                      <span>{{ entry.start_date }} 至 {{ entry.end_date }}</span>
-                      <small>{{ entry.notes || '无分配备注' }}</small>
-                    </div>
-                    <div class="cancel-actions">
-                      <template v-if="confirmCancelAssignmentId === entry.assignment_id">
-                        <span class="warning-text">确认删除这条计划？</span>
-                        <button class="ghost-btn slim" type="button" :disabled="cancelling" @click="resetCancelFlow">取消</button>
-                        <button class="ghost-btn slim danger-btn" type="button" :disabled="cancelling" @click="cancelAssignment(entry.assignment_id)">
-                          {{ cancelling ? '删除中...' : '确认删除' }}
-                        </button>
-                      </template>
-                      <button v-else class="ghost-btn slim danger-btn" type="button" :disabled="cancelling" @click="requestCancelAssignment(entry.assignment_id)">
-                        删除计划
-                      </button>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -455,7 +486,6 @@ onMounted(hydrate)
                 </label>
               </div>
               <div class="submit-row">
-                <button class="ghost-btn slim dark-btn" type="button" @click="generatePreview">刷新预览</button>
                 <button class="primary-btn" type="button" :disabled="!preview || previewHasMissingBasis || submitting" @click="submitAssignments">
                   {{ submitting ? '正在提交...' : '确认分配计划' }}
                 </button>
@@ -480,8 +510,7 @@ onMounted(hydrate)
 .group-list,
 .unassigned-list,
 .wizard-panel,
-.section-block,
-.cancel-list {
+.section-block {
   display: grid;
   gap: 16px;
 }
@@ -539,8 +568,7 @@ onMounted(hydrate)
 .overview-row span,
 .athlete-card span,
 .athlete-card small,
-.preview-row span,
-.cancel-main small {
+.preview-row span {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
@@ -609,14 +637,41 @@ onMounted(hydrate)
 .athlete-chip,
 .overview-row,
 .preview-row,
-.athlete-card,
-.cancel-row {
+.athlete-card {
   display: grid;
   gap: 4px;
   text-align: left;
   padding: 14px 16px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.athlete-chip {
+  width: 100%;
+  border: 1px solid transparent;
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.athlete-chip:hover {
+  border-color: rgba(15, 118, 110, 0.18);
+}
+
+.athlete-chip--selected {
+  background: rgba(254, 226, 226, 0.9);
+  border-color: rgba(185, 28, 28, 0.24);
+  color: #7f1d1d;
+}
+
+.athlete-chip--selected small {
+  color: #991b1b;
 }
 
 .overview-card--primary {
@@ -654,6 +709,7 @@ onMounted(hydrate)
 .athlete-card {
   border: 1px solid transparent;
   background: var(--panel-soft);
+  cursor: pointer;
 }
 
 .athlete-card.active {
@@ -664,11 +720,7 @@ onMounted(hydrate)
 .athlete-card--assigned {
   background: rgba(239, 246, 255, 0.82);
   border-color: rgba(59, 130, 246, 0.2);
-}
-
-.athlete-card--managing {
-  background: rgba(224, 231, 255, 0.8);
-  border-color: rgba(79, 70, 229, 0.24);
+  cursor: default;
 }
 
 .field {
@@ -709,35 +761,17 @@ onMounted(hydrate)
   padding: 14px 16px;
 }
 
-.cancel-panel {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.86);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.cancel-list {
-  gap: 12px;
-}
-
-.cancel-row {
-  grid-template-columns: 1fr auto;
+.group-delete-row,
+.group-delete-actions {
+  display: flex;
   align-items: center;
-  gap: 16px;
-  background: rgba(255, 255, 255, 0.82);
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.cancel-main,
-.cancel-actions {
-  display: grid;
-  gap: 6px;
-}
-
-.cancel-actions {
-  justify-items: end;
-  text-align: right;
+.group-delete-actions {
+  justify-content: flex-end;
 }
 
 .unassigned-list-wrap {
@@ -788,14 +822,8 @@ onMounted(hydrate)
   .summary-grid,
   .athlete-grid,
   .athlete-chip-list,
-  .grid.three,
-  .cancel-row {
+  .grid.three {
     grid-template-columns: 1fr;
-  }
-
-  .cancel-actions {
-    text-align: left;
-    justify-items: start;
   }
 }
 </style>
