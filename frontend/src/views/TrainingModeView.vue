@@ -85,7 +85,19 @@ async function loadPlans() {
 async function openPlanById(assignmentId: number) {
   trainingStore.setPreviewAssignment(assignmentId)
   const session = await trainingStore.openPlanSession(assignmentId, trainingStore.sessionDate)
-  router.push({ name: 'training-session', params: { sessionId: session.id } })
+  if (session.id) {
+    router.push({ name: 'training-session', params: { sessionId: session.id } })
+    return
+  }
+
+  router.push({
+    name: 'training-session',
+    query: {
+      assignmentId: String(assignmentId),
+      athleteId: String(trainingStore.selectedAthleteId),
+      sessionDate: trainingStore.sessionDate,
+    },
+  })
 }
 
 function syncTeamFilter() {

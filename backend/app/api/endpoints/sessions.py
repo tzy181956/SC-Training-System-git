@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.schemas.training_session import (
+    SessionFullSyncPayload,
+    SessionFullSyncResponse,
     SessionRead,
+    SessionSnapshotRead,
+    SessionSetSyncOperation,
+    SessionSetSyncResponse,
     SetRecordCreate,
     SetRecordUpdate,
     SetRecordUpdateResponse,
@@ -40,17 +45,17 @@ def list_training_plans(
     return {"athlete": athlete, "session_date": session_date or date.today(), "assignments": assignments}
 
 
-@router.post("/plans/{assignment_id}/session", response_model=SessionRead)
-def start_plan_session(
+@router.post("/plans/{assignment_id}/session", response_model=SessionSnapshotRead)
+def open_plan_session(
     assignment_id: int,
     session_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
     _=Depends(require_roles("training", "coach")),
 ):
-    return session_service.get_or_create_session_for_assignment(db, assignment_id, session_date or date.today())
+    return session_service.open_session_for_assignment(db, assignment_id, session_date or date.today())
 
 
-@router.get("/today", response_model=SessionRead)
+@router.get("/today", response_model=SessionSnapshotRead)
 def get_today_session(
     athlete_id: int = Query(...),
     session_date: date | None = Query(default=None),
@@ -94,6 +99,54 @@ def update_set_record(
         "session_status": session.status,
         "session_completed_at": session.completed_at,
     }
+
+
+@router.post("/session-sync", response_model=SessionSetSyncResponse)
+def sync_session_operation(
+    payload: SessionSetSyncOperation,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    record, next_suggestion, item, session = session_service.sync_session_operation(db, payload)
+    return {
+        "record": record,
+        "next_suggestion": next_suggestion,
+        "item": item,
+        "session": session,
+        "session_status": session.status,
+        "session_completed_at": session.completed_at,
+        "operation_type": payload.operation_type,
+        "local_record_id": payload.local_record_id,
+        "sync_status": "synced",
+    }
+
+
+@router.post("/session-sync/full", response_model=SessionFullSyncResponse)
+def sync_session_snapshot(
+    payload: SessionFullSyncPayload,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    session, conflict_logged = session_service.sync_session_snapshot(db, payload)
+    return {
+        "session": session,
+        "session_status": session.status,
+        "session_completed_at": session.completed_at,
+        "sync_status": "synced",
+        "sync_mode": "full",
+        "conflict_logged": conflict_logged,
+    }
+
+
+@router.post("/sessions/{session_id}/sync-set", response_model=SessionSetSyncResponse)
+def sync_session_set(
+    session_id: int,
+    payload: SessionSetSyncOperation,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    payload.session_id = session_id
+    return sync_session_operation(payload, db, _)
 
 
 @router.post("/session-items/{item_id}/complete", response_model=SessionRead)

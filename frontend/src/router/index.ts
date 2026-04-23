@@ -26,7 +26,7 @@ const router = createRouter({
     { path: '/tests', name: 'tests', component: TestRecordsView },
     { path: '/training-mode', name: 'training-mode', component: TrainingModeView },
     {
-      path: '/training-mode/session/:sessionId',
+      path: '/training-mode/session/:sessionId?',
       name: 'training-session',
       component: TrainingSessionView,
     },

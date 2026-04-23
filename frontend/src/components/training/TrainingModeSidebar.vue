@@ -14,6 +14,8 @@ const emit = defineEmits<{
 function statusLabel(status?: string) {
   if (status === 'completed') return '已完成'
   if (status === 'in_progress') return '进行中'
+  if (status === 'partial_complete') return '未完成'
+  if (status === 'absent') return '缺席'
   if (status === 'not_started') return '未开始'
   return '无计划'
 }
@@ -161,6 +163,16 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
   color: #92400e;
 }
 
+.status-pill.partial_complete {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.status-pill.absent {
+  background: #e5e7eb;
+  color: #374151;
+}
+
 .status-pill.not_started {
   background: #fee2e2;
   color: #b91c1c;
@@ -238,6 +250,14 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
 
 .inline-plan.in_progress .plan-dot {
   background: #f59e0b;
+}
+
+.inline-plan.partial_complete .plan-dot {
+  background: #ef4444;
+}
+
+.inline-plan.absent .plan-dot {
+  background: #6b7280;
 }
 
 .inline-plan.not_started .plan-dot {

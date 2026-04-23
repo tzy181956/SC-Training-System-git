@@ -12,6 +12,8 @@
 - 测试数据记录与查看
 - Windows 一键初始化与一键启动
 - 同局域网访问训练模式
+- 训练端整课本地草稿保存与恢复
+- 训练端单组增量补传与后台静默重试（最小闭环）
 
 ## 当前使用方式
 
@@ -59,6 +61,25 @@
 - 安装后端依赖
 - 创建或补齐数据库结构
 - 安装前端依赖
+
+## 数据库迁移
+
+项目现在已经接入正式迁移脚手架（Alembic 基线 + 迁移入口脚本）。
+
+推荐命令：
+
+```powershell
+cd backend
+set PYTHONPATH=.
+.\.venv\Scripts\python.exe scripts\migrate_db.py bootstrap
+```
+
+说明：
+
+- 对当前已有业务库：先自动备份，再将现库标记到基线 revision
+- 对新库：先自动备份（如存在），再执行 `upgrade head`
+- 迁移规划与第一阶段新增表/字段说明见：
+  - `docs/phase1-database-migrations.md`
 
 ## 训练模式访问
 

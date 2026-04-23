@@ -14,7 +14,7 @@ class TrainingSession(BaseModel):
     assignment_id: Mapped[int] = mapped_column(ForeignKey("athlete_plan_assignments.id"), nullable=False)
     template_id: Mapped[int] = mapped_column(ForeignKey("training_plan_templates.id"), nullable=False)
     session_date: Mapped[date] = mapped_column(Date, nullable=False)
-    status: Mapped[str] = mapped_column(String(30), default="in_progress", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="not_started", nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     coach_note: Mapped[str | None] = mapped_column(Text)

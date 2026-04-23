@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from pydantic import BaseModel
+from typing import Literal
 
 from app.schemas.assignment import AssignmentRead
 from app.schemas.athlete import AthleteRead
@@ -34,6 +35,61 @@ class SetRecordUpdate(BaseModel):
     notes: str | None = None
 
 
+class SessionSetSyncOperation(BaseModel):
+    operation_type: Literal['create_set', 'update_set', 'complete_session']
+    assignment_id: int | None = None
+    session_date: date | None = None
+    template_item_id: int | None = None
+    session_id: int | None = None
+    session_item_id: int | None = None
+    record_id: int | None = None
+    local_record_id: int | None = None
+    actual_weight: float | None = None
+    actual_reps: int | None = None
+    actual_rir: int | None = None
+    final_weight: float | None = None
+    notes: str | None = None
+
+
+class SessionFullSyncRecord(BaseModel):
+    set_number: int
+    actual_weight: float
+    actual_reps: int
+    actual_rir: int
+    final_weight: float
+    notes: str | None = None
+    completed_at: datetime
+
+
+class SessionFullSyncItem(BaseModel):
+    template_item_id: int
+    exercise_id: int
+    sort_order: int
+    prescribed_sets: int
+    prescribed_reps: int
+    target_note: str | None = None
+    is_main_lift: bool
+    enable_auto_load: bool
+    status: str
+    initial_load: float | None = None
+    records: list[SessionFullSyncRecord] = []
+
+
+class SessionFullSyncPayload(BaseModel):
+    assignment_id: int
+    athlete_id: int
+    template_id: int | None = None
+    session_date: date
+    session_id: int | None = None
+    status: str
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    last_server_updated_at: datetime | None = None
+    last_server_signature: str | None = None
+    trigger_reason: Literal['manual', 'fallback'] = 'manual'
+    items: list[SessionFullSyncItem] = []
+
+
 class SetRecordRead(ORMModel):
     id: int
     set_number: int
@@ -50,8 +106,8 @@ class SetRecordRead(ORMModel):
     notes: str | None = None
 
 
-class SessionItemRead(ORMModel):
-    id: int
+class SessionItemSnapshotRead(ORMModel):
+    id: int | None = None
     template_item_id: int
     sort_order: int
     prescribed_sets: int
@@ -65,17 +121,27 @@ class SessionItemRead(ORMModel):
     records: list[SetRecordRead] = []
 
 
-class SessionRead(ORMModel):
-    id: int
+class SessionSnapshotRead(ORMModel):
+    id: int | None = None
     athlete_id: int
     assignment_id: int
     template_id: int
     session_date: date
     status: str
+    updated_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     coach_note: str | None = None
     athlete_note: str | None = None
+    items: list[SessionItemSnapshotRead] = []
+
+
+class SessionItemRead(SessionItemSnapshotRead):
+    id: int
+
+
+class SessionRead(SessionSnapshotRead):
+    id: int
     items: list[SessionItemRead] = []
 
 
@@ -110,3 +176,24 @@ class SetRecordUpdateResponse(BaseModel):
     session: SessionRead
     session_status: str
     session_completed_at: datetime | None = None
+
+
+class SessionSetSyncResponse(BaseModel):
+    record: SetRecordRead | None = None
+    next_suggestion: SuggestionRead | None = None
+    item: SessionItemRead | None = None
+    session: SessionRead
+    session_status: str
+    session_completed_at: datetime | None = None
+    operation_type: Literal['create_set', 'update_set', 'complete_session']
+    local_record_id: int | None = None
+    sync_status: Literal['synced'] = 'synced'
+
+
+class SessionFullSyncResponse(BaseModel):
+    session: SessionRead
+    session_status: str
+    session_completed_at: datetime | None = None
+    sync_status: Literal['synced'] = 'synced'
+    sync_mode: Literal['full'] = 'full'
+    conflict_logged: bool = False

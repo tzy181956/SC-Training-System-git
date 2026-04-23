@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Athlete, SetRecord, TrainingSession, TrainingSessionItem
+from app.models import Athlete, SetRecord, TrainingSession, TrainingSessionItem, TrainingSyncConflict
 
 
 def get_training_report(
@@ -39,6 +39,7 @@ def get_training_report(
     summary = _build_summary(sessions)
     trend = _build_trends(sessions)
     flags = _build_flags(sessions, athlete.full_name)
+    flags.extend(_build_sync_conflict_flags(db, athlete_id, date_from, date_to))
 
     return {
         "athlete": athlete,
@@ -99,7 +100,7 @@ def _build_session_payload(session: TrainingSession) -> dict:
         "id": session.id,
         "session_date": session.session_date,
         "template_name": getattr(getattr(session, "template", None), "name", None) or f"计划 {session.template_id}",
-        "status": _format_session_status(session.status),
+        "status": _format_training_session_status(session.status),
         "completed_items": completed_items,
         "total_items": total_items,
         "completed_sets": completed_sets,
@@ -225,12 +226,51 @@ def _build_flags(sessions: list[TrainingSession], athlete_name: str) -> list[dic
     return flags
 
 
+def _build_sync_conflict_flags(db: Session, athlete_id: int, date_from: date, date_to: date) -> list[dict]:
+    conflicts = (
+        db.query(TrainingSyncConflict)
+        .filter(
+            TrainingSyncConflict.athlete_id == athlete_id,
+            TrainingSyncConflict.session_date >= date_from,
+            TrainingSyncConflict.session_date <= date_to,
+        )
+        .order_by(TrainingSyncConflict.created_at.desc(), TrainingSyncConflict.id.desc())
+        .limit(6)
+        .all()
+    )
+    return [
+        {
+            "level": "注意",
+            "title": f"{conflict.session_date} 检测到同步冲突",
+            "description": (
+                "整堂课兜底同步已按本地草稿覆盖后端。"
+                "请教练或管理员复核这堂课的记录是否需要人工确认。"
+            ),
+        }
+        for conflict in conflicts
+    ]
+
+
 def _resolve_adjustment_type(record: SetRecord) -> str:
     if record.user_decision == "accepted":
         return "按建议执行"
     if record.suggestion_weight is not None and record.final_weight == record.suggestion_weight:
         return "按建议调整"
     return "偏离建议调整"
+
+
+def _format_training_session_status(status: str) -> str:
+    if status in {"not_started", "pending"}:
+        return "未开始"
+    if status == "completed":
+        return "已完成"
+    if status == "in_progress":
+        return "进行中"
+    if status == "absent":
+        return "缺席"
+    if status == "partial_complete":
+        return "未完全完成"
+    return "未知状态"
 
 
 def _format_session_status(status: str) -> str:

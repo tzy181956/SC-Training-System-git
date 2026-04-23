@@ -1,12 +1,9 @@
-from app.core.database import Base, engine
-from app.core.schema_sync import ensure_runtime_schema
-from app.models import *  # noqa: F401,F403
+from scripts.migrate_db import bootstrap_database
 
 
 def main() -> None:
-    Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema()
-    print("Database schema ensured.")
+    bootstrap_database()
+    print("Database migration bootstrap finished.")
 
 
 if __name__ == "__main__":

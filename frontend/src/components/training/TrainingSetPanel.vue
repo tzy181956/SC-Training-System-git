@@ -5,7 +5,7 @@ const props = defineProps<{
   item: any | null
   suggestion?: any | null
   onSubmitCurrentSet?: ((payload: Record<string, unknown>) => Promise<any>) | null
-  onUpdateRecord?: ((recordId: number, payload: Record<string, unknown>) => Promise<void>) | null
+  onUpdateRecord?: ((recordId: number, payload: Record<string, unknown>) => Promise<any>) | null
 }>()
 
 const currentDraft = reactive({
@@ -173,9 +173,13 @@ async function saveCurrentSet() {
     const response = await props.onSubmitCurrentSet(result.payload)
     currentDraftDirty.value = false
     currentSetFeedback.value =
-      response?.item?.status === 'completed'
-        ? '已保存，当前动作已完成。'
-        : `已保存，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
+      response?.local_only
+        ? response?.item?.status === 'completed'
+          ? '已保存到本机，后台会继续补传，当前动作已完成。'
+          : `已保存到本机，后台会继续补传，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
+        : response?.item?.status === 'completed'
+          ? '已保存，当前动作已完成。'
+          : `已保存，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
   } catch {
     currentSetError.value = '当前组保存失败，请重试。'
     currentSetFeedback.value = ''

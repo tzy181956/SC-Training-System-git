@@ -97,12 +97,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [3/5] Initialize database schema...
+echo [3/5] Bootstrap database migrations...
 set "PYTHONPATH=."
 "%VENV_PYTHON%" scripts\init_db.py
 if errorlevel 1 (
   popd
-  echo [ERROR] Failed to initialize database schema.
+  echo [ERROR] Failed to bootstrap database migrations.
   pause
   exit /b 1
 )
