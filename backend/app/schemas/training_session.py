@@ -129,6 +129,7 @@ class SessionSnapshotRead(ORMModel):
     session_date: date
     status: str
     updated_at: datetime | None = None
+    server_signature: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     coach_note: str | None = None

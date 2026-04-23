@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session, joinedload
@@ -59,7 +61,7 @@ def open_session_for_assignment(db: Session, assignment_id: int, session_date: d
     if existing:
         _sync_session_state(existing)
         db.commit()
-        return existing
+        return _attach_session_signature(existing)
     return _build_session_preview(assignment, session_date)
 
 
@@ -120,6 +122,7 @@ def _build_session_preview(assignment, session_date: date) -> dict:
         "session_date": session_date,
         "status": NOT_STARTED_SESSION_STATUS,
         "updated_at": None,
+        "server_signature": None,
         "started_at": None,
         "completed_at": None,
         "coach_note": None,
@@ -179,7 +182,7 @@ def get_session(db: Session, session_id: int) -> TrainingSession:
         raise not_found("Training session not found")
     _sync_session_state(session)
     db.commit()
-    return session
+    return _attach_session_signature(session)
 
 
 def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
@@ -543,18 +546,26 @@ def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: S
         return False
 
     remote_has_data = any(item["records"] for item in remote_snapshot["items"]) or remote_snapshot["status"] in FINAL_SESSION_STATUSES
+    remote_signature = _build_snapshot_signature(remote_snapshot)
     remote_updated_at = session.updated_at
     conflict_type: str | None = None
     summary: str | None = None
 
-    if payload.last_server_updated_at is None and remote_has_data:
+    if payload.last_server_signature is None and payload.last_server_updated_at is None and remote_has_data:
         conflict_type = "remote_session_exists_before_local_overwrite"
         summary = (
             "The backend session already contained training data before this device had a confirmed sync baseline. "
             "The full-session fallback kept the local draft and replaced the backend snapshot."
         )
+    elif payload.last_server_signature is not None and payload.last_server_signature != remote_signature:
+        conflict_type = "remote_changed_since_last_sync"
+        summary = (
+            "The backend session changed after the last confirmed sync signature baseline. "
+            "The full-session fallback kept the local draft and replaced the backend snapshot."
+        )
     elif (
-        payload.last_server_updated_at is not None
+        payload.last_server_signature is None
+        and payload.last_server_updated_at is not None
         and remote_updated_at is not None
         and remote_updated_at > payload.last_server_updated_at
     ):
@@ -669,6 +680,7 @@ def _serialize_session_snapshot(session: TrainingSession) -> dict:
     return {
         "athlete_id": session.athlete_id,
         "assignment_id": session.assignment_id,
+        "template_id": session.template_id,
         "session_date": session.session_date.isoformat(),
         "status": session.status,
         "started_at": session.started_at.isoformat() if session.started_at else None,
@@ -695,7 +707,7 @@ def _serialize_session_snapshot(session: TrainingSession) -> dict:
                         "notes": record.notes,
                         "completed_at": record.completed_at.isoformat(),
                     }
-                    for record in item.records
+                    for record in sorted(item.records, key=lambda current: current.set_number)
                 ],
             }
             for item in sorted(session.items, key=lambda current: (current.sort_order, current.template_item_id))
@@ -707,6 +719,7 @@ def _serialize_full_sync_payload(payload: SessionFullSyncPayload) -> dict:
     return {
         "athlete_id": payload.athlete_id,
         "assignment_id": payload.assignment_id,
+        "template_id": payload.template_id,
         "session_date": payload.session_date.isoformat(),
         "status": payload.status,
         "started_at": payload.started_at.isoformat() if payload.started_at else None,
@@ -739,6 +752,16 @@ def _serialize_full_sync_payload(payload: SessionFullSyncPayload) -> dict:
             for item in sorted(payload.items, key=lambda current: (current.sort_order, current.template_item_id))
         ],
     }
+
+
+def _build_snapshot_signature(snapshot: dict) -> str:
+    normalized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _attach_session_signature(session: TrainingSession) -> TrainingSession:
+    session.server_signature = _build_snapshot_signature(_serialize_session_snapshot(session))
+    return session
 
 
 def _resolve_session_started_at(session: TrainingSession) -> datetime | None:

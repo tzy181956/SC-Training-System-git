@@ -129,6 +129,7 @@ export const useTrainingStore = defineStore('training', () => {
         latestSuggestion: response.next_suggestion ?? uiState.latestSuggestion ?? null,
         pendingSync: false,
         lastServerUpdatedAt: response.session.updated_at ?? null,
+        lastServerSignature: response.session.server_signature ?? null,
         incrementalFailureCount: 0,
         lastSyncAttemptAt: new Date().toISOString(),
       })
@@ -157,6 +158,7 @@ export const useTrainingStore = defineStore('training', () => {
         latestSuggestion: response.next_suggestion ?? uiState.latestSuggestion ?? null,
         pendingSync: false,
         lastServerUpdatedAt: response.session.updated_at ?? null,
+        lastServerSignature: response.session.server_signature ?? null,
         incrementalFailureCount: 0,
         lastSyncAttemptAt: new Date().toISOString(),
       })
@@ -182,6 +184,7 @@ export const useTrainingStore = defineStore('training', () => {
         latestSuggestion: null,
         pendingSync: false,
         lastServerUpdatedAt: nextSession.updated_at ?? null,
+        lastServerSignature: nextSession.server_signature ?? null,
         incrementalFailureCount: 0,
         lastSyncAttemptAt: new Date().toISOString(),
       })
@@ -276,12 +279,14 @@ export const useTrainingStore = defineStore('training', () => {
     pendingSync = draftPendingSync.value,
     pendingOperations = _getPendingOperations(),
     lastServerUpdatedAt,
+    lastServerSignature,
     incrementalFailureCount,
     lastSyncAttemptAt,
   }: DraftUiState & {
     pendingSync?: boolean
     pendingOperations?: TrainingDraftSyncOperation[]
     lastServerUpdatedAt?: string | null
+    lastServerSignature?: string | null
     incrementalFailureCount?: number
     lastSyncAttemptAt?: string | null
   } = {}) {
@@ -306,6 +311,7 @@ export const useTrainingStore = defineStore('training', () => {
       syncStatus: pendingSync ? TRAINING_DRAFT_SYNC_STATUS.PENDING : TRAINING_DRAFT_SYNC_STATUS.SYNCED,
       pendingSync,
       lastServerUpdatedAt: lastServerUpdatedAt ?? session.value.updated_at ?? existingDraft?.last_server_updated_at ?? null,
+      lastServerSignature: lastServerSignature ?? session.value.server_signature ?? existingDraft?.last_server_signature ?? null,
       incrementalFailureCount: incrementalFailureCount ?? existingDraft?.incremental_failure_count ?? 0,
       lastSyncAttemptAt: lastSyncAttemptAt ?? existingDraft?.last_sync_attempt_at ?? null,
       pendingOperations,
@@ -648,6 +654,7 @@ export const useTrainingStore = defineStore('training', () => {
         pendingSync: false,
         pendingOperations: [],
         lastServerUpdatedAt: response.session.updated_at ?? null,
+        lastServerSignature: response.session.server_signature ?? null,
         incrementalFailureCount: 0,
         lastSyncAttemptAt: new Date().toISOString(),
       })
@@ -717,6 +724,7 @@ export const useTrainingStore = defineStore('training', () => {
           pendingSync: pendingOperations.length > 0,
           pendingOperations,
           lastServerUpdatedAt: response.session.updated_at ?? null,
+          lastServerSignature: response.session.server_signature ?? null,
           incrementalFailureCount: 0,
           lastSyncAttemptAt: new Date().toISOString(),
         })
@@ -814,6 +822,7 @@ export const useTrainingStore = defineStore('training', () => {
       started_at: snapshot.started_at ?? null,
       completed_at: snapshot.completed_at ?? null,
       last_server_updated_at: draft.last_server_updated_at,
+      last_server_signature: draft.last_server_signature,
       trigger_reason: triggerReason,
       items: (snapshot.items || []).map((item: any) => ({
         template_item_id: item.template_item_id,

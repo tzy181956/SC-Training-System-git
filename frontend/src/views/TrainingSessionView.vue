@@ -347,7 +347,6 @@ async function endPlan() {
   }
 }
 
-/*
 async function triggerFullSync() {
   if (!canTriggerFullSync.value) return
 
@@ -355,7 +354,7 @@ async function triggerFullSync() {
   try {
     const response = await trainingStore.requestFullSessionSync()
     if (!response) {
-      showSessionNotice('鏁村爞琛ヤ紶澶辫触锛岀▼搴忎細缁х画鍚庡彴閲嶈瘯銆?, 'warning')
+      showSessionNotice('整课补传失败，后台会继续重试。', 'warning')
       return
     }
 
@@ -365,41 +364,12 @@ async function triggerFullSync() {
 
     showSessionNotice(
       response.conflict_logged
-        ? '宸叉寜鏈湴鑽夌瀹屾垚鏁村爞琛ヤ紶锛屽苟璁板綍浜嗗悓姝ュ啿绐佹彁绀恒€?'
-        : '宸叉寜鏈湴鑽夌瀹屾垚鏁村爞琛ヤ紶銆?,
+        ? '整课补传完成，已记录同步冲突，待教练或管理员复核。'
+        : '整课补传完成，已按本地草稿覆盖后端。',
       response.conflict_logged ? 'warning' : 'success',
     )
   } catch {
-    showSessionNotice('鏁村爞琛ヤ紶澶辫触锛岀▼搴忎細缁х画鍚庡彴閲嶈瘯銆?, 'warning')
-  } finally {
-    syncingFullSession.value = false
-  }
-}
-*/
-
-async function triggerFullSync() {
-  if (!canTriggerFullSync.value) return
-
-  syncingFullSession.value = true
-  try {
-    const response = await trainingStore.requestFullSessionSync()
-    if (!response) {
-      showSessionNotice('Full sync failed. Background retry will continue.', 'warning')
-      return
-    }
-
-    if (response.session?.id && !route.params.sessionId) {
-      await router.replace({ name: 'training-session', params: { sessionId: response.session.id } })
-    }
-
-    showSessionNotice(
-      response.conflict_logged
-        ? 'Full sync finished. A conflict log was recorded for review.'
-        : 'Full sync finished from the local draft.',
-      response.conflict_logged ? 'warning' : 'success',
-    )
-  } catch {
-    showSessionNotice('Full sync failed. Background retry will continue.', 'warning')
+    showSessionNotice('整课补传失败，后台会继续重试。', 'warning')
   } finally {
     syncingFullSession.value = false
   }
@@ -524,7 +494,7 @@ onMounted(hydrate)
               :disabled="syncingFullSession"
               @click="triggerFullSync"
             >
-              {{ syncingFullSession ? '姝ｅ湪鏁村爞琛ヤ紶...' : '鏁村爞琛ヤ紶' }}
+              {{ syncingFullSession ? '正在整课补传...' : '整课补传' }}
             </button>
             <button class="secondary-btn end-plan-btn" type="button" :disabled="!canEndSession" @click="endPlan">
               {{ closingSession ? '正在结束...' : '结束计划' }}

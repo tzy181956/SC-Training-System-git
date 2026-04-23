@@ -67,6 +67,7 @@ export type TrainingLocalDraft = {
   sync_status: TrainingDraftSyncStatus
   pending_sync: boolean
   last_server_updated_at: string | null
+  last_server_signature: string | null
   incremental_failure_count: number
   last_sync_attempt_at: string | null
   last_modified_at: string
@@ -104,6 +105,7 @@ export function createTrainingLocalDraft(params: {
   syncStatus?: TrainingDraftSyncStatus
   pendingSync?: boolean
   lastServerUpdatedAt?: string | null
+  lastServerSignature?: string | null
   incrementalFailureCount?: number
   lastSyncAttemptAt?: string | null
   pendingOperations?: TrainingDraftSyncOperation[]
@@ -118,6 +120,7 @@ export function createTrainingLocalDraft(params: {
     syncStatus = TRAINING_DRAFT_SYNC_STATUS.SYNCED,
     pendingSync = false,
     lastServerUpdatedAt = null,
+    lastServerSignature = null,
     incrementalFailureCount = 0,
     lastSyncAttemptAt = null,
     pendingOperations = [],
@@ -139,6 +142,7 @@ export function createTrainingLocalDraft(params: {
     sync_status: syncStatus,
     pending_sync: pendingSync || syncStatus === TRAINING_DRAFT_SYNC_STATUS.PENDING,
     last_server_updated_at: lastServerUpdatedAt,
+    last_server_signature: lastServerSignature,
     incremental_failure_count: incrementalFailureCount,
     last_sync_attempt_at: lastSyncAttemptAt,
     last_modified_at: new Date().toISOString(),
@@ -277,6 +281,7 @@ function normalizeTrainingLocalDraft(raw: any): TrainingLocalDraft | null {
     sync_status: raw.pending_sync ? TRAINING_DRAFT_SYNC_STATUS.PENDING : syncStatus,
     pending_sync: raw.pending_sync ?? syncStatus === TRAINING_DRAFT_SYNC_STATUS.PENDING,
     last_server_updated_at: raw.last_server_updated_at ?? null,
+    last_server_signature: raw.last_server_signature ?? null,
     incremental_failure_count: Number(raw.incremental_failure_count ?? 0),
     last_sync_attempt_at: raw.last_sync_attempt_at ?? null,
     last_modified_at: raw.last_modified_at ?? new Date().toISOString(),

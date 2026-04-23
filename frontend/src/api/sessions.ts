@@ -42,6 +42,7 @@ export type FullSessionSyncPayload = {
   started_at?: string | null
   completed_at?: string | null
   last_server_updated_at?: string | null
+  last_server_signature?: string | null
   trigger_reason: 'manual' | 'fallback'
   items: Array<{
     template_item_id: number
