@@ -3,6 +3,7 @@ import * as echarts from 'echarts'
 import { nextTick, onMounted, reactive, ref, watch } from 'vue'
 
 import { fetchAthletes } from '@/api/athletes'
+import { retryTrainingSyncIssue } from '@/api/sessions'
 import { fetchTrainingReport } from '@/api/trainingReports'
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
@@ -12,6 +13,9 @@ import { todayString } from '@/utils/date'
 const athletes = ref<any[]>([])
 const loading = ref(false)
 const report = ref<any | null>(null)
+const reportNotice = ref('')
+const reportNoticeTone = ref<'success' | 'warning' | 'error'>('success')
+const retryingIssueId = ref<number | null>(null)
 const mainLiftChartRef = ref<HTMLDivElement | null>(null)
 const completionChartRef = ref<HTMLDivElement | null>(null)
 let mainLiftChart: echarts.ECharts | null = null
@@ -49,6 +53,26 @@ async function loadReport() {
   } finally {
     loading.value = false
   }
+}
+
+async function retrySyncIssue(issueId: number) {
+  retryingIssueId.value = issueId
+  try {
+    await retryTrainingSyncIssue(issueId)
+    reportNotice.value = '同步异常已重试，待处理标记已刷新。'
+    reportNoticeTone.value = 'success'
+    await loadReport()
+  } catch {
+    reportNotice.value = '手动重试失败，请回到训练端设备继续处理。'
+    reportNoticeTone.value = 'warning'
+  } finally {
+    retryingIssueId.value = null
+  }
+}
+
+function showNotice(payload: { message: string; tone: 'success' | 'warning' | 'error' }) {
+  reportNotice.value = payload.message
+  reportNoticeTone.value = payload.tone
 }
 
 function renderCharts() {
@@ -168,6 +192,35 @@ function getDateBefore(days: number) {
             />
           </div>
 
+          <p v-if="reportNotice" class="report-notice" :class="reportNoticeTone">{{ reportNotice }}</p>
+
+          <section class="panel sync-issue-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">同步</p>
+                <h3>同步异常待处理</h3>
+              </div>
+            </div>
+            <div v-if="report.sync_issues?.length" class="sync-issue-list">
+              <article v-for="issue in report.sync_issues" :key="issue.id" class="sync-issue-card">
+                <div class="sync-issue-copy">
+                  <strong>{{ issue.session_date }} 需人工补传</strong>
+                  <p>{{ issue.summary }}</p>
+                  <p v-if="issue.last_error" class="sync-issue-error">最近错误：{{ issue.last_error }}</p>
+                </div>
+                <button
+                  class="secondary-btn"
+                  type="button"
+                  :disabled="retryingIssueId === issue.id"
+                  @click="retrySyncIssue(issue.id)"
+                >
+                  {{ retryingIssueId === issue.id ? '重试中...' : '手动重试' }}
+                </button>
+              </article>
+            </div>
+            <div v-else class="empty-state">当前筛选范围内没有待处理的同步异常。</div>
+          </section>
+
           <div class="two-col-panels">
             <section class="panel">
               <div class="panel-head">
@@ -223,6 +276,8 @@ function getDateBefore(days: number) {
                 :session="session"
                 :only-incomplete="filters.onlyIncomplete"
                 :only-main-lift="filters.onlyMainLift"
+                @changed="loadReport"
+                @notify="showNotice"
               />
             </div>
             <div v-else class="empty-state">当前时间范围内暂无训练记录。</div>
@@ -265,10 +320,65 @@ function getDateBefore(days: number) {
   gap: 16px;
 }
 
+.report-notice {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.report-notice.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.report-notice.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.report-notice.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .two-col-panels {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.sync-issue-list {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-issue-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.sync-issue-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.sync-issue-copy strong,
+.sync-issue-copy p,
+.sync-issue-error {
+  margin: 0;
+}
+
+.sync-issue-error {
+  color: #92400e;
+  font-size: 13px;
 }
 
 .panel-head {

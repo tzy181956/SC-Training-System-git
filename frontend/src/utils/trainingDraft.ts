@@ -4,6 +4,7 @@ const FINAL_SESSION_STATUSES = new Set(['completed', 'absent', 'partial_complete
 export const TRAINING_DRAFT_SYNC_STATUS = {
   SYNCED: 'synced',
   PENDING: 'pending',
+  MANUAL_REQUIRED: 'manual_retry_required',
 } as const
 
 export type TrainingDraftSyncStatus = (typeof TRAINING_DRAFT_SYNC_STATUS)[keyof typeof TRAINING_DRAFT_SYNC_STATUS]
@@ -70,6 +71,7 @@ export type TrainingLocalDraft = {
   last_server_signature: string | null
   incremental_failure_count: number
   last_sync_attempt_at: string | null
+  sync_issue_id: number | null
   last_modified_at: string
   latest_suggestion: any | null
   pending_operations: TrainingDraftSyncOperation[]
@@ -108,6 +110,7 @@ export function createTrainingLocalDraft(params: {
   lastServerSignature?: string | null
   incrementalFailureCount?: number
   lastSyncAttemptAt?: string | null
+  syncIssueId?: number | null
   pendingOperations?: TrainingDraftSyncOperation[]
 }): TrainingLocalDraft {
   const {
@@ -123,6 +126,7 @@ export function createTrainingLocalDraft(params: {
     lastServerSignature = null,
     incrementalFailureCount = 0,
     lastSyncAttemptAt = null,
+    syncIssueId = null,
     pendingOperations = [],
   } = params
   const activeItem = session?.items?.find((item: any) => item.id === currentItemId) || null
@@ -145,6 +149,7 @@ export function createTrainingLocalDraft(params: {
     last_server_signature: lastServerSignature,
     incremental_failure_count: incrementalFailureCount,
     last_sync_attempt_at: lastSyncAttemptAt,
+    sync_issue_id: syncIssueId,
     last_modified_at: new Date().toISOString(),
     latest_suggestion: latestSuggestion || null,
     pending_operations: pendingOperations,
@@ -261,7 +266,9 @@ export function createCompleteSessionSyncOperation(params: {
 function normalizeTrainingLocalDraft(raw: any): TrainingLocalDraft | null {
   if (!raw || typeof raw !== 'object') return null
   const syncStatus =
-    raw.sync_status === TRAINING_DRAFT_SYNC_STATUS.PENDING
+    raw.sync_status === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED
+      ? TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED
+      : raw.sync_status === TRAINING_DRAFT_SYNC_STATUS.PENDING
       ? TRAINING_DRAFT_SYNC_STATUS.PENDING
       : TRAINING_DRAFT_SYNC_STATUS.SYNCED
   const pendingOperations = Array.isArray(raw.pending_operations) ? raw.pending_operations : []
@@ -278,12 +285,18 @@ function normalizeTrainingLocalDraft(raw: any): TrainingLocalDraft | null {
     current_item_id: raw.current_item_id ?? null,
     current_exercise_id: raw.current_exercise_id ?? null,
     recorded_sets: raw.recorded_sets ?? countSessionRecordedSets(raw.session_snapshot),
-    sync_status: raw.pending_sync ? TRAINING_DRAFT_SYNC_STATUS.PENDING : syncStatus,
-    pending_sync: raw.pending_sync ?? syncStatus === TRAINING_DRAFT_SYNC_STATUS.PENDING,
+    sync_status:
+      syncStatus === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED
+        ? TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED
+        : raw.pending_sync
+        ? TRAINING_DRAFT_SYNC_STATUS.PENDING
+        : syncStatus,
+    pending_sync: raw.pending_sync ?? syncStatus !== TRAINING_DRAFT_SYNC_STATUS.SYNCED,
     last_server_updated_at: raw.last_server_updated_at ?? null,
     last_server_signature: raw.last_server_signature ?? null,
     incremental_failure_count: Number(raw.incremental_failure_count ?? 0),
     last_sync_attempt_at: raw.last_sync_attempt_at ?? null,
+    sync_issue_id: raw.sync_issue_id ?? null,
     last_modified_at: raw.last_modified_at ?? new Date().toISOString(),
     latest_suggestion: raw.latest_suggestion ?? null,
     pending_operations: pendingOperations,

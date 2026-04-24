@@ -6,8 +6,9 @@ from app.models.organization import Sport, Team
 from app.models.tag import Tag
 from app.models.test_record import TestRecord
 from app.models.training_plan import TrainingPlanTemplate, TrainingPlanTemplateItem
+from app.models.training_edit_log import TrainingSessionEditLog
 from app.models.training_session import SetRecord, TrainingSession, TrainingSessionItem
-from app.models.training_sync import TrainingSyncConflict
+from app.models.training_sync import TrainingSyncConflict, TrainingSyncIssue
 from app.models.user import User
 
 __all__ = [
@@ -24,8 +25,10 @@ __all__ = [
     "TestRecord",
     "TrainingPlanTemplate",
     "TrainingPlanTemplateItem",
+    "TrainingSessionEditLog",
     "TrainingSession",
     "TrainingSessionItem",
     "TrainingSyncConflict",
+    "TrainingSyncIssue",
     "User",
 ]

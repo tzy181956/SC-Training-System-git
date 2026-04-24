@@ -16,10 +16,13 @@ from app.schemas.training_session import (
     SetRecordUpdate,
     SetRecordUpdateResponse,
     SetSubmissionResponse,
+    TrainingSyncIssueRead,
+    TrainingSyncIssueReportPayload,
+    TrainingSyncIssueRetryResponse,
     TrainingAthleteRead,
     TrainingModePlanListRead,
 )
-from app.services import session_service
+from app.services import session_service, training_sync_service
 
 
 router = APIRouter(prefix="/training", tags=["training"])
@@ -134,6 +137,56 @@ def sync_session_snapshot(
         "session_completed_at": session.completed_at,
         "sync_status": "synced",
         "sync_mode": "full",
+        "conflict_logged": conflict_logged,
+    }
+
+
+@router.get("/session-sync/issues", response_model=list[TrainingSyncIssueRead])
+def list_sync_issues(
+    athlete_id: int | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    issue_status: str = Query(default="manual_retry_required"),
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    return training_sync_service.list_sync_issues(
+        db,
+        athlete_id=athlete_id,
+        date_from=date_from,
+        date_to=date_to,
+        issue_status=issue_status,
+    )
+
+
+@router.post("/session-sync/issues/report", response_model=TrainingSyncIssueRead)
+def report_sync_issue(
+    payload: TrainingSyncIssueReportPayload,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    return training_sync_service.report_sync_issue(db, payload)
+
+
+@router.post("/session-sync/issues/{issue_id}/resolve", response_model=TrainingSyncIssueRead)
+def resolve_sync_issue(
+    issue_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    return training_sync_service.resolve_sync_issue(db, issue_id)
+
+
+@router.post("/session-sync/issues/{issue_id}/retry", response_model=TrainingSyncIssueRetryResponse)
+def retry_sync_issue(
+    issue_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    issue, session, conflict_logged = training_sync_service.retry_sync_issue(db, issue_id)
+    return {
+        "issue": issue,
+        "session": session,
         "conflict_logged": conflict_logged,
     }
 

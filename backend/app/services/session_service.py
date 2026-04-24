@@ -5,8 +5,18 @@ from datetime import date, datetime, timezone
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
-from app.models import Athlete, AthletePlanAssignment, SetRecord, TrainingSession, TrainingSessionItem, TrainingSyncConflict
+from app.models import (
+    Athlete,
+    AthletePlanAssignment,
+    SetRecord,
+    TrainingSession,
+    TrainingSessionEditLog,
+    TrainingSessionItem,
+    TrainingSyncConflict,
+)
 from app.schemas.training_session import (
+    CoachSetRecordCreate,
+    CoachSetRecordUpdate,
     SessionFullSyncPayload,
     SessionSetSyncOperation,
     SetRecordCreate,
@@ -18,6 +28,7 @@ from app.services.progression_service import compute_next_weight
 
 NOT_STARTED_SESSION_STATUS = "not_started"
 FINAL_SESSION_STATUSES = {"completed", "absent", "partial_complete"}
+DEFAULT_POST_CLASS_ACTOR = "管理端"
 
 
 def get_or_create_today_session(db: Session, athlete_id: int, session_date: date) -> TrainingSession:
@@ -187,26 +198,7 @@ def get_session(db: Session, session_id: int) -> TrainingSession:
 
 def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
     item = _get_session_item(db, item_id)
-    next_set_number = len(item.records) + 1
-    if next_set_number > item.prescribed_sets:
-        raise bad_request("All prescribed sets are already completed")
-
-    final_weight = payload.final_weight if payload.final_weight is not None else payload.actual_weight
-    record = SetRecord(
-        set_number=next_set_number,
-        target_weight=item.initial_load if next_set_number == 1 else item.records[-1].final_weight,
-        target_reps=item.prescribed_reps,
-        actual_weight=payload.actual_weight,
-        actual_reps=payload.actual_reps,
-        actual_rir=payload.actual_rir,
-        suggestion_weight=None,
-        suggestion_reason=None,
-        user_decision="accepted",
-        final_weight=final_weight,
-        completed_at=datetime.now(timezone.utc),
-        notes=payload.notes,
-    )
-    item.records.append(record)
+    record = _append_set_record(item, payload)
     db.flush()
     _recompute_item_records(item)
     _recompute_session_status(item.session)
@@ -220,26 +212,79 @@ def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
 
 
 def update_set_record(db: Session, record_id: int, payload: SetRecordUpdate):
-    record = (
-        db.query(SetRecord)
-        .options(
-            joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.exercise),
-            joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.records),
-            joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.session),
-        )
-        .filter(SetRecord.id == record_id)
-        .first()
-    )
-    if not record:
-        raise not_found("Set record not found")
-
-    record.actual_weight = payload.actual_weight
-    record.actual_reps = payload.actual_reps
-    record.actual_rir = payload.actual_rir
-    record.final_weight = payload.final_weight if payload.final_weight is not None else payload.actual_weight
-    record.notes = payload.notes
+    record = _get_set_record(db, record_id)
+    _apply_set_record_update(record, payload)
     _recompute_item_records(record.session_item)
     _recompute_session_status(record.session_item.session)
+    db.commit()
+
+    refreshed_item = _get_session_item(db, record.session_item_id)
+    refreshed_record = db.query(SetRecord).filter(SetRecord.id == record_id).first()
+    refreshed_session = get_session(db, record.session_item.session_id)
+    return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
+
+
+def coach_add_set_record(db: Session, item_id: int, payload: CoachSetRecordCreate):
+    item = _get_session_item(db, item_id)
+    session_before_status = item.session.status
+    record = _append_set_record(item, payload)
+    db.flush()
+    _recompute_item_records(item)
+    _recompute_session_status(item.session, allow_final_reopen=True)
+    item.session.started_at = item.session.started_at or record.completed_at
+    _create_training_edit_log(
+        db=db,
+        session=item.session,
+        item=item,
+        record=record,
+        action_type="add_set",
+        actor_name=payload.actor_name,
+        before_snapshot={
+            "session_status": session_before_status,
+            "completed_sets": max(len(item.records) - 1, 0),
+        },
+        after_snapshot={
+            **_serialize_record_for_edit_log(record),
+            "session_status": item.session.status,
+            "completed_sets": len(item.records),
+        },
+        summary=_build_add_set_log_summary(record, session_before_status, item.session.status),
+    )
+    db.commit()
+
+    refreshed_item = _get_session_item(db, item_id)
+    refreshed_record = db.query(SetRecord).filter(SetRecord.id == record.id).first()
+    refreshed_session = get_session(db, item.session_id)
+    return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
+
+
+def coach_update_set_record(db: Session, record_id: int, payload: CoachSetRecordUpdate):
+    record = _get_set_record(db, record_id)
+    session_before_status = record.session_item.session.status
+    before_snapshot = {
+        **_serialize_record_for_edit_log(record),
+        "session_status": session_before_status,
+    }
+
+    _apply_set_record_update(record, payload)
+    _recompute_item_records(record.session_item)
+    _recompute_session_status(record.session_item.session, allow_final_reopen=True)
+
+    after_snapshot = {
+        **_serialize_record_for_edit_log(record),
+        "session_status": record.session_item.session.status,
+    }
+    _create_training_edit_log(
+        db=db,
+        session=record.session_item.session,
+        item=record.session_item,
+        record=record,
+        action_type="update_set",
+        actor_name=payload.actor_name,
+        before_snapshot=before_snapshot,
+        after_snapshot=after_snapshot,
+        summary=_build_update_set_log_summary(before_snapshot, after_snapshot),
+    )
     db.commit()
 
     refreshed_item = _get_session_item(db, record.session_item_id)
@@ -443,6 +488,54 @@ def _get_session_item(db: Session, item_id: int) -> TrainingSessionItem:
     return item
 
 
+def _get_set_record(db: Session, record_id: int) -> SetRecord:
+    record = (
+        db.query(SetRecord)
+        .options(
+            joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.exercise),
+            joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.records),
+            joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.session),
+        )
+        .filter(SetRecord.id == record_id)
+        .first()
+    )
+    if not record:
+        raise not_found("Set record not found")
+    return record
+
+
+def _append_set_record(item: TrainingSessionItem, payload: SetRecordCreate | CoachSetRecordCreate) -> SetRecord:
+    next_set_number = len(item.records) + 1
+    if next_set_number > item.prescribed_sets:
+        raise bad_request("All prescribed sets are already completed")
+
+    final_weight = payload.final_weight if payload.final_weight is not None else payload.actual_weight
+    record = SetRecord(
+        set_number=next_set_number,
+        target_weight=item.initial_load if next_set_number == 1 else item.records[-1].final_weight,
+        target_reps=item.prescribed_reps,
+        actual_weight=payload.actual_weight,
+        actual_reps=payload.actual_reps,
+        actual_rir=payload.actual_rir,
+        suggestion_weight=None,
+        suggestion_reason=None,
+        user_decision="accepted",
+        final_weight=final_weight,
+        completed_at=datetime.now(timezone.utc),
+        notes=payload.notes,
+    )
+    item.records.append(record)
+    return record
+
+
+def _apply_set_record_update(record: SetRecord, payload: SetRecordUpdate | CoachSetRecordUpdate) -> None:
+    record.actual_weight = payload.actual_weight
+    record.actual_reps = payload.actual_reps
+    record.actual_rir = payload.actual_rir
+    record.final_weight = payload.final_weight if payload.final_weight is not None else payload.actual_weight
+    record.notes = payload.notes
+
+
 def _recompute_item_records(item: TrainingSessionItem) -> None:
     ordered_records = sorted(item.records, key=lambda current: current.set_number)
     for index, record in enumerate(ordered_records):
@@ -480,37 +573,43 @@ def _recompute_item_records(item: TrainingSessionItem) -> None:
         item.status = "in_progress"
 
 
-def _recompute_session_status(session: TrainingSession) -> None:
-    if session.status in FINAL_SESSION_STATUSES:
+def _recompute_session_status(session: TrainingSession, allow_final_reopen: bool = False) -> None:
+    if session.status in FINAL_SESSION_STATUSES and not allow_final_reopen:
         return
 
     items = list(session.items)
+    is_final_context = allow_final_reopen and (session.status in FINAL_SESSION_STATUSES or session.completed_at is not None)
     if not items:
-        session.status = NOT_STARTED_SESSION_STATUS
+        session.status = "absent" if is_final_context else NOT_STARTED_SESSION_STATUS
         session.started_at = None
-        session.completed_at = None
+        session.completed_at = session.completed_at or datetime.now(timezone.utc) if is_final_context else None
         return
 
     total_records = sum(len(item.records or []) for item in items)
     if total_records == 0:
-        session.status = NOT_STARTED_SESSION_STATUS
+        session.status = "absent" if is_final_context else NOT_STARTED_SESSION_STATUS
         session.started_at = None
-        session.completed_at = None
+        session.completed_at = session.completed_at or datetime.now(timezone.utc) if is_final_context else None
         return
 
+    first_record_time = min(
+        (_ensure_utc_datetime(record.completed_at) for item in items for record in item.records),
+        default=datetime.now(timezone.utc),
+    )
     if all(item.status == "completed" for item in items):
         session.status = "completed"
-        first_record_time = min(
-            (record.completed_at for item in items for record in item.records),
-            default=datetime.now(timezone.utc),
-        )
+        session.started_at = session.started_at or first_record_time
+        session.completed_at = session.completed_at or datetime.now(timezone.utc)
+        return
+
+    if is_final_context:
+        session.status = "partial_complete"
         session.started_at = session.started_at or first_record_time
         session.completed_at = session.completed_at or datetime.now(timezone.utc)
         return
 
     session.status = "in_progress"
-    if session.started_at is None:
-        session.started_at = min(record.completed_at for item in items for record in item.records)
+    session.started_at = session.started_at or first_record_time
     session.completed_at = None
 
 
@@ -537,6 +636,85 @@ def _finalize_session(session: TrainingSession, closure_reason: str) -> None:
         session.status = "partial_complete"
 
     session.completed_at = datetime.now(timezone.utc)
+
+
+def _serialize_record_for_edit_log(record: SetRecord) -> dict:
+    return {
+        "record_id": record.id,
+        "set_number": record.set_number,
+        "actual_weight": record.actual_weight,
+        "actual_reps": record.actual_reps,
+        "actual_rir": record.actual_rir,
+        "final_weight": record.final_weight,
+        "notes": record.notes,
+    }
+
+
+def _create_training_edit_log(
+    db: Session,
+    session: TrainingSession,
+    item: TrainingSessionItem,
+    record: SetRecord | None,
+    action_type: str,
+    actor_name: str | None,
+    before_snapshot: dict | None,
+    after_snapshot: dict | None,
+    summary: str,
+) -> None:
+    db.add(
+        TrainingSessionEditLog(
+            session_id=session.id,
+            session_item_id=item.id,
+            set_record_id=record.id if record else None,
+            action_type=action_type,
+            actor_name=(actor_name or DEFAULT_POST_CLASS_ACTOR).strip() or DEFAULT_POST_CLASS_ACTOR,
+            object_type="set_record" if record else "session_item",
+            object_id=record.id if record else item.id,
+            summary=summary,
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+            edited_at=datetime.now(timezone.utc),
+        )
+    )
+
+
+def _build_update_set_log_summary(before_snapshot: dict, after_snapshot: dict) -> str:
+    changes: list[str] = []
+    if before_snapshot["actual_weight"] != after_snapshot["actual_weight"]:
+        changes.append(f"重量 {before_snapshot['actual_weight']}→{after_snapshot['actual_weight']}")
+    if before_snapshot["actual_reps"] != after_snapshot["actual_reps"]:
+        changes.append(f"次数 {before_snapshot['actual_reps']}→{after_snapshot['actual_reps']}")
+    if before_snapshot["actual_rir"] != after_snapshot["actual_rir"]:
+        changes.append(f"RIR {before_snapshot['actual_rir']}→{after_snapshot['actual_rir']}")
+    if before_snapshot.get("notes") != after_snapshot.get("notes"):
+        changes.append("备注已更新")
+
+    summary = f"课后修改第 {after_snapshot['set_number']} 组"
+    if changes:
+        summary = f"{summary}：{'，'.join(changes)}"
+    if before_snapshot["session_status"] != after_snapshot["session_status"]:
+        summary = f"{summary}；课状态 {_format_session_status_label(before_snapshot['session_status'])}→{_format_session_status_label(after_snapshot['session_status'])}"
+    return summary
+
+
+def _build_add_set_log_summary(record: SetRecord, session_before_status: str, session_after_status: str) -> str:
+    summary = (
+        f"课后补录第 {record.set_number} 组："
+        f"重量 {record.actual_weight}，次数 {record.actual_reps}，RIR {record.actual_rir}"
+    )
+    if session_before_status != session_after_status:
+        summary = f"{summary}；课状态 {_format_session_status_label(session_before_status)}→{_format_session_status_label(session_after_status)}"
+    return summary
+
+
+def _format_session_status_label(status: str) -> str:
+    return {
+        "not_started": "未开始",
+        "in_progress": "进行中",
+        "completed": "完成",
+        "absent": "缺席",
+        "partial_complete": "未完全按计划完成",
+    }.get(status, status)
 
 
 def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: SessionFullSyncPayload) -> bool:
@@ -766,12 +944,18 @@ def _attach_session_signature(session: TrainingSession) -> TrainingSession:
 
 def _resolve_session_started_at(session: TrainingSession) -> datetime | None:
     completed_ats = [
-        record.completed_at
+        _ensure_utc_datetime(record.completed_at)
         for item in session.items
         for record in item.records
         if record.completed_at is not None
     ]
     return min(completed_ats) if completed_ats else None
+
+
+def _ensure_utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _resolve_local_now(reference_time: datetime | None = None) -> datetime:

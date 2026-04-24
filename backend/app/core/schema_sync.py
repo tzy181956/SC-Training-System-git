@@ -67,3 +67,37 @@ def ensure_runtime_schema() -> None:
         connection.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ix_exercises_code_unique ON exercises(code)")
         )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS training_sync_issues (
+                    id INTEGER PRIMARY KEY,
+                    athlete_id INTEGER NOT NULL,
+                    assignment_id INTEGER,
+                    session_id INTEGER,
+                    session_date DATE NOT NULL,
+                    session_key VARCHAR(160) NOT NULL,
+                    issue_status VARCHAR(30) NOT NULL DEFAULT 'manual_retry_required',
+                    summary TEXT NOT NULL,
+                    failure_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    sync_payload JSON,
+                    resolved_at DATETIME,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(athlete_id) REFERENCES athletes(id),
+                    FOREIGN KEY(assignment_id) REFERENCES athlete_plan_assignments(id),
+                    FOREIGN KEY(session_id) REFERENCES training_sessions(id)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_training_sync_issues_session_key_unique ON training_sync_issues(session_key)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_training_sync_issues_issue_status ON training_sync_issues(issue_status)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_training_sync_issues_session_date ON training_sync_issues(session_date)")
+        )

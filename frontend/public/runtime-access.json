@@ -1,7 +1,7 @@
-﻿{
-    "accessUrl":  "http://10.35.43.68:5173",
-    "host":  "10.35.43.68",
-    "port":  5173,
-    "generatedAt":  "2026-04-23 09:59:51",
-    "source":  "startup-script"
+{
+  "accessUrl": "http://10.35.43.68:5173/",
+  "host": "10.35.43.68",
+  "port": 5173,
+  "generatedAt": "2026-04-24 10:19:10",
+  "source": "vite-dev-server"
 }

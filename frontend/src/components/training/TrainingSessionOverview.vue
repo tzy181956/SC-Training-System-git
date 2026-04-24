@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 const props = defineProps<{
   assignment?: any | null
@@ -9,6 +9,22 @@ const props = defineProps<{
 }>()
 
 const items = computed(() => props.session?.items || props.assignment?.template?.items || [])
+const itemListRef = ref<HTMLElement | null>(null)
+
+async function scrollActiveItemIntoView() {
+  if (!props.session || !props.activeItemId) return
+  await nextTick()
+  const activeElement = itemListRef.value?.querySelector<HTMLElement>(`[data-item-id="${props.activeItemId}"]`)
+  activeElement?.scrollIntoView({ block: 'nearest' })
+}
+
+watch(
+  () => [props.activeItemId, items.value.length],
+  () => {
+    void scrollActiveItemIntoView()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -29,10 +45,11 @@ const items = computed(() => props.session?.items || props.assignment?.template?
       <span>如果该队员当天有多份计划，会直接显示在队员名字下方供点击选择。</span>
     </div>
 
-    <div v-if="items.length" class="item-list">
+    <div v-if="items.length" ref="itemListRef" class="item-list">
       <button
         v-for="item in items"
         :key="item.id"
+        :data-item-id="item.id"
         class="item-card"
         :class="{ active: session && item.id === activeItemId }"
         @click="session && onSelectItem && onSelectItem(item.id)"

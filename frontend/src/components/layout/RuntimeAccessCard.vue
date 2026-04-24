@@ -12,10 +12,10 @@ const copied = ref(false)
 const qrDataUrl = ref('')
 
 const accessHint = computed(() =>
-  props.info.source === 'startup-script' ? '同一网络下可直接访问' : '当前访问地址（兜底显示）',
+  props.info.source === 'fallback' ? '当前访问地址（兜底显示）' : '同一网络下可直接访问',
 )
 
-const sourceLabel = computed(() => (props.info.source === 'startup-script' ? '推荐地址' : '当前地址'))
+const sourceLabel = computed(() => (props.info.source === 'fallback' ? '当前地址' : '推荐地址'))
 
 async function buildQrCode() {
   qrDataUrl.value = await QRCode.toDataURL(props.info.accessUrl, {

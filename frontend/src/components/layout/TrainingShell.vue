@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 const router = useRouter()
 const authStore = useAuthStore()
 const runtimeAccess = ref<RuntimeAccessInfo>({
-  accessUrl: window.location.origin,
+  accessUrl: new URL('/', window.location.origin).toString(),
   host: window.location.hostname,
   port: Number(window.location.port || (window.location.protocol === 'https:' ? 443 : 80)),
   generatedAt: '',

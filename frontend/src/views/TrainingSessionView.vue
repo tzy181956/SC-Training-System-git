@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TrainingShell from '@/components/layout/TrainingShell.vue'
+import TrainingDraftRestoreModal from '@/components/training/TrainingDraftRestoreModal.vue'
 import TrainingModeSidebar from '@/components/training/TrainingModeSidebar.vue'
 import TrainingSessionOverview from '@/components/training/TrainingSessionOverview.vue'
 import TrainingSetPanel from '@/components/training/TrainingSetPanel.vue'
@@ -18,15 +19,21 @@ const closingSession = ref(false)
 const syncingFullSession = ref(false)
 const sessionNotice = ref('')
 const sessionNoticeTone = ref<'success' | 'warning' | 'error'>('success')
+const restorePromptDraft = ref<any | null>(null)
+const restorePromptResolver = ref<((accepted: boolean) => void) | null>(null)
+const restoreToActionList = ref(false)
 const ALL_TEAMS_VALUE = '__all__'
 const UNASSIGNED_TEAM_VALUE = '__unassigned__'
 const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
 let noticeTimer: number | null = null
 
 const activeItem = computed(
-  () => trainingStore.session?.items?.find((item: any) => item.id === activeItemId.value) || trainingStore.session?.items?.[0] || null,
+  () =>
+    restoreToActionList.value
+      ? null
+      : trainingStore.session?.items?.find((item: any) => item.id === activeItemId.value) || trainingStore.session?.items?.[0] || null,
 )
-const sessionStatusLabel = computed(() => {
+const sessionStatusText = computed(() => {
   const status = trainingStore.session?.status
   if (status === 'completed') return '已完成'
   if (status === 'partial_complete') return '未完全完成'
@@ -34,12 +41,15 @@ const sessionStatusLabel = computed(() => {
   if (status === 'in_progress') return '进行中'
   return '未开始'
 })
-const syncStatusLabel = computed(() => (trainingStore.syncStatus === 'pending' ? '有未同步数据' : '正常'))
-const syncStatusTone = computed(() => (trainingStore.syncStatus === 'pending' ? 'warning' : 'success'))
-const canTriggerFullSync = computed(() => {
+const syncIndicatorLabel = computed(() => (trainingStore.syncStatus === 'synced' ? '正常' : '有未同步数据'))
+const syncIndicatorTone = computed(() => (trainingStore.syncStatus === 'synced' ? 'success' : 'warning'))
+const manualRetryHint = computed(() =>
+  trainingStore.syncStatus === 'manual_retry_required' ? '自动重试已暂停，需教练手动补传。' : '',
+)
+const canTriggerManualSync = computed(() => {
   if (!trainingStore.session) return false
   if (syncingFullSession.value) return false
-  return trainingStore.syncStatus === 'pending'
+  return trainingStore.syncStatus !== 'synced'
 })
 const canEndSession = computed(() => {
   if (!trainingStore.session) return false
@@ -97,15 +107,71 @@ function findNextPendingItemId(currentItemId?: number | null) {
   return firstPending?.id || null
 }
 
-function buildRestorePrompt(draft: any) {
-  const modifiedAt = draft?.last_modified_at ? new Date(draft.last_modified_at).toLocaleString('zh-CN') : '未知时间'
-  return `检测到这堂训练课在本机有未完成草稿（最后保存于 ${modifiedAt}）。\n\n点击“确定”恢复本地草稿继续训练；点击“取消”放弃本地草稿并继续使用当前记录。`
+function buildResumeQuery() {
+  const nextQuery: Record<string, string> = {}
+  if (route.query.resumeDraft === '1') {
+    nextQuery.resumeDraft = '1'
+  }
+  if (typeof route.query.resumeTarget === 'string' && route.query.resumeTarget) {
+    nextQuery.resumeTarget = route.query.resumeTarget
+  }
+  if (typeof route.query.draftSessionKey === 'string' && route.query.draftSessionKey) {
+    nextQuery.draftSessionKey = route.query.draftSessionKey
+  }
+  return nextQuery
 }
 
-function applyRestoredDraft(draft: any) {
+function isExplicitResumeRequest(draft: any) {
+  return route.query.resumeDraft === '1' && typeof route.query.draftSessionKey === 'string' && route.query.draftSessionKey === draft?.session_key
+}
+
+async function clearResumeQuery() {
+  if (!('resumeDraft' in route.query) && !('resumeTarget' in route.query) && !('draftSessionKey' in route.query)) {
+    return
+  }
+
+  const nextQuery = { ...route.query }
+  delete nextQuery.resumeDraft
+  delete nextQuery.resumeTarget
+  delete nextQuery.draftSessionKey
+  await router.replace({
+    name: 'training-session',
+    params: route.params,
+    query: nextQuery,
+  })
+}
+
+function applyRestoredDraft(draft: any, options: { focusActionList?: boolean; showNotice?: boolean } = {}) {
   const restoredSession = trainingStore.restoreDraft(draft)
   activeItemId.value = draft.current_item_id ?? findNextPendingItemId() ?? (restoredSession.items?.[0]?.id || null)
   latestSuggestion.value = draft.latest_suggestion ?? null
+  restoreToActionList.value = !!options.focusActionList
+  if (options.showNotice) {
+    showSessionNotice('已恢复本地草稿，请从动作列表继续录课。', 'success')
+  }
+}
+
+function openRestorePrompt(draft: any) {
+  restorePromptDraft.value = draft
+  return new Promise<boolean>((resolve) => {
+    restorePromptResolver.value = resolve
+  })
+}
+
+function handleRestorePromptDecision(accepted: boolean) {
+  if (!restorePromptResolver.value) return
+  const resolve = restorePromptResolver.value
+  restorePromptResolver.value = null
+  restorePromptDraft.value = null
+  resolve(accepted)
+}
+
+async function confirmRestoreDraft(draft: any) {
+  if (isExplicitResumeRequest(draft)) {
+    return true
+  }
+
+  return openRestorePrompt(draft)
 }
 
 function showSessionNotice(message: string, tone: 'success' | 'warning' | 'error' = 'success') {
@@ -122,15 +188,29 @@ function showSessionNotice(message: string, tone: 'success' | 'warning' | 'error
 
 async function maybeRestoreDraftForSession(nextSession: any) {
   const draft = trainingStore.getDraftForSession(nextSession)
-  if (!draft) return false
+  if (!draft) {
+    if (route.query.resumeDraft === '1') {
+      await clearResumeQuery()
+    }
+    return false
+  }
   if (!draft.recorded_sets || (!draft.pending_sync && draft.session_snapshot?.status === 'completed')) return false
 
-  if (window.confirm(buildRestorePrompt(draft))) {
-    applyRestoredDraft(draft)
+  if (await confirmRestoreDraft(draft)) {
+    applyRestoredDraft(draft, {
+      focusActionList: true,
+      showNotice: true,
+    })
+    if (isExplicitResumeRequest(draft)) {
+      await clearResumeQuery()
+    }
     return true
   }
 
   trainingStore.discardDraft(draft.session_key)
+  if (isExplicitResumeRequest(draft)) {
+    await clearResumeQuery()
+  }
   return false
 }
 
@@ -138,13 +218,22 @@ async function maybeRecoverDraftWithoutBackend(sessionId: number) {
   const draft = trainingStore.getDraftBySessionId(sessionId)
   if (!draft) return false
 
-  if (!window.confirm(buildRestorePrompt(draft))) {
+  if (!(await confirmRestoreDraft(draft))) {
     trainingStore.discardDraft(draft.session_key)
+    if (isExplicitResumeRequest(draft)) {
+      await clearResumeQuery()
+    }
     await router.replace({ name: 'training-mode' })
     return true
   }
 
-  applyRestoredDraft(draft)
+  applyRestoredDraft(draft, {
+    focusActionList: true,
+    showNotice: true,
+  })
+  if (isExplicitResumeRequest(draft)) {
+    await clearResumeQuery()
+  }
   try {
     await Promise.all([
       trainingStore.loadPlans(draft.athlete_id, draft.session_date),
@@ -160,13 +249,22 @@ async function maybeRecoverDraftByContext(assignmentId: number, athleteId: numbe
   const draft = trainingStore.getDraftByContext(athleteId, assignmentId, targetDate)
   if (!draft) return false
 
-  if (!window.confirm(buildRestorePrompt(draft))) {
+  if (!(await confirmRestoreDraft(draft))) {
     trainingStore.discardDraft(draft.session_key)
+    if (isExplicitResumeRequest(draft)) {
+      await clearResumeQuery()
+    }
     await router.replace({ name: 'training-mode' })
     return true
   }
 
-  applyRestoredDraft(draft)
+  applyRestoredDraft(draft, {
+    focusActionList: true,
+    showNotice: true,
+  })
+  if (isExplicitResumeRequest(draft)) {
+    await clearResumeQuery()
+  }
   return true
 }
 
@@ -203,6 +301,7 @@ async function hydrate() {
       trainingStore.setPreviewAssignment(session.assignment_id)
       const restored = await maybeRestoreDraftForSession(session)
       if (!restored) {
+        restoreToActionList.value = false
         activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
       }
     } catch {
@@ -230,12 +329,17 @@ async function hydrate() {
     }
     const nextSession = await trainingStore.openPlanSession(assignmentId, requestedDate)
     if (nextSession.id) {
-      await router.replace({ name: 'training-session', params: { sessionId: nextSession.id } })
+      await router.replace({
+        name: 'training-session',
+        params: { sessionId: nextSession.id },
+        query: buildResumeQuery(),
+      })
       return
     }
 
     const restored = await maybeRestoreDraftForSession(nextSession)
     if (!restored) {
+      restoreToActionList.value = false
       activeItemId.value = findNextPendingItemId() ?? (nextSession.items?.[0]?.id || null)
       latestSuggestion.value = null
     }
@@ -262,6 +366,7 @@ async function openPlan(assignmentId?: number) {
   const nextAssignmentId = assignmentId || trainingStore.previewAssignmentId
   if (!nextAssignmentId) return
   const session = await trainingStore.openPlanSession(nextAssignmentId, trainingStore.sessionDate)
+  restoreToActionList.value = false
   activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
   latestSuggestion.value = null
   if (session.id) {
@@ -281,6 +386,7 @@ async function openPlan(assignmentId?: number) {
 
 async function submitCurrentSet(payload: Record<string, unknown>) {
   if (!activeItem.value) return
+  restoreToActionList.value = false
   const currentItemId = activeItem.value.id
   const response = await trainingStore.recordSet(currentItemId, payload, {
     activeItemId: currentItemId,
@@ -307,6 +413,7 @@ async function submitCurrentSet(payload: Record<string, unknown>) {
 
 async function updateRecord(recordId: number, payload: Record<string, unknown>) {
   if (!activeItem.value) return
+  restoreToActionList.value = false
   const currentItemId = activeItem.value.id
   const response = await trainingStore.reviseSetRecord(recordId, payload, {
     activeItemId: currentItemId,
@@ -338,7 +445,7 @@ async function endPlan() {
     } else if (nextSession.status === 'partial_complete') {
       showSessionNotice('本堂训练已结束，状态记为未完全完成。', 'warning')
     } else {
-      showSessionNotice(`本堂训练已结束，状态为 ${sessionStatusLabel.value}。`, 'success')
+      showSessionNotice(`本堂训练已结束，状态为 ${sessionStatusText.value}。`, 'success')
     }
   } catch {
     showSessionNotice('结束计划失败，请重试。', 'error')
@@ -348,13 +455,13 @@ async function endPlan() {
 }
 
 async function triggerFullSync() {
-  if (!canTriggerFullSync.value) return
+  if (!canTriggerManualSync.value) return
 
   syncingFullSession.value = true
   try {
     const response = await trainingStore.requestFullSessionSync()
     if (!response) {
-      showSessionNotice('整课补传失败，后台会继续重试。', 'warning')
+      showSessionNotice('整课补传失败，已转为人工处理。', 'warning')
       return
     }
 
@@ -369,13 +476,14 @@ async function triggerFullSync() {
       response.conflict_logged ? 'warning' : 'success',
     )
   } catch {
-    showSessionNotice('整课补传失败，后台会继续重试。', 'warning')
+    showSessionNotice('整课补传失败，已转为人工处理。', 'warning')
   } finally {
     syncingFullSession.value = false
   }
 }
 
 function selectActiveItem(itemId: number) {
+  restoreToActionList.value = false
   activeItemId.value = itemId
 }
 
@@ -459,6 +567,13 @@ onMounted(hydrate)
 
 <template>
   <TrainingShell>
+    <TrainingDraftRestoreModal
+      :open="!!restorePromptDraft"
+      :draft="restorePromptDraft"
+      @continue-restore="handleRestorePromptDecision(true)"
+      @discard-restore="handleRestorePromptDecision(false)"
+    />
+
     <div class="training-mode-layout">
       <TrainingModeSidebar
         :athletes="filteredAthletes"
@@ -480,21 +595,25 @@ onMounted(hydrate)
             <p class="section-title">训练记录</p>
             <h3>{{ selectedAssignment?.template?.name || '未进入训练计划' }}</h3>
             <p class="muted">
-              {{ trainingStore.session ? `当前状态：${sessionStatusLabel}` : '点击左侧计划即可继续或切换当天训练记录。' }}
+              {{ trainingStore.session ? `当前状态：${sessionStatusText}` : '点击左侧计划即可继续或切换当天训练记录。' }}
             </p>
-            <p v-if="trainingStore.session" class="session-notice" :class="syncStatusTone">同步状态：{{ syncStatusLabel }}</p>
+            <div v-if="trainingStore.session" class="sync-indicator" :class="syncIndicatorTone">
+              <span class="sync-indicator-dot"></span>
+              <span>同步状态：{{ syncIndicatorLabel }}</span>
+            </div>
+            <p v-if="manualRetryHint" class="session-notice warning">{{ manualRetryHint }}</p>
             <p v-if="sessionNotice" class="session-notice" :class="sessionNoticeTone">{{ sessionNotice }}</p>
           </div>
 
           <div class="hero-actions">
             <button
-              v-if="canTriggerFullSync"
+              v-if="canTriggerManualSync"
               class="secondary-btn end-plan-btn"
               type="button"
               :disabled="syncingFullSession"
               @click="triggerFullSync"
             >
-              {{ syncingFullSession ? '正在整课补传...' : '整课补传' }}
+              {{ syncingFullSession ? '正在同步个人训练数据...' : '同步个人训练数据' }}
             </button>
             <button class="secondary-btn end-plan-btn" type="button" :disabled="!canEndSession" @click="endPlan">
               {{ closingSession ? '正在结束...' : '结束计划' }}
@@ -549,6 +668,35 @@ onMounted(hydrate)
 .hero-copy {
   display: grid;
   gap: 8px;
+}
+
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.sync-indicator-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.sync-indicator.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sync-indicator.warning {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .hero-actions {

@@ -3,12 +3,13 @@ export interface RuntimeAccessInfo {
   host: string
   port: number
   generatedAt: string
-  source: 'startup-script' | 'fallback'
+  source: 'vite-dev-server' | 'fallback'
 }
 
 function buildFallback(): RuntimeAccessInfo {
+  const accessUrl = new URL('/', window.location.origin).toString()
   return {
-    accessUrl: window.location.origin,
+    accessUrl,
     host: window.location.hostname,
     port: Number(window.location.port || (window.location.protocol === 'https:' ? 443 : 80)),
     generatedAt: '',
@@ -29,7 +30,7 @@ export async function fetchRuntimeAccessInfo(): Promise<RuntimeAccessInfo> {
       host: data.host,
       port: data.port,
       generatedAt: data.generatedAt || '',
-      source: data.source === 'startup-script' ? 'startup-script' : 'fallback',
+      source: data.source === 'fallback' ? 'fallback' : 'vite-dev-server',
     }
   } catch {
     return fallback

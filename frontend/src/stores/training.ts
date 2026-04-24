@@ -6,6 +6,9 @@ import {
   fetchSession,
   fetchTrainingAthletes,
   fetchTrainingPlans,
+  fetchTrainingSyncIssues,
+  reportTrainingSyncIssue,
+  resolveTrainingSyncIssue,
   syncTrainingSessionSnapshot,
   syncTrainingSetOperation,
   type FullSessionSyncPayload,
@@ -21,6 +24,7 @@ import {
   deleteTrainingLocalDraft,
   findTrainingLocalDraftBySessionId,
   hasSessionRecordedSets,
+  listTrainingLocalDrafts,
   loadTrainingLocalDraft,
   saveTrainingLocalDraft,
   TRAINING_DRAFT_SYNC_STATUS,
@@ -62,6 +66,7 @@ export const useTrainingStore = defineStore('training', () => {
   const session = ref<any | null>(null)
   const activeDraftSessionKey = ref<string>('')
   const draftPendingSync = ref(false)
+  const syncIssueId = ref<number | null>(null)
   const syncStatus = ref<TrainingDraftSyncStatus>(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
   const draftUiState = ref<{ activeItemId: number | null; latestSuggestion: any | null }>({
     activeItemId: null,
@@ -72,6 +77,10 @@ export const useTrainingStore = defineStore('training', () => {
 
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
+      if (syncStatus.value === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) {
+        void _reconcileManualSyncState()
+        return
+      }
       _scheduleIncrementalSync(300)
     })
   }
@@ -100,6 +109,7 @@ export const useTrainingStore = defineStore('training', () => {
     sessionDate.value = targetDate
     session.value = await startTrainingSession(assignmentId, targetDate)
     activeDraftSessionKey.value = _buildSessionKey(session.value)
+    syncIssueId.value = null
     _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
     return session.value
   }
@@ -107,6 +117,7 @@ export const useTrainingStore = defineStore('training', () => {
   async function loadSession(sessionId: number) {
     session.value = await fetchSession(sessionId)
     activeDraftSessionKey.value = _buildSessionKey(session.value)
+    syncIssueId.value = null
     _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
     return session.value
   }
@@ -221,12 +232,23 @@ export const useTrainingStore = defineStore('training', () => {
     return shouldOfferDraftRestore(draft) ? draft : null
   }
 
+  function getDraftBySessionKey(sessionKey: string) {
+    if (!sessionKey) return null
+    const draft = loadTrainingLocalDraft(sessionKey)
+    return shouldOfferDraftRestore(draft) ? draft : null
+  }
+
+  function getLatestRecoverableDraft() {
+    return listTrainingLocalDrafts().find((draft) => shouldOfferDraftRestore(draft)) || null
+  }
+
   function restoreDraft(draft: TrainingLocalDraft) {
     session.value = _clone(draft.session_snapshot)
     selectedAthleteId.value = draft.athlete_id
     sessionDate.value = draft.session_date
     previewAssignmentId.value = draft.assignment_id
     activeDraftSessionKey.value = draft.session_key
+    syncIssueId.value = draft.sync_issue_id ?? null
     draftUiState.value = {
       activeItemId: draft.current_item_id ?? null,
       latestSuggestion: draft.latest_suggestion ?? null,
@@ -242,7 +264,9 @@ export const useTrainingStore = defineStore('training', () => {
     if (!sessionKey) return
     deleteTrainingLocalDraft(sessionKey)
     if (activeDraftSessionKey.value === sessionKey) {
+      _clearScheduledSyncRetry()
       activeDraftSessionKey.value = ''
+      syncIssueId.value = null
       _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
     }
   }
@@ -252,7 +276,12 @@ export const useTrainingStore = defineStore('training', () => {
       activeItemId: uiState.activeItemId ?? draftUiState.value.activeItemId,
       latestSuggestion: uiState.latestSuggestion ?? draftUiState.value.latestSuggestion,
     }
-    _persistLocalDraft({ ...draftUiState.value, pendingSync: draftPendingSync.value })
+    _persistLocalDraft({
+      ...draftUiState.value,
+      pendingSync: draftPendingSync.value,
+      syncStatus: syncStatus.value,
+      syncIssueId: syncIssueId.value,
+    })
   }
 
   function _replaceSession(nextSession: any) {
@@ -262,7 +291,7 @@ export const useTrainingStore = defineStore('training', () => {
 
   function _setSyncStatus(nextStatus: TrainingDraftSyncStatus) {
     syncStatus.value = nextStatus
-    draftPendingSync.value = nextStatus === TRAINING_DRAFT_SYNC_STATUS.PENDING
+    draftPendingSync.value = nextStatus !== TRAINING_DRAFT_SYNC_STATUS.SYNCED
   }
 
   function _buildSessionKey(targetSession: any) {
@@ -282,6 +311,8 @@ export const useTrainingStore = defineStore('training', () => {
     lastServerSignature,
     incrementalFailureCount,
     lastSyncAttemptAt,
+    syncStatus: nextSyncStatus,
+    syncIssueId: nextSyncIssueId,
   }: DraftUiState & {
     pendingSync?: boolean
     pendingOperations?: TrainingDraftSyncOperation[]
@@ -289,6 +320,8 @@ export const useTrainingStore = defineStore('training', () => {
     lastServerSignature?: string | null
     incrementalFailureCount?: number
     lastSyncAttemptAt?: string | null
+    syncStatus?: TrainingDraftSyncStatus
+    syncIssueId?: number | null
   } = {}) {
     if (!session.value) return
 
@@ -308,12 +341,13 @@ export const useTrainingStore = defineStore('training', () => {
       templateName: matchingAssignment?.template?.name || null,
       currentItemId: activeItemId,
       latestSuggestion,
-      syncStatus: pendingSync ? TRAINING_DRAFT_SYNC_STATUS.PENDING : TRAINING_DRAFT_SYNC_STATUS.SYNCED,
+      syncStatus: nextSyncStatus ?? (pendingSync ? TRAINING_DRAFT_SYNC_STATUS.PENDING : TRAINING_DRAFT_SYNC_STATUS.SYNCED),
       pendingSync,
       lastServerUpdatedAt: lastServerUpdatedAt ?? session.value.updated_at ?? existingDraft?.last_server_updated_at ?? null,
       lastServerSignature: lastServerSignature ?? session.value.server_signature ?? existingDraft?.last_server_signature ?? null,
       incrementalFailureCount: incrementalFailureCount ?? existingDraft?.incremental_failure_count ?? 0,
       lastSyncAttemptAt: lastSyncAttemptAt ?? existingDraft?.last_sync_attempt_at ?? null,
+      syncIssueId: nextSyncIssueId ?? existingDraft?.sync_issue_id ?? syncIssueId.value ?? null,
       pendingOperations,
     })
 
@@ -324,11 +358,18 @@ export const useTrainingStore = defineStore('training', () => {
 
     saveTrainingLocalDraft(draft)
     activeDraftSessionKey.value = draft.session_key
+    syncIssueId.value = draft.sync_issue_id
     draftUiState.value = {
       activeItemId,
       latestSuggestion,
     }
     _setSyncStatus(draft.sync_status)
+  }
+
+  function _getPendingSyncStatus() {
+    return syncStatus.value === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED
+      ? TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED
+      : TRAINING_DRAFT_SYNC_STATUS.PENDING
   }
 
   function _saveSetLocally(itemId: number, payload: NormalizedSetPayload, uiState: DraftUiState) {
@@ -349,10 +390,16 @@ export const useTrainingStore = defineStore('training', () => {
     _persistLocalDraft({
       ...uiState,
       pendingSync: true,
+      syncStatus: _getPendingSyncStatus(),
+      syncIssueId: syncIssueId.value,
       latestSuggestion: null,
       pendingOperations,
     })
-    _scheduleIncrementalSync()
+    if (syncStatus.value === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) {
+      void _refreshManualSyncIssue()
+    } else {
+      _scheduleIncrementalSync()
+    }
 
     return {
       record,
@@ -376,10 +423,16 @@ export const useTrainingStore = defineStore('training', () => {
     _persistLocalDraft({
       ...uiState,
       pendingSync: true,
+      syncStatus: _getPendingSyncStatus(),
+      syncIssueId: syncIssueId.value,
       latestSuggestion: null,
       pendingOperations,
     })
-    _scheduleIncrementalSync()
+    if (syncStatus.value === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) {
+      void _refreshManualSyncIssue()
+    } else {
+      _scheduleIncrementalSync()
+    }
 
     return {
       record: matchedRecord,
@@ -404,9 +457,15 @@ export const useTrainingStore = defineStore('training', () => {
       ...uiState,
       latestSuggestion: null,
       pendingSync: true,
+      syncStatus: _getPendingSyncStatus(),
+      syncIssueId: syncIssueId.value,
       pendingOperations,
     })
-    _scheduleIncrementalSync()
+    if (syncStatus.value === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) {
+      void _refreshManualSyncIssue()
+    } else {
+      _scheduleIncrementalSync()
+    }
 
     return {
       ...nextSession,
@@ -629,6 +688,7 @@ export const useTrainingStore = defineStore('training', () => {
   function _scheduleIncrementalSync(delayMs = SYNC_RETRY_IDLE_MS) {
     if (typeof window === 'undefined') return
     if (!activeDraftSessionKey.value) return
+    if (syncStatus.value === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) return
     if (syncRetryTimer !== null) {
       window.clearTimeout(syncRetryTimer)
     }
@@ -636,6 +696,164 @@ export const useTrainingStore = defineStore('training', () => {
       syncRetryTimer = null
       void syncPendingOperations()
     }, delayMs)
+  }
+
+  function _clearScheduledSyncRetry() {
+    if (typeof window === 'undefined') return
+    if (syncRetryTimer !== null) {
+      window.clearTimeout(syncRetryTimer)
+      syncRetryTimer = null
+    }
+  }
+
+  function _extractSyncErrorMessage(error: unknown) {
+    const maybeError = error as { response?: { data?: { detail?: string } }; message?: string }
+    return maybeError?.response?.data?.detail || maybeError?.message || '同步失败'
+  }
+
+  function _buildManualRetrySummary(triggerReason: 'manual' | 'fallback') {
+    return triggerReason === 'manual'
+      ? 'Manual full-session retry failed. Coach or admin follow-up is now required.'
+      : 'Automatic retries stopped after the full-session fallback also failed. Coach or admin follow-up is now required.'
+  }
+
+  async function _resolveSyncIssueIfNeeded(issueId = syncIssueId.value) {
+    if (!issueId) return
+    try {
+      await resolveTrainingSyncIssue(issueId)
+      syncIssueId.value = null
+    } catch {
+      // Keep local training flow uninterrupted even if clearing the issue flag fails.
+    }
+  }
+
+  async function _refreshManualSyncIssue() {
+    if (!activeDraftSessionKey.value) return null
+    const draft = loadTrainingLocalDraft(activeDraftSessionKey.value)
+    if (!draft?.session_snapshot || syncStatus.value !== TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) {
+      return null
+    }
+
+    try {
+      const issue = await reportTrainingSyncIssue({
+        session_key: draft.session_key,
+        athlete_id: draft.athlete_id,
+        assignment_id: draft.assignment_id,
+        session_id: session.value?.id ?? draft.session_id ?? null,
+        session_date: draft.session_date,
+        failure_count: Math.max(draft.incremental_failure_count, FULL_SYNC_FAILURE_THRESHOLD),
+        summary: draft.sync_issue_id
+          ? 'Manual handling issue remains open. The latest local draft snapshot has been refreshed.'
+          : 'Automatic retries stopped. The latest local draft snapshot is waiting for manual retry.',
+        last_error: null,
+        sync_payload: _buildFullSessionSyncPayload(
+          {
+            ...draft,
+            session_id: session.value?.id ?? draft.session_id ?? null,
+            session_snapshot: _clone(session.value ?? draft.session_snapshot),
+          },
+          'manual',
+        ),
+      })
+      syncIssueId.value = issue.id
+      _persistLocalDraft({
+        ...draftUiState.value,
+        pendingSync: true,
+        syncStatus: TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED,
+        syncIssueId: issue.id,
+        incrementalFailureCount: Math.max(draft.incremental_failure_count, FULL_SYNC_FAILURE_THRESHOLD),
+      })
+      return issue
+    } catch {
+      return null
+    }
+  }
+
+  async function _reconcileManualSyncState() {
+    if (!session.value || syncStatus.value !== TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) return
+
+    if (!syncIssueId.value) {
+      await _refreshManualSyncIssue()
+      return
+    }
+
+    try {
+      const openIssues = await fetchTrainingSyncIssues({
+        athlete_id: session.value.athlete_id,
+        date_from: session.value.session_date,
+        date_to: session.value.session_date,
+        issue_status: 'manual_retry_required',
+      })
+      const stillOpen = openIssues.some((issue) => issue.id === syncIssueId.value)
+      if (stillOpen) {
+        await _refreshManualSyncIssue()
+        return
+      }
+
+      const nextSession = session.value.id
+        ? await fetchSession(session.value.id)
+        : await startTrainingSession(session.value.assignment_id, session.value.session_date)
+      _replaceSession(nextSession)
+      _persistLocalDraft({
+        ...draftUiState.value,
+        latestSuggestion: null,
+        pendingSync: false,
+        pendingOperations: [],
+        syncStatus: TRAINING_DRAFT_SYNC_STATUS.SYNCED,
+        syncIssueId: null,
+        lastServerUpdatedAt: nextSession.updated_at ?? null,
+        lastServerSignature: nextSession.server_signature ?? null,
+        incrementalFailureCount: 0,
+        lastSyncAttemptAt: new Date().toISOString(),
+      })
+      _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
+      await hydrateAthletes(sessionDate.value)
+    } catch {
+      // Device-side reconciliation stays best-effort and must not block training.
+    }
+  }
+
+  async function _markManualRetryRequired(
+    draft: TrainingLocalDraft,
+    triggerReason: 'manual' | 'fallback',
+    error: unknown,
+  ) {
+    _clearScheduledSyncRetry()
+
+    let nextIssueId = draft.sync_issue_id ?? syncIssueId.value ?? null
+    try {
+      const issue = await reportTrainingSyncIssue({
+        session_key: draft.session_key,
+        athlete_id: draft.athlete_id,
+        assignment_id: draft.assignment_id,
+        session_id: session.value?.id ?? draft.session_id ?? null,
+        session_date: draft.session_date,
+        failure_count: Math.max(draft.incremental_failure_count, FULL_SYNC_FAILURE_THRESHOLD),
+        summary: _buildManualRetrySummary(triggerReason),
+        last_error: _extractSyncErrorMessage(error),
+        sync_payload: _buildFullSessionSyncPayload(
+          {
+            ...draft,
+            session_id: session.value?.id ?? draft.session_id ?? null,
+            session_snapshot: _clone(session.value ?? draft.session_snapshot),
+          },
+          triggerReason,
+        ),
+      })
+      nextIssueId = issue.id
+    } catch {
+      // Reporting the issue is best-effort. Local draft remains the source of truth either way.
+    }
+
+    _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED)
+    _persistLocalDraft({
+      ...draftUiState.value,
+      pendingSync: true,
+      syncStatus: TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED,
+      syncIssueId: nextIssueId,
+      incrementalFailureCount: Math.max(draft.incremental_failure_count, FULL_SYNC_FAILURE_THRESHOLD),
+      lastSyncAttemptAt: new Date().toISOString(),
+    })
   }
 
   async function syncSessionSnapshot(triggerReason: 'manual' | 'fallback' = 'manual') {
@@ -653,23 +871,19 @@ export const useTrainingStore = defineStore('training', () => {
         latestSuggestion: null,
         pendingSync: false,
         pendingOperations: [],
+        syncStatus: TRAINING_DRAFT_SYNC_STATUS.SYNCED,
+        syncIssueId: null,
         lastServerUpdatedAt: response.session.updated_at ?? null,
         lastServerSignature: response.session.server_signature ?? null,
         incrementalFailureCount: 0,
         lastSyncAttemptAt: new Date().toISOString(),
       })
       _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
+      await _resolveSyncIssueIfNeeded(draft.sync_issue_id ?? syncIssueId.value)
       await hydrateAthletes(sessionDate.value)
       return response
-    } catch {
-      _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.PENDING)
-      _persistLocalDraft({
-        ...draftUiState.value,
-        pendingSync: true,
-        incrementalFailureCount: Math.max(draft.incremental_failure_count, FULL_SYNC_FAILURE_THRESHOLD),
-        lastSyncAttemptAt: new Date().toISOString(),
-      })
-      _scheduleIncrementalSync(SYNC_RETRY_DELAY_MS)
+    } catch (error) {
+      await _markManualRetryRequired(draft, triggerReason, error)
       return null
     } finally {
       syncInFlight = false
@@ -686,6 +900,10 @@ export const useTrainingStore = defineStore('training', () => {
     const draft = loadTrainingLocalDraft(activeDraftSessionKey.value)
     if (!draft?.pending_operations?.length) {
       _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
+      return
+    }
+
+    if (draft.sync_status === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) {
       return
     }
 
@@ -722,6 +940,8 @@ export const useTrainingStore = defineStore('training', () => {
         _persistLocalDraft({
           ...draftUiState.value,
           pendingSync: pendingOperations.length > 0,
+          syncStatus: pendingOperations.length > 0 ? TRAINING_DRAFT_SYNC_STATUS.PENDING : TRAINING_DRAFT_SYNC_STATUS.SYNCED,
+          syncIssueId: null,
           pendingOperations,
           lastServerUpdatedAt: response.session.updated_at ?? null,
           lastServerSignature: response.session.server_signature ?? null,
@@ -731,6 +951,7 @@ export const useTrainingStore = defineStore('training', () => {
       }
 
       _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
+      await _resolveSyncIssueIfNeeded(draft.sync_issue_id ?? syncIssueId.value)
       await hydrateAthletes(sessionDate.value)
     } catch {
       const nextFailureCount = (draft.incremental_failure_count || 0) + 1
@@ -738,6 +959,7 @@ export const useTrainingStore = defineStore('training', () => {
       _persistLocalDraft({
         ...draftUiState.value,
         pendingSync: true,
+        syncStatus: TRAINING_DRAFT_SYNC_STATUS.PENDING,
         incrementalFailureCount: nextFailureCount,
         lastSyncAttemptAt: new Date().toISOString(),
       })
@@ -748,6 +970,8 @@ export const useTrainingStore = defineStore('training', () => {
         _persistLocalDraft({
           ...draftUiState.value,
           pendingSync: draftPendingSync.value,
+          syncStatus: syncStatus.value,
+          syncIssueId: syncIssueId.value,
           incrementalFailureCount: 0,
         })
       }
@@ -941,6 +1165,8 @@ export const useTrainingStore = defineStore('training', () => {
     getDraftForSession,
     getDraftBySessionId,
     getDraftByContext,
+    getDraftBySessionKey,
+    getLatestRecoverableDraft,
     restoreDraft,
     discardDraft,
     persistLocalDraftState,

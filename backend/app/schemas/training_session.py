@@ -35,6 +35,24 @@ class SetRecordUpdate(BaseModel):
     notes: str | None = None
 
 
+class CoachSetRecordUpdate(BaseModel):
+    actual_weight: float
+    actual_reps: int
+    actual_rir: int
+    final_weight: float | None = None
+    notes: str | None = None
+    actor_name: str | None = None
+
+
+class CoachSetRecordCreate(BaseModel):
+    actual_weight: float
+    actual_reps: int
+    actual_rir: int
+    final_weight: float | None = None
+    notes: str | None = None
+    actor_name: str | None = None
+
+
 class SessionSetSyncOperation(BaseModel):
     operation_type: Literal['create_set', 'update_set', 'complete_session']
     assignment_id: int | None = None
@@ -197,4 +215,38 @@ class SessionFullSyncResponse(BaseModel):
     session_completed_at: datetime | None = None
     sync_status: Literal['synced'] = 'synced'
     sync_mode: Literal['full'] = 'full'
+    conflict_logged: bool = False
+
+
+class TrainingSyncIssueRead(BaseModel):
+    id: int
+    athlete_id: int
+    athlete_name: str | None = None
+    assignment_id: int | None = None
+    session_id: int | None = None
+    session_date: date
+    session_key: str
+    issue_status: Literal['manual_retry_required', 'resolved']
+    summary: str
+    failure_count: int
+    last_error: str | None = None
+    updated_at: datetime
+    resolved_at: datetime | None = None
+
+
+class TrainingSyncIssueReportPayload(BaseModel):
+    session_key: str
+    athlete_id: int
+    assignment_id: int | None = None
+    session_id: int | None = None
+    session_date: date
+    failure_count: int = 0
+    summary: str
+    last_error: str | None = None
+    sync_payload: SessionFullSyncPayload
+
+
+class TrainingSyncIssueRetryResponse(BaseModel):
+    issue: TrainingSyncIssueRead
+    session: SessionRead
     conflict_logged: bool = False

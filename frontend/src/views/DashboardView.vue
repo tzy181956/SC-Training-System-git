@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import { fetchTrainingSyncIssues, retryTrainingSyncIssue } from '@/api/sessions'
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import { useAthletesStore } from '@/stores/athletes'
@@ -10,12 +11,35 @@ import { usePlansStore } from '@/stores/plans'
 const router = useRouter()
 const athletesStore = useAthletesStore()
 const plansStore = usePlansStore()
+const syncIssues = ref<any[]>([])
+const syncNotice = ref('')
+const syncNoticeTone = ref<'success' | 'warning' | 'error'>('success')
+const retryingIssueId = ref<number | null>(null)
 
 onMounted(async () => {
-  await Promise.all([athletesStore.hydrate(), plansStore.hydrate()])
+  await Promise.all([athletesStore.hydrate(), plansStore.hydrate(), loadSyncIssues()])
 })
 
 const activeAssignments = computed(() => plansStore.assignments.filter((item) => item.status === 'active').length)
+
+async function loadSyncIssues() {
+  syncIssues.value = await fetchTrainingSyncIssues({ issue_status: 'manual_retry_required' })
+}
+
+async function retrySyncIssue(issueId: number) {
+  retryingIssueId.value = issueId
+  try {
+    await retryTrainingSyncIssue(issueId)
+    syncNotice.value = '同步异常已重试，待处理列表已刷新。'
+    syncNoticeTone.value = 'success'
+    await loadSyncIssues()
+  } catch {
+    syncNotice.value = '手动重试失败，请回到训练端设备继续处理。'
+    syncNoticeTone.value = 'warning'
+  } finally {
+    retryingIssueId.value = null
+  }
+}
 </script>
 
 <template>
@@ -39,6 +63,35 @@ const activeAssignments = computed(() => plansStore.assignments.filter((item) =>
         <StatCard label="进行中计划" :value="activeAssignments" hint="支持同一周期多份计划并行" />
       </section>
     </div>
+
+    <section class="panel sync-issue-panel">
+      <div class="sync-issue-head">
+        <div>
+          <p class="section-label">同步</p>
+          <h3>同步异常待处理</h3>
+        </div>
+        <button class="secondary-btn" type="button" @click="loadSyncIssues">刷新异常</button>
+      </div>
+      <p v-if="syncNotice" class="sync-notice" :class="syncNoticeTone">{{ syncNotice }}</p>
+      <div v-if="syncIssues.length" class="sync-issue-list">
+        <article v-for="issue in syncIssues" :key="issue.id" class="sync-issue-card">
+          <div class="sync-issue-copy">
+            <strong>{{ issue.athlete_name || `运动员 ${issue.athlete_id}` }}｜{{ issue.session_date }}</strong>
+            <span>{{ issue.summary }}</span>
+            <span v-if="issue.last_error" class="sync-issue-error">最近错误：{{ issue.last_error }}</span>
+          </div>
+          <button
+            class="secondary-btn"
+            type="button"
+            :disabled="retryingIssueId === issue.id"
+            @click="retrySyncIssue(issue.id)"
+          >
+            {{ retryingIssueId === issue.id ? '重试中...' : '手动重试' }}
+          </button>
+        </article>
+      </div>
+      <div v-else class="sync-empty">当前没有待处理的同步异常。</div>
+    </section>
 
     <div class="panel dashboard-panels">
       <button class="simple-card action-card" @click="router.push({ name: 'athletes' })">
@@ -106,6 +159,84 @@ const activeAssignments = computed(() => plansStore.assignments.filter((item) =>
 .hero-side {
   display: grid;
   gap: 16px;
+}
+
+.sync-issue-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.sync-issue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.section-label {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sync-issue-head h3,
+.sync-notice,
+.sync-issue-copy strong,
+.sync-issue-copy span,
+.sync-empty {
+  margin: 0;
+}
+
+.sync-notice {
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sync-notice.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sync-notice.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.sync-notice.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.sync-issue-list {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-issue-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.sync-issue-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.sync-issue-copy span {
+  color: var(--muted);
+}
+
+.sync-issue-error {
+  color: #92400e;
 }
 
 .dashboard-panels {

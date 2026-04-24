@@ -5,15 +5,15 @@ chcp 65001 >nul
 set "ROOT_DIR=%~dp0.."
 set "BACKEND_DIR=%ROOT_DIR%\backend"
 set "FRONTEND_DIR=%ROOT_DIR%\frontend"
-set "FRONTEND_PUBLIC_DIR=%FRONTEND_DIR%\public"
-set "RUNTIME_ACCESS_FILE=%FRONTEND_PUBLIC_DIR%\runtime-access.json"
+set "RUNTIME_ACCESS_FILE=%FRONTEND_DIR%\public\runtime-access.json"
 set "VENV_DIR=%BACKEND_DIR%\.venv"
 set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
 set "VENV_CFG=%VENV_DIR%\pyvenv.cfg"
 set "DB_FILE=%BACKEND_DIR%\training.db"
 set "NEED_INIT=0"
 set "INIT_REASON="
-set "LAN_IP="
+set "ACCESS_URL="
+set "FRONTEND_URL=http://127.0.0.1:5173/"
 set "FRONTEND_PORT=5173"
 set "BACKEND_PORT=8000"
 
@@ -54,12 +54,7 @@ if "%NEED_INIT%"=="1" (
   echo.
 )
 
-call :write_runtime_access
-if errorlevel 1 (
-  echo [ERROR] Failed to generate runtime access config.
-  pause
-  exit /b 1
-)
+if exist "%RUNTIME_ACCESS_FILE%" del /q "%RUNTIME_ACCESS_FILE%" >nul 2>nul
 
 echo [1/4] Start backend window...
 start "Training Platform Backend" cmd /k call "%ROOT_DIR%\scripts\start_backend.bat"
@@ -69,20 +64,22 @@ start "Training Platform Frontend" cmd /k call "%ROOT_DIR%\scripts\start_fronten
 
 echo [3/4] Wait for services...
 timeout /t 8 /nobreak >nul
+call :read_runtime_access_url
+if defined ACCESS_URL set "FRONTEND_URL=%ACCESS_URL%"
 
 echo [4/4] Open browser...
-start "" "http://127.0.0.1:%FRONTEND_PORT%"
+start "" "%FRONTEND_URL%"
 
 echo.
-echo Local URLs:
-echo Frontend: http://127.0.0.1:%FRONTEND_PORT%
+echo Access URLs:
+echo Frontend: %FRONTEND_URL%
 echo Backend : http://127.0.0.1:%BACKEND_PORT%
 echo.
 echo iPad access:
-if defined LAN_IP (
-  echo Use http://%LAN_IP%:%FRONTEND_PORT% on the same Wi-Fi network.
+if defined ACCESS_URL (
+  echo Use %ACCESS_URL% on the same Wi-Fi network.
 ) else (
-  echo No recommended LAN IPv4 was detected. The page will fall back to the current local address.
+  echo Runtime access URL is not ready yet. Use the Network address shown in the frontend window.
 )
 echo.
 echo Current IPv4 addresses:
@@ -91,23 +88,11 @@ echo.
 pause
 exit /b 0
 
-:write_runtime_access
-if not exist "%FRONTEND_PUBLIC_DIR%" mkdir "%FRONTEND_PUBLIC_DIR%"
-
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' | Where-Object { $_.NextHop -ne '0.0.0.0' } | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1; if ($route) { $ip = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Sort-Object SkipAsSource | Select-Object -First 1 -ExpandProperty IPAddress; if ($ip) { $ip } }"`) do (
-  set "LAN_IP=%%I"
+:read_runtime_access_url
+set "ACCESS_URL="
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "if (Test-Path '%RUNTIME_ACCESS_FILE%') { try { $data = Get-Content '%RUNTIME_ACCESS_FILE%' -Raw | ConvertFrom-Json; if ($data.accessUrl) { $data.accessUrl } } catch {} }"`) do (
+  set "ACCESS_URL=%%I"
 )
-
-set "ACCESS_HOST=%LAN_IP%"
-set "ACCESS_SOURCE=startup-script"
-if not defined ACCESS_HOST (
-  set "ACCESS_HOST=127.0.0.1"
-  set "ACCESS_SOURCE=fallback"
-)
-
-powershell -NoProfile -Command ^
-  "$payload = [ordered]@{ accessUrl = 'http://%ACCESS_HOST%:%FRONTEND_PORT%'; host = '%ACCESS_HOST%'; port = %FRONTEND_PORT%; generatedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'); source = '%ACCESS_SOURCE%' }; $json = $payload | ConvertTo-Json; Set-Content -Path '%RUNTIME_ACCESS_FILE%' -Value $json -Encoding UTF8"
-if errorlevel 1 exit /b 1
 exit /b 0
 
 :check_venv

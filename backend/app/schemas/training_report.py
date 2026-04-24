@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 from app.schemas.athlete import AthleteRead
+from app.schemas.training_session import TrainingSyncIssueRead
 
 
 class TrainingReportSetRead(BaseModel):
@@ -20,6 +21,17 @@ class TrainingReportSetRead(BaseModel):
     completed_at: datetime
     notes: str | None = None
     adjustment_type: str
+
+
+class TrainingSessionEditLogRead(BaseModel):
+    id: int
+    action_type: str
+    actor_name: str
+    object_type: str
+    object_id: int | None = None
+    summary: str
+    created_at: datetime
+    edited_at: datetime
 
 
 class TrainingReportItemRead(BaseModel):
@@ -45,6 +57,7 @@ class TrainingReportSessionRead(BaseModel):
     completed_sets: int
     total_sets: int
     items: list[TrainingReportItemRead]
+    edit_logs: list[TrainingSessionEditLogRead] = []
 
 
 class TrainingReportSummaryRead(BaseModel):
@@ -87,3 +100,4 @@ class TrainingReportRead(BaseModel):
     sessions: list[TrainingReportSessionRead]
     trend: dict[str, list[TrainingReportTrendSeriesRead] | list[TrainingReportCompletionTrendRead]]
     flags: list[TrainingReportFlagRead]
+    sync_issues: list[TrainingSyncIssueRead]
