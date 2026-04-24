@@ -20,6 +20,9 @@ class TrainingSession(BaseModel):
     coach_note: Mapped[str | None] = mapped_column(Text)
     athlete_note: Mapped[str | None] = mapped_column(Text)
 
+    athlete = relationship("Athlete")
+    assignment = relationship("AthletePlanAssignment")
+    template = relationship("TrainingPlanTemplate")
     items = relationship(
         "TrainingSessionItem",
         back_populates="session",
@@ -44,6 +47,7 @@ class TrainingSessionItem(BaseModel):
     status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
 
     session = relationship("TrainingSession", back_populates="items")
+    template_item = relationship("TrainingPlanTemplateItem")
     exercise = relationship("Exercise")
     records = relationship(
         "SetRecord",

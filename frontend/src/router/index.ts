@@ -1,9 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import AthletesView from '@/views/AthletesView.vue'
+import BackupsView from '@/views/BackupsView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import ExerciseLibraryView from '@/views/ExerciseLibraryView.vue'
 import LoginView from '@/views/LoginView.vue'
+import LogsView from '@/views/LogsView.vue'
 import PlanAssignmentsView from '@/views/PlanAssignmentsView.vue'
 import PlanTemplatesView from '@/views/PlanTemplatesView.vue'
 import TestRecordsView from '@/views/TestRecordsView.vue'
@@ -23,6 +25,8 @@ const router = createRouter({
     { path: '/plans', name: 'plans', component: PlanTemplatesView },
     { path: '/assignments', name: 'assignments', component: PlanAssignmentsView },
     { path: '/training-reports', name: 'training-reports', component: TrainingReportsView },
+    { path: '/backups', name: 'backups', component: BackupsView },
+    { path: '/logs', name: 'logs', component: LogsView },
     { path: '/tests', name: 'tests', component: TestRecordsView },
     { path: '/training-mode', name: 'training-mode', component: TrainingModeView },
     {

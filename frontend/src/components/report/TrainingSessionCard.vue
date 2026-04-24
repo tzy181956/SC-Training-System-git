@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 
-import { coachAddTrainingReportSet, coachUpdateTrainingReportSetRecord } from '@/api/trainingReports'
+import {
+  coachAddTrainingReportSet,
+  coachDeleteTrainingReportSetRecord,
+  coachUpdateTrainingReportSetRecord,
+} from '@/api/trainingReports'
+import { confirmDangerousAction } from '@/utils/dangerousAction'
 
 const props = defineProps<{ session: any; onlyIncomplete?: boolean; onlyMainLift?: boolean }>()
 
@@ -12,6 +17,7 @@ const emit = defineEmits<{
 
 const editingRecordId = ref<number | null>(null)
 const savingRecordId = ref<number | null>(null)
+const deletingRecordId = ref<number | null>(null)
 const addingItemId = ref<number | null>(null)
 const savingItemId = ref<number | null>(null)
 
@@ -110,6 +116,38 @@ async function saveAdd(itemId: number) {
   }
 }
 
+async function deleteRecord(record: any, item: any) {
+  const confirmed = confirmDangerousAction({
+    title: '删除训练记录',
+    impactLines: [
+      `动作：${item.exercise_name}`,
+      `组次：第 ${record.set_number} 组`,
+      `删除后本堂课完成状态会自动重算`,
+    ],
+  })
+  if (!confirmed) return
+
+  deletingRecordId.value = record.id
+  try {
+    await coachDeleteTrainingReportSetRecord(record.id, {
+      confirmed: true,
+      actor_name: '管理端',
+    })
+    if (editingRecordId.value === record.id) {
+      cancelEdit()
+    }
+    emit('notify', { message: '训练记录已删除，训练课状态已重算。', tone: 'success' })
+    emit('changed')
+  } catch (error: any) {
+    emit('notify', {
+      message: error?.response?.data?.detail || '删除训练记录失败，请稍后再试。',
+      tone: 'error',
+    })
+  } finally {
+    deletingRecordId.value = null
+  }
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return '--'
   const date = new Date(value)
@@ -194,6 +232,14 @@ function formatDateTime(value?: string | null) {
                   </td>
                   <td>
                     <button class="link-btn" type="button" @click="startEdit(record)">修改</button>
+                    <button
+                      class="link-btn danger-link"
+                      type="button"
+                      :disabled="deletingRecordId === record.id"
+                      @click="deleteRecord(record, item)"
+                    >
+                      {{ deletingRecordId === record.id ? '删除中...' : '删除' }}
+                    </button>
                   </td>
                 </tr>
                 <tr v-if="editingRecordId === record.id" class="editor-row">
@@ -306,6 +352,7 @@ function formatDateTime(value?: string | null) {
 .record-table{width:100%;border-collapse:collapse}
 .record-table th,.record-table td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
 .link-btn{border:none;background:transparent;color:#0f766e;font-weight:600;cursor:pointer;padding:0}
+.danger-link{margin-left:10px;color:#b91c1c}
 .editor-row td{background:rgba(15,118,110,.05)}
 .editor-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .field{display:grid;gap:6px;min-width:0}

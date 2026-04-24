@@ -6,6 +6,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { fetchAthletes } from '@/api/athletes'
 import {
   createTestRecord,
+  deleteTestRecordsBatch,
   downloadTestRecordTemplate,
   exportTestRecordLibrary,
   fetchTestRecords,
@@ -13,6 +14,7 @@ import {
 } from '@/api/testRecords'
 import AppShell from '@/components/layout/AppShell.vue'
 import { todayString } from '@/utils/date'
+import { confirmDangerousAction } from '@/utils/dangerousAction'
 
 type Athlete = {
   id: number
@@ -159,6 +161,10 @@ const totalLibraryRecords = computed(() =>
     }),
 )
 
+const hasLibraryFilters = computed(
+  () => Boolean(libraryFilters.athleteKeyword.trim() || libraryFilters.metricKeyword.trim() || libraryFilters.testType),
+)
+
 const libraryAthleteOptions = computed(() =>
   Array.from(new Set(records.value.map((record) => record.athlete?.full_name || '').filter(Boolean))).sort((left, right) =>
     left.localeCompare(right, 'zh-CN'),
@@ -233,6 +239,39 @@ async function handleImport(event: Event) {
 
 function triggerImport() {
   importInputRef.value?.click()
+}
+
+async function handleDeleteFilteredBatch() {
+  if (!hasLibraryFilters.value) {
+    actionMessage.value = '请先筛选出要删除的测试批次，再执行删除。'
+    return
+  }
+  if (!totalLibraryRecords.value.length) {
+    actionMessage.value = '当前筛选条件下没有可删除的测试数据。'
+    return
+  }
+
+  const dateValues = totalLibraryRecords.value.map((record) => record.test_date).sort((left, right) => left.localeCompare(right))
+  const confirmed = confirmDangerousAction({
+    title: '批量删除测试数据',
+    impactLines: [
+      `将删除当前筛选结果 ${totalLibraryRecords.value.length} 条`,
+      `日期范围：${dateValues[0]} ~ ${dateValues[dateValues.length - 1]}`,
+      `筛选条件：${libraryFilters.athleteKeyword || '全部运动员'} / ${libraryFilters.metricKeyword || '全部项目'} / ${libraryFilters.testType || '全部类型'}`,
+    ],
+  })
+  if (!confirmed) return
+
+  try {
+    const result = await deleteTestRecordsBatch(
+      totalLibraryRecords.value.map((record) => record.id),
+      { confirmed: true, actor_name: '管理端' },
+    )
+    actionMessage.value = `已删除 ${result.deleted_count} 条测试数据。`
+    await hydrate()
+  } catch (error) {
+    actionMessage.value = extractErrorMessage(error)
+  }
 }
 
 function computeRelativeStrength(record: TestRecord) {
@@ -535,9 +574,18 @@ onMounted(hydrate)
             <p class="eyebrow">数据总库</p>
             <h3>测试数据总库</h3>
           </div>
-          <button class="ghost-btn" :disabled="exportBusy" @click="handleLibraryExport">
-            {{ exportBusy ? '导出中...' : '导出总库 Excel' }}
-          </button>
+          <div class="action-stack">
+            <button
+              class="ghost-btn danger-btn"
+              :disabled="!hasLibraryFilters || !totalLibraryRecords.length"
+              @click="handleDeleteFilteredBatch"
+            >
+              删除当前筛选批次
+            </button>
+            <button class="ghost-btn" :disabled="exportBusy" @click="handleLibraryExport">
+              {{ exportBusy ? '导出中...' : '导出总库 Excel' }}
+            </button>
+          </div>
         </div>
 
         <div class="filter-grid">
@@ -652,6 +700,10 @@ onMounted(hydrate)
   background: #e2e8f0;
   color: #0f172a;
   font-weight: 600;
+}
+
+.danger-btn {
+  color: #b91c1c;
 }
 
 .hidden-input {

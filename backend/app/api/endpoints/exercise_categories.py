@@ -4,14 +4,15 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.schemas.dangerous_action import DangerousActionConfirm
 from app.schemas.exercise_category import ExerciseCategoryRead, ExerciseCategoryTreeNode, ExerciseImportPreview
-from app.services import exercise_category_service
+from app.services import dangerous_operation_service, exercise_category_service
 
 
 router = APIRouter(prefix="/exercise-categories", tags=["exercise-categories"])
 
 
-class ExosImportPayload(BaseModel):
+class ExosImportPayload(DangerousActionConfirm):
     replace_existing: bool = True
 
 
@@ -36,4 +37,10 @@ def preview_exos_import(
 
 @router.post("/import-exos", response_model=ExerciseImportPreview)
 def import_exos(payload: ExosImportPayload, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
-    return exercise_category_service.import_exos_library(db, replace_existing=payload.replace_existing)
+    if payload.replace_existing:
+        dangerous_operation_service.require_confirmation(payload, action_label="覆盖导入 EXOS 动作库")
+    return exercise_category_service.import_exos_library(
+        db,
+        replace_existing=payload.replace_existing,
+        actor_name=payload.actor_name,
+    )

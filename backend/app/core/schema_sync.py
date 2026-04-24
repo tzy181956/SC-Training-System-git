@@ -24,6 +24,7 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE athletes ADD COLUMN wingspan FLOAT",
         "ALTER TABLE athletes ADD COLUMN standing_reach FLOAT",
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
+        "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]
 
     with engine.begin() as connection:
@@ -70,6 +71,41 @@ def ensure_runtime_schema() -> None:
         connection.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS dangerous_operation_logs (
+                    id INTEGER PRIMARY KEY,
+                    operation_key VARCHAR(50) NOT NULL,
+                    object_type VARCHAR(50) NOT NULL,
+                    object_id INTEGER,
+                    actor_name VARCHAR(120) NOT NULL,
+                    source VARCHAR(30) NOT NULL DEFAULT 'api',
+                    status VARCHAR(20) NOT NULL DEFAULT 'completed',
+                    summary TEXT NOT NULL,
+                    impact_scope JSON,
+                    confirmation_required BOOLEAN NOT NULL DEFAULT 1,
+                    confirmation_phrase VARCHAR(80),
+                    backup_path VARCHAR(255),
+                    extra_data JSON,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_dangerous_operation_logs_operation_key ON dangerous_operation_logs(operation_key)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_dangerous_operation_logs_object_type ON dangerous_operation_logs(object_type)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_dangerous_operation_logs_object_id ON dangerous_operation_logs(object_id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_dangerous_operation_logs_status ON dangerous_operation_logs(status)")
+        )
+        connection.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS training_sync_issues (
                     id INTEGER PRIMARY KEY,
                     athlete_id INTEGER NOT NULL,
@@ -100,4 +136,44 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_training_sync_issues_session_date ON training_sync_issues(session_date)")
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS content_change_logs (
+                    id INTEGER PRIMARY KEY,
+                    action_type VARCHAR(30) NOT NULL,
+                    object_type VARCHAR(50) NOT NULL,
+                    object_id INTEGER,
+                    object_label VARCHAR(160),
+                    actor_name VARCHAR(120) NOT NULL,
+                    team_id INTEGER,
+                    summary TEXT NOT NULL,
+                    before_snapshot JSON,
+                    after_snapshot JSON,
+                    extra_context JSON,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(team_id) REFERENCES teams(id)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_content_change_logs_action_type ON content_change_logs(action_type)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_content_change_logs_actor_name ON content_change_logs(actor_name)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_content_change_logs_object_id ON content_change_logs(object_id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_content_change_logs_object_type ON content_change_logs(object_type)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_content_change_logs_team_id ON content_change_logs(team_id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_users_team_id ON users(team_id)")
         )

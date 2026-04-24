@@ -5,10 +5,17 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.schemas.dangerous_action import DangerousActionConfirm
 from app.schemas.training_report import TrainingReportRead
-from app.schemas.training_session import CoachSetRecordCreate, CoachSetRecordUpdate, SetRecordUpdateResponse, SetSubmissionResponse
+from app.schemas.training_session import (
+    CoachSetRecordCreate,
+    CoachSetRecordDeleteResponse,
+    CoachSetRecordUpdate,
+    SetRecordUpdateResponse,
+    SetSubmissionResponse,
+)
 from app.services import training_report_service
-from app.services import session_service
+from app.services import dangerous_operation_service, session_service
 
 
 router = APIRouter(prefix="/training-reports", tags=["training-reports"])
@@ -55,6 +62,24 @@ def coach_add_set_record(
     return {
         "record": record,
         "next_suggestion": next_suggestion,
+        "item": item,
+        "session": session,
+        "session_status": session.status,
+        "session_completed_at": session.completed_at,
+    }
+
+
+@router.delete("/set-records/{record_id}", response_model=CoachSetRecordDeleteResponse)
+def coach_delete_set_record(
+    record_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="删除训练记录")
+    item, session = session_service.coach_delete_set_record(db, record_id, actor_name=payload.actor_name)
+    return {
+        "deleted_record_id": record_id,
         "item": item,
         "session": session,
         "session_status": session.status,

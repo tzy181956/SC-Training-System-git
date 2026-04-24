@@ -1,5 +1,11 @@
 import client from './client'
 
+type DangerousActionPayload = {
+  confirmed: true
+  actor_name?: string | null
+  confirmation_text?: string | null
+}
+
 export async function fetchTestRecords() {
   const { data } = await client.get('/test-records')
   return data
@@ -26,5 +32,13 @@ export async function downloadTestRecordTemplate() {
 
 export async function exportTestRecordLibrary() {
   const { data } = await client.get('/test-records/export', { responseType: 'blob' })
+  return data
+}
+
+export async function deleteTestRecordsBatch(recordIds: number[], payload: DangerousActionPayload) {
+  const { data } = await client.post('/test-records/delete-batch', {
+    record_ids: recordIds,
+    ...payload,
+  })
   return data
 }

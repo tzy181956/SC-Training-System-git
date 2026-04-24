@@ -1,5 +1,7 @@
 from app.models.assignment import AssignmentItemOverride, AthletePlanAssignment
 from app.models.athlete import Athlete
+from app.models.content_change_log import ContentChangeLog
+from app.models.dangerous_operation_log import DangerousOperationLog
 from app.models.exercise_category import ExerciseCategory
 from app.models.exercise import Exercise, ExerciseTag
 from app.models.organization import Sport, Team
@@ -15,6 +17,8 @@ __all__ = [
     "AssignmentItemOverride",
     "Athlete",
     "AthletePlanAssignment",
+    "ContentChangeLog",
+    "DangerousOperationLog",
     "Exercise",
     "ExerciseCategory",
     "ExerciseTag",

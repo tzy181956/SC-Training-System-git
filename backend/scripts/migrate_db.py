@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from app.core.config import get_settings
 from app.core.database import Base
 from app.models import *  # noqa: F401,F403
+from app.services import backup_service
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
-ALEMBIC_EXE = BACKEND_DIR / ".venv" / "Scripts" / "alembic.exe"
 
 
 def _require_sqlite_path(database_url: str) -> Path:
@@ -46,30 +47,32 @@ def _has_existing_app_schema(db_path: Path) -> bool:
     return any(table in existing for table in app_tables)
 
 
-def _backup_database(db_path: Path) -> Path | None:
-    if not db_path.exists():
-        return None
-    backup_dir = db_path.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = backup_dir / f"{db_path.stem}.migration-backup-{timestamp}{db_path.suffix}"
-    shutil.copy2(db_path, backup_path)
-    return backup_path
-
-
 def _run_alembic(*args: str) -> None:
-    if not ALEMBIC_EXE.exists():
-        raise RuntimeError(f"Alembic executable not found: {ALEMBIC_EXE}")
-    command = [str(ALEMBIC_EXE), "-c", str(ALEMBIC_INI), *args]
+    command = [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), *args]
     subprocess.run(command, cwd=BACKEND_DIR, check=True)
+
+
+def _get_current_revision(db_path: Path) -> str | None:
+    if not _has_table(db_path, "alembic_version"):
+        return None
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT version_num FROM alembic_version LIMIT 1").fetchone()
+    return row[0] if row else None
+
+
+def _get_head_revision() -> str:
+    config = Config(str(ALEMBIC_INI))
+    script = ScriptDirectory.from_config(config)
+    return script.get_current_head()
 
 
 def bootstrap_database() -> None:
     settings = get_settings()
     db_path = _require_sqlite_path(settings.database_url)
-    backup_path = _backup_database(db_path)
-    if backup_path:
-        print(f"[MIGRATION] Backup created: {backup_path}")
+    if db_path.exists():
+        backup_result = backup_service.create_pre_migration_backup(label="bootstrap")
+        if backup_result.backup_path:
+            print(f"[MIGRATION] Backup created: {backup_result.backup_path}")
 
     has_alembic = _has_table(db_path, "alembic_version")
     has_schema = _has_existing_app_schema(db_path)
@@ -80,7 +83,7 @@ def bootstrap_database() -> None:
         return
 
     if has_schema:
-        print("[MIGRATION] Existing application schema detected without alembic_version. Stamping baseline head.")
+        print("[MIGRATION] Existing application schema detected without alembic_version. Stamping current head for compatibility.")
         _run_alembic("stamp", "head")
         return
 
@@ -88,11 +91,34 @@ def bootstrap_database() -> None:
     _run_alembic("upgrade", "head")
 
 
+def ensure_database() -> None:
+    settings = get_settings()
+    db_path = _require_sqlite_path(settings.database_url)
+    head_revision = _get_head_revision()
+    current_revision = _get_current_revision(db_path)
+
+    if current_revision == head_revision:
+        print(f"[MIGRATION] Database already at head revision {head_revision}.")
+        return
+
+    if current_revision is not None:
+        backup_result = backup_service.create_pre_migration_backup(label=f"upgrade_from_{current_revision}")
+        if backup_result.backup_path:
+            print(f"[MIGRATION] Backup created: {backup_result.backup_path}")
+        print(f"[MIGRATION] Upgrading database from {current_revision} to {head_revision}.")
+        _run_alembic("upgrade", "head")
+        return
+
+    print("[MIGRATION] Database is not versioned yet. Running bootstrap flow.")
+    bootstrap_database()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Database migration helper.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("bootstrap", help="Backup database, then stamp or upgrade to head.")
+    subparsers.add_parser("ensure", help="Upgrade only when database is behind head revision.")
 
     upgrade_parser = subparsers.add_parser("upgrade", help="Run alembic upgrade.")
     upgrade_parser.add_argument("revision", nargs="?", default="head")
@@ -106,6 +132,8 @@ def main() -> None:
 
     if args.command == "bootstrap":
         bootstrap_database()
+    elif args.command == "ensure":
+        ensure_database()
     elif args.command == "upgrade":
         _run_alembic("upgrade", args.revision)
     elif args.command == "stamp":

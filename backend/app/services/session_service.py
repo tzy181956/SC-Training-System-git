@@ -22,7 +22,7 @@ from app.schemas.training_session import (
     SetRecordCreate,
     SetRecordUpdate,
 )
-from app.services import athlete_service
+from app.services import athlete_service, backup_service, dangerous_operation_service
 from app.services.assignment_service import get_active_assignment_for_date, get_assignment, list_active_assignments_for_date
 from app.services.progression_service import compute_next_weight
 
@@ -291,6 +291,72 @@ def coach_update_set_record(db: Session, record_id: int, payload: CoachSetRecord
     refreshed_record = db.query(SetRecord).filter(SetRecord.id == record_id).first()
     refreshed_session = get_session(db, record.session_item.session_id)
     return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
+
+
+def coach_delete_set_record(db: Session, record_id: int, *, actor_name: str | None = None):
+    record = _get_set_record(db, record_id)
+    item = record.session_item
+    session = item.session
+    session_before_status = session.status
+    deleted_snapshot = _serialize_record_for_edit_log(record)
+    backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"delete_set_record_{record_id}")
+
+    db.delete(record)
+    db.flush()
+
+    for index, current_record in enumerate(sorted(item.records, key=lambda current: (current.set_number, current.id)), start=1):
+        current_record.set_number = index
+
+    _recompute_item_records(item)
+    _recompute_session_status(session, allow_final_reopen=True)
+
+    _create_training_edit_log(
+        db=db,
+        session=session,
+        item=item,
+        record=None,
+        action_type="delete_set",
+        actor_name=actor_name,
+        before_snapshot={**deleted_snapshot, "session_status": session_before_status},
+        after_snapshot={"remaining_sets": len(item.records), "session_status": session.status},
+        summary=_build_delete_set_log_summary(
+            deleted_snapshot,
+            session_before_status=session_before_status,
+            session_after_status=session.status,
+        ),
+        object_type="set_record",
+        object_id=record_id,
+    )
+    dangerous_operation_service.log_dangerous_operation(
+        db,
+        operation_key="delete_training_set_record",
+        object_type="set_record",
+        object_id=record_id,
+        actor_name=actor_name,
+        summary=f"删除训练组记录：第 {deleted_snapshot['set_number']} 组",
+        impact_scope={
+            "athlete_id": session.athlete_id,
+            "athlete_name": item.session.athlete.full_name if getattr(item.session, "athlete", None) else None,
+            "team_id": item.session.athlete.team_id if getattr(item.session, "athlete", None) else None,
+            "team_name": (
+                item.session.athlete.team.name
+                if getattr(getattr(item.session, "athlete", None), "team", None)
+                else None
+            ),
+            "session_id": session.id,
+            "session_item_id": item.id,
+            "exercise_name": item.exercise.name if item.exercise else None,
+            "deleted_set_number": deleted_snapshot["set_number"],
+            "session_status_before": session_before_status,
+            "session_status_after": session.status,
+        },
+        backup_path=backup_result.backup_path,
+    )
+    db.commit()
+
+    refreshed_item = _get_session_item(db, item.id)
+    refreshed_session = get_session(db, session.id)
+    return refreshed_item, refreshed_session
 
 
 def sync_session_operation(db: Session, payload: SessionSetSyncOperation):
@@ -660,6 +726,8 @@ def _create_training_edit_log(
     before_snapshot: dict | None,
     after_snapshot: dict | None,
     summary: str,
+    object_type: str | None = None,
+    object_id: int | None = None,
 ) -> None:
     db.add(
         TrainingSessionEditLog(
@@ -668,8 +736,8 @@ def _create_training_edit_log(
             set_record_id=record.id if record else None,
             action_type=action_type,
             actor_name=(actor_name or DEFAULT_POST_CLASS_ACTOR).strip() or DEFAULT_POST_CLASS_ACTOR,
-            object_type="set_record" if record else "session_item",
-            object_id=record.id if record else item.id,
+            object_type=object_type or ("set_record" if record else "session_item"),
+            object_id=object_id if object_id is not None else (record.id if record else item.id),
             summary=summary,
             before_snapshot=before_snapshot,
             after_snapshot=after_snapshot,
@@ -701,6 +769,16 @@ def _build_add_set_log_summary(record: SetRecord, session_before_status: str, se
     summary = (
         f"课后补录第 {record.set_number} 组："
         f"重量 {record.actual_weight}，次数 {record.actual_reps}，RIR {record.actual_rir}"
+    )
+    if session_before_status != session_after_status:
+        summary = f"{summary}；课状态 {_format_session_status_label(session_before_status)}→{_format_session_status_label(session_after_status)}"
+    return summary
+
+
+def _build_delete_set_log_summary(snapshot: dict, *, session_before_status: str, session_after_status: str) -> str:
+    summary = (
+        f"课后删除第 {snapshot['set_number']} 组："
+        f"重量 {snapshot['actual_weight']}，次数 {snapshot['actual_reps']}，RIR {snapshot['actual_rir']}"
     )
     if session_before_status != session_after_status:
         summary = f"{summary}；课状态 {_format_session_status_label(session_before_status)}→{_format_session_status_label(session_after_status)}"

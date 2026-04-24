@@ -2,6 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 import TemplateItemCard from './TemplateItemCard.vue'
+import { confirmDangerousAction } from '@/utils/dangerousAction'
 
 const props = defineProps<{
   exercises: any[]
@@ -133,6 +134,18 @@ function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
 function removeItemDraft(itemId: number) {
   const target = draftItems.value.find((item) => item.id === itemId)
   if (!target) return
+  if (
+    target.id > 0 &&
+    !confirmDangerousAction({
+      title: '删除模板动作',
+      impactLines: [
+        `模板内将移除动作“${target.exercise?.name || `动作 ${target.exercise_id}`}”`,
+        '保存模板后，这条动作配置会从数据库删除',
+      ],
+    })
+  ) {
+    return
+  }
   if (target.id > 0) {
     removedItemIds.value = [...removedItemIds.value, target.id]
   }
@@ -152,7 +165,14 @@ function moveItemDraft(itemId: number, direction: 'up' | 'down') {
 
 function removeTemplate() {
   if (!props.template?.id) return
-  const confirmed = window.confirm('确认删除这个训练模板吗？删除后模板及其动作将不可恢复。')
+  const confirmed = confirmDangerousAction({
+    title: '删除训练模板',
+    impactLines: [
+      `模板名称：${props.template.name}`,
+      `模板动作数：${props.template.items?.length || 0}`,
+      '删除后模板本身及其动作配置将不可直接恢复',
+    ],
+  })
   if (!confirmed) return
   emit('deleteTemplate', props.template.id)
 }

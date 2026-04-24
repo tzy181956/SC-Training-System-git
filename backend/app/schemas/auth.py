@@ -18,6 +18,7 @@ class UserRead(ORMModel):
     username: str
     display_name: str
     role_code: str
+    team_id: int | None = None
     mode: str
     can_manage_system: bool
     can_switch_athletes: bool

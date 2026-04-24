@@ -15,6 +15,8 @@ const links = [
   { name: 'plans', label: '训练模板' },
   { name: 'assignments', label: '计划分配' },
   { name: 'training-reports', label: '训练数据' },
+  { name: 'backups', label: '备份恢复' },
+  { name: 'logs', label: '日志' },
   { name: 'tests', label: '测试数据' },
 ]
 

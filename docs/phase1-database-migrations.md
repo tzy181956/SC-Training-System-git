@@ -189,7 +189,7 @@ set PYTHONPATH=.
 - 自动复制到：
 
 ```text
-backend/backups/training.migration-backup-YYYYMMDD-HHMMSS.db
+backend/backups/training-YYYYMMDD-HHMMSS-before_migration-<label>.db
 ```
 
 ### 为什么备份必须先于迁移
@@ -212,8 +212,8 @@ backend/backups/training.migration-backup-YYYYMMDD-HHMMSS.db
 
 后续再扩展：
 
-- 危险操作统一备份
-- 定时备份
+- 危险操作统一备份（第一版已接入）
+- 定时备份（第一版已接入）
 - 可视化恢复入口
 
 ---
@@ -544,3 +544,90 @@ training_session_change_logs
 
 本轮只先把**迁移骨架、基线和表结构规划**搭起来。  
 后续真正进入第一阶段实现时，应按本文档的顺序逐条追加 revision，而不是把所有未来表一次性建进去。
+
+---
+
+## 12. 截至 Step 15 已落地的 revisions
+
+当前仓库里，第一阶段已经实际落地到 Alembic 的 revisions 如下：
+
+| 顺序 | Revision | 文件 | 对应步骤 / 主题 |
+| --- | --- | --- | --- |
+| 1 | `c318e7988c37` | `backend/alembic/versions/20260423_c318e7988c37_baseline_schema.py` | 基线接管 |
+| 2 | `5f2d4f0f4b8b` | `backend/alembic/versions/20260423_5f2d4f0f4b8b_add_training_sync_conflicts.py` | Step 08：整堂课覆盖同步兜底的冲突日志 |
+| 3 | `9d1b2c3a4e5f` | `backend/alembic/versions/20260424_9d1b2c3a4e5f_add_training_sync_issues.py` | Step 09：同步异常待处理 |
+| 4 | `b1f8d2e7c6a1` | `backend/alembic/versions/20260424_b1f8d2e7c6a1_add_training_session_edit_logs.py` | Step 11：课后修改 / 补录日志 |
+| 5 | `f3a4b5c6d7e8` | `backend/alembic/versions/20260424_f3a4b5c6d7e8_add_dangerous_operation_logs.py` | Step 14：危险操作日志 |
+| 6 | `c7d8e9f0a1b2` | `backend/alembic/versions/20260424_c7d8e9f0a1b2_add_content_change_logs_and_user_team_id.py` | Step 15：日志页聚合来源补齐 |
+
+### 12.1 这些 revision 分别解决什么
+
+#### `5f2d4f0f4b8b`｜`training_sync_conflicts`
+
+- 为什么加：给整堂课覆盖同步兜底保留“明显冲突”的最小日志载体。
+- 给谁用：教练 / 管理端查看同步冲突，后端记录本地快照与远端快照摘要。
+- 和旧结构关系：旧结构没有同步冲突表，这里是新增最小审计表，不替代训练主表。
+- 回退注意：删表即可回退结构，但业务上更推荐用迁移前备份恢复，以免丢失冲突追溯记录。
+
+#### `9d1b2c3a4e5f`｜`training_sync_issues`
+
+- 为什么加：把“自动重试失败后转人工处理”的异常状态落库。
+- 给谁用：训练端状态灯、教练端异常可见性、管理端日志页。
+- 和旧结构关系：它不是训练记录本身，而是同步链路的异常追踪表。
+- 回退注意：如已产生待处理异常记录，回退前应先确认是否需要保留这些排障信息。
+
+#### `b1f8d2e7c6a1`｜`training_session_edit_logs`
+
+- 为什么加：课后修改、补录、删除训练组后必须可追溯。
+- 给谁用：训练回看、日志页、后续审计。
+- 和旧结构关系：不改变 `training_sessions / training_session_items / set_records` 主数据关系，只增加旁路日志表。
+- 回退注意：结构可回退，但一旦回退会失去已记录的课后修正轨迹。
+
+#### `f3a4b5c6d7e8`｜`dangerous_operation_logs`
+
+- 为什么加：删除、清空重导、恢复备份等高风险动作不能只靠前端弹窗，后端也要有日志。
+- 给谁用：管理端日志页、危险操作审计。
+- 和旧结构关系：同样是新增旁路日志，不改主业务表。
+- 回退注意：若系统已依赖该表做日志查询，回退前需同步调整日志聚合接口。
+
+#### `c7d8e9f0a1b2`｜`content_change_logs` + `users.team_id`
+
+- 为什么加：
+  - `content_change_logs`：补齐模板 / 动作库等内容修改日志来源。
+  - `users.team_id`：支撑日志页“教练只看自己队伍、管理员看全部”的最小过滤边界。
+- 给谁用：`GET /api/logs` 聚合查询、模板 / 动作库变更记录、队伍过滤。
+- 和旧结构关系：
+  - `content_change_logs` 是新增旁路日志表，不替代内容主表。
+  - `users.team_id` 是在现有 `users` 上补一个最小归属字段，不扩成复杂权限系统。
+- 迁移顺序：
+  1. 先执行已有危险操作日志 revision。
+  2. 再补 `users.team_id` 和 `content_change_logs`。
+  3. 最后由日志接口统一聚合多类日志。
+- 回退注意：
+  - 若已使用 `team_id` 做日志过滤，回退前要先降级接口行为。
+  - `content_change_logs` 删除后会失去模板 / 动作库修改历史。
+
+### 12.2 当前链路的迁移顺序说明
+
+截至 Step 15，推荐顺序已经明确为：
+
+1. `baseline_schema`
+2. 同步兜底相关表
+3. 训练课课后修正日志
+4. 危险操作日志
+5. 通用内容修改日志与最小队伍归属字段
+
+这个顺序的含义是：
+
+- 先保证训练端稳定链路有记录可追
+- 再补管理端危险操作保护
+- 最后补日志页所需的统一查询来源
+
+### 12.3 兼容性与幂等性说明
+
+当前这批 migrations 仍然兼顾旧库接管阶段，原则是：
+
+- 基线后新增 revision 尽量避免对旧数据做激进改写
+- 新增日志表优先采用“旁路新增”方式，不破坏训练主链数据
+- 对旧库运行迁移时，仍建议先备份再 `upgrade`
+- 运行期 `schema_sync.py` 还在过渡期存在，但不应继续承担正式迁移主职责

@@ -1,0 +1,20 @@
+﻿Training Platform launcher summary
+Timestamp: 2026-04-24 21:49:43
+Mode: start
+Status: SUCCESS
+Headline: Startup finish
+Detail: Browser entry prepared at http://127.0.0.1:5173/
+Project root: C:\Users\tzy\Documents\GitHub\SC-Training-System-git
+Python: py.exe -3.12
+Node: v18.19.0
+Backend state: started_new_window
+Frontend state: started_new_window
+Frontend access URL: http://127.0.0.1:5173/
+
+Step results:
+ - Environment check: OK - Python py.exe -3.12; Node v18.19.0; npm available
+ - Backend environment: OK - venv reused; dependencies already_ready
+ - Frontend dependencies: OK - dependencies already_ready
+ - Database migration check: OK - database already ready
+ - Start services: OK - backend started_new_window; frontend started_new_window
+ - Startup finish: OK - Browser entry prepared at http://127.0.0.1:5173/

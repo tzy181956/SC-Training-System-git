@@ -53,6 +53,14 @@ class CoachSetRecordCreate(BaseModel):
     actor_name: str | None = None
 
 
+class CoachSetRecordDeleteResponse(BaseModel):
+    deleted_record_id: int
+    item: "SessionItemRead"
+    session: "SessionRead"
+    session_status: str
+    session_completed_at: datetime | None = None
+
+
 class SessionSetSyncOperation(BaseModel):
     operation_type: Literal['create_set', 'update_set', 'complete_session']
     assignment_id: int | None = None

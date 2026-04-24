@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.schemas.dangerous_action import DangerousActionConfirm
 from app.schemas.exercise import ExerciseCreate, ExerciseFacetValuesRead, ExerciseRead, ExerciseUpdate
-from app.services import exercise_service
+from app.services import dangerous_operation_service, exercise_service
 
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
@@ -41,8 +42,14 @@ def update_exercise(exercise_id: int, payload: ExerciseUpdate, db: Session = Dep
 
 
 @router.delete("/{exercise_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_exercise(exercise_id: int, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
-    exercise_service.delete_exercise(db, exercise_id)
+def delete_exercise(
+    exercise_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="删除动作")
+    exercise_service.delete_exercise(db, exercise_id, actor_name=payload.actor_name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

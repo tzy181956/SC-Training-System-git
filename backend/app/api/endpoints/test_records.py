@@ -8,7 +8,9 @@ from app.api.deps import require_roles
 from app.core.database import get_db
 from app.core.exceptions import not_found
 from app.models import TestRecord
+from app.schemas.dangerous_action import DeleteTestRecordsBatchPayload
 from app.schemas.test_record import TestRecordCreate, TestRecordImportRead, TestRecordRead, TestRecordUpdate
+from app.services import dangerous_operation_service, test_record_service
 from app.services.test_record_excel_service import (
     build_import_template_workbook,
     build_test_record_library_workbook,
@@ -83,3 +85,18 @@ def update_test_record(record_id: int, payload: TestRecordUpdate, db: Session = 
     db.commit()
     db.refresh(record)
     return record
+
+
+@router.post("/delete-batch", response_model=dict[str, int])
+def delete_test_records_batch(
+    payload: DeleteTestRecordsBatchPayload,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="批量删除测试数据")
+    deleted_count = test_record_service.delete_test_records_batch(
+        db,
+        payload.record_ids,
+        actor_name=payload.actor_name,
+    )
+    return {"deleted_count": deleted_count}

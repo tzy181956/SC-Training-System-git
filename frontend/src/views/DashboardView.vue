@@ -110,6 +110,10 @@ async function retrySyncIssue(issueId: number) {
         <strong>训练数据</strong>
         <span>查看计划执行情况、组次完成度、主项重量变化和异常提醒。</span>
       </button>
+      <button class="simple-card action-card" @click="router.push({ name: 'backups' })">
+        <strong>备份恢复</strong>
+        <span>查看备份列表，执行整库恢复或某类数据恢复。</span>
+      </button>
       <button class="simple-card action-card" @click="router.push({ name: 'tests' })">
         <strong>测试数据</strong>
         <span>记录深蹲、卧推、纵跳、冲刺等测试结果，供分配联动使用。</span>

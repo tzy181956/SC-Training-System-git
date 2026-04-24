@@ -1,5 +1,11 @@
 import client from './client'
 
+type DangerousActionPayload = {
+  confirmed: true
+  actor_name?: string | null
+  confirmation_text?: string | null
+}
+
 export async function fetchTrainingReport(params: {
   athlete_id: number
   date_from?: string
@@ -34,5 +40,10 @@ export async function coachAddTrainingReportSet(
   },
 ) {
   const { data } = await client.post(`/training-reports/session-items/${itemId}/sets`, payload)
+  return data
+}
+
+export async function coachDeleteTrainingReportSetRecord(recordId: number, payload: DangerousActionPayload) {
+  const { data } = await client.delete(`/training-reports/set-records/${recordId}`, { data: payload })
   return data
 }
