@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import axios from 'axios'
 import { computed, onMounted, reactive, ref } from 'vue'
 
-import { createAthlete, updateAthlete } from '@/api/athletes'
+import { createAthlete, deleteAthlete, updateAthlete } from '@/api/athletes'
 import AppShell from '@/components/layout/AppShell.vue'
 import { useAthletesStore } from '@/stores/athletes'
+import { confirmDangerousAction } from '@/utils/dangerousAction'
 
 const store = useAthletesStore()
 const selectedId = ref<number | null>(null)
@@ -91,6 +93,36 @@ async function saveAthlete() {
   }
 }
 
+async function removeAthlete() {
+  if (!selectedAthlete.value) return
+
+  const athlete = selectedAthlete.value
+  const confirmed = confirmDangerousAction({
+    title: '删除运动员',
+    impactLines: [
+      `运动员：${athlete.full_name}`,
+      `所属项目 / 队伍：${athlete.sport?.name || '未分项目'} / ${athlete.team?.name || '未分队伍'}`,
+      '如果该运动员已有计划分配、训练记录或测试记录，系统会拒绝删除。',
+    ],
+    recommendation: '建议先确认该运动员没有历史训练或测试数据。',
+  })
+  if (!confirmed) return
+
+  try {
+    await deleteAthlete(athlete.id, { confirmed: true, actor_name: '管理端' })
+    await store.hydrate()
+
+    const nextAthlete = filteredAthletes.value[0] || store.athletes[0] || null
+    if (nextAthlete) {
+      selectAthlete(nextAthlete)
+      return
+    }
+    resetForm()
+  } catch (error) {
+    window.alert(extractErrorMessage(error))
+  }
+}
+
 function resetForm() {
   selectedId.value = null
   Object.assign(form, {
@@ -113,6 +145,16 @@ function handleSportFilterChange() {
   if (filters.teamId && !filteredTeams.value.some((team) => String(team.id) === filters.teamId)) {
     filters.teamId = ''
   }
+}
+
+function extractErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data?.detail
+    if (typeof detail === 'string' && detail.trim()) return detail
+    if (Array.isArray(detail) && detail.length) return detail.join('；')
+    if (error.message) return error.message
+  }
+  return '删除运动员失败，请稍后重试。'
 }
 </script>
 
@@ -246,7 +288,10 @@ function handleSportFilterChange() {
           <textarea v-model="form.notes" class="text-input area" placeholder="可选" />
         </label>
 
-        <button class="primary-btn" @click="saveAthlete">保存运动员</button>
+        <div class="form-actions">
+          <button v-if="selectedAthlete" class="ghost-btn danger-btn" type="button" @click="removeAthlete">删除运动员</button>
+          <button class="primary-btn" type="button" @click="saveAthlete">保存运动员</button>
+        </div>
       </div>
     </div>
   </AppShell>
@@ -336,6 +381,27 @@ function handleSportFilterChange() {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ghost-btn {
+  min-height: 44px;
+  border-radius: 14px;
+  padding: 0 14px;
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+.danger-btn {
+  border: 1px solid rgba(185, 28, 28, 0.18);
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 @media (max-width: 1100px) {
