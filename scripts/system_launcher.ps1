@@ -21,8 +21,14 @@ $FrontendLocalUrl = 'http://127.0.0.1:5173/'
 $FrontendRuntimeUrl = 'http://127.0.0.1:5173/runtime-access.json'
 $FrontendRuntimeFile = Join-Path $FrontendDir 'public\runtime-access.json'
 $SummaryDir = Join-Path $RootDir 'logs\startup'
+$RunTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $SummaryFile = Join-Path $SummaryDir 'last-launcher-summary.txt'
+$TimestampedSummaryFile = Join-Path $SummaryDir ("launcher-summary-{0}.txt" -f $RunTimestamp)
+$DetailLogFile = Join-Path $SummaryDir ("launcher-detail-{0}.log" -f $RunTimestamp)
+$LastDetailLogFile = Join-Path $SummaryDir 'last-launcher-detail.log'
+$TroubleshootingDoc = Join-Path $RootDir 'docs\phase1-launcher-failure-summary.md'
 $TotalSteps = if ($Mode -eq 'start') { 6 } else { 5 }
+$RetryLauncherFile = if ($Mode -eq 'init') { 'init_system.bat' } else { 'start_system.bat' }
 $CurrentStep = 0
 $StepResults = New-Object System.Collections.Generic.List[object]
 $PythonSpec = $null
@@ -38,6 +44,23 @@ function Ensure-SummaryDirectory {
     if (-not (Test-Path $SummaryDir)) {
         New-Item -ItemType Directory -Path $SummaryDir -Force | Out-Null
     }
+}
+
+function Get-Utf8BomEncoding {
+    return (New-Object System.Text.UTF8Encoding($true))
+}
+
+function Write-LauncherLog {
+    param(
+        [string]$Message,
+        [string]$Level = 'INFO'
+    )
+
+    Ensure-SummaryDirectory
+    $line = '[{0}] [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level.ToUpperInvariant(), $Message
+    $encoding = Get-Utf8BomEncoding
+    [System.IO.File]::AppendAllText($DetailLogFile, ($line + [Environment]::NewLine), $encoding)
+    [System.IO.File]::AppendAllText($LastDetailLogFile, ($line + [Environment]::NewLine), $encoding)
 }
 
 function Pause-Launcher {
@@ -63,6 +86,8 @@ function Add-StepResult {
             Status = $Status
             Detail = $Detail
         }) | Out-Null
+
+    Write-LauncherLog -Message ("STEP RESULT | {0} | {1} | {2}" -f $Name, $Status, $Detail)
 }
 
 function Write-Step {
@@ -71,6 +96,7 @@ function Write-Step {
     $script:CurrentStep += 1
     Write-Host ''
     Write-Host ('[{0}/{1}] {2}' -f $script:CurrentStep, $script:TotalSteps, $Title) -ForegroundColor Cyan
+    Write-LauncherLog -Message ("STEP START | {0}/{1} | {2}" -f $script:CurrentStep, $script:TotalSteps, $Title)
 }
 
 function Resolve-CommandName {
@@ -86,6 +112,25 @@ function Resolve-CommandName {
     return $null
 }
 
+function Convert-ToProcessArgumentLine {
+    param([string[]]$Arguments)
+
+    $encodedArgs = foreach ($argument in $Arguments) {
+        if ($null -eq $argument) {
+            '""'
+            continue
+        }
+
+        if ($argument -match '[\s"]') {
+            '"' + ($argument -replace '"', '\"') + '"'
+        } else {
+            $argument
+        }
+    }
+
+    return ($encodedArgs -join ' ')
+}
+
 function Invoke-CapturedCommand {
     param(
         [string]$Command,
@@ -93,22 +138,50 @@ function Invoke-CapturedCommand {
         [string]$WorkingDirectory
     )
 
-    $tempLog = Join-Path $SummaryDir ('launcher-temp-{0}.log' -f ([guid]::NewGuid().ToString('N')))
+    $tempBase = Join-Path $SummaryDir ('launcher-temp-{0}' -f ([guid]::NewGuid().ToString('N')))
+    $tempStdOut = '{0}.stdout.log' -f $tempBase
+    $tempStdErr = '{0}.stderr.log' -f $tempBase
     Ensure-SummaryDirectory
 
     Push-Location $WorkingDirectory
     try {
-        & $Command @Arguments 2>&1 | Tee-Object -FilePath $tempLog | Out-Host
-        $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+        Write-LauncherLog -Message ("COMMAND START | {0} | cwd={1}" -f (($Command + ' ' + ($Arguments -join ' ')).Trim()), $WorkingDirectory)
+        $argumentLine = Convert-ToProcessArgumentLine -Arguments $Arguments
+        $process = Start-Process `
+            -FilePath $Command `
+            -ArgumentList $argumentLine `
+            -WorkingDirectory $WorkingDirectory `
+            -NoNewWindow `
+            -Wait `
+            -PassThru `
+            -RedirectStandardOutput $tempStdOut `
+            -RedirectStandardError $tempStdErr
+        $exitCode = [int]$process.ExitCode
     } finally {
         Pop-Location
     }
 
     $logLines = @()
-    if (Test-Path $tempLog) {
-        $logLines = Get-Content -LiteralPath $tempLog
-        Remove-Item -LiteralPath $tempLog -Force -ErrorAction SilentlyContinue
+    if (Test-Path $tempStdOut) {
+        $logLines += Get-Content -LiteralPath $tempStdOut
+        Remove-Item -LiteralPath $tempStdOut -Force -ErrorAction SilentlyContinue
     }
+    if (Test-Path $tempStdErr) {
+        $logLines += Get-Content -LiteralPath $tempStdErr
+        Remove-Item -LiteralPath $tempStdErr -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($line in $logLines) {
+        Write-Host $line
+    }
+
+    if (@($logLines).Count -gt 0) {
+        Write-LauncherLog -Message 'COMMAND OUTPUT BEGIN'
+        foreach ($line in $logLines) {
+            Write-LauncherLog -Message $line -Level 'CMD'
+        }
+        Write-LauncherLog -Message 'COMMAND OUTPUT END'
+    }
+    Write-LauncherLog -Message ("COMMAND END | exit={0}" -f $exitCode)
 
     return [pscustomobject]@{
         ExitCode = $exitCode
@@ -116,11 +189,57 @@ function Invoke-CapturedCommand {
     }
 }
 
-function Get-SummaryText {
+function Get-ErrorTypeInfo {
+    param([string]$Category)
+
+    $catalog = @{
+        powershell_missing                 = @{ Label = 'PowerShell unavailable'; Section = 'powershell_missing'; DefaultCause = 'Windows PowerShell is not available on this computer, or powershell.exe is not in PATH.'; DefaultFix = 'Restore Windows PowerShell access, then run the launcher again.' }
+        python_missing                     = @{ Label = 'Python 3.12 missing'; Section = 'python_missing'; DefaultCause = 'Python 3.12 is not installed, or PATH does not point to it.'; DefaultFix = 'Install Python 3.12.x and add it to PATH.' }
+        python_version_unsupported         = @{ Label = 'Unsupported Python version'; Section = 'python_version_unsupported'; DefaultCause = 'The default python command does not point to Python 3.12.'; DefaultFix = 'Switch the launcher to Python 3.12, then retry.' }
+        node_missing                       = @{ Label = 'Node.js missing'; Section = 'node_missing'; DefaultCause = 'Node.js is not installed, or PATH does not point to node.'; DefaultFix = 'Install Node.js 18 or newer.' }
+        node_broken                        = @{ Label = 'Node.js command broken'; Section = 'node_broken'; DefaultCause = 'The node executable in PATH is damaged or incomplete.'; DefaultFix = 'Reinstall Node.js 18 or newer.' }
+        node_version_unsupported           = @{ Label = 'Unsupported Node.js version'; Section = 'node_version_unsupported'; DefaultCause = 'The detected Node.js version is lower than the frontend requirement.'; DefaultFix = 'Upgrade Node.js to version 18 or newer.' }
+        npm_missing                        = @{ Label = 'npm missing'; Section = 'npm_missing'; DefaultCause = 'The current Node.js installation does not expose npm.'; DefaultFix = 'Reinstall Node.js and confirm npm works from a new terminal.' }
+        backend_venv_create_failed         = @{ Label = 'Backend virtual environment creation failed'; Section = 'backend_venv_create_failed'; DefaultCause = 'Python can run, but backend\\.venv could not be created.'; DefaultFix = 'Make sure the project folder is writable and not blocked by antivirus, then retry.' }
+        backend_venv_validation_failed     = @{ Label = 'Backend virtual environment validation failed'; Section = 'backend_venv_validation_failed'; DefaultCause = 'The recreated backend\\.venv still points to an invalid or damaged Python.'; DefaultFix = 'Reinstall Python 3.12, delete backend\\.venv, and run the launcher again.' }
+        backend_pip_upgrade_failed         = @{ Label = 'Backend pip upgrade failed'; Section = 'backend_pip_upgrade_failed'; DefaultCause = 'pip could not reach the package index, or the Python environment is damaged.'; DefaultFix = 'Check network access to PyPI, then retry.' }
+        backend_dependency_install_failed  = @{ Label = 'Backend dependency install failed'; Section = 'backend_dependency_install_failed'; DefaultCause = 'One or more backend dependencies were not installed successfully.'; DefaultFix = 'Confirm network access and Python 3.12, then retry dependency installation.' }
+        frontend_dependency_install_failed = @{ Label = 'Frontend dependency install failed'; Section = 'frontend_dependency_install_failed'; DefaultCause = 'npm install did not finish successfully.'; DefaultFix = 'Check npm registry access; if needed, delete frontend\\node_modules and retry.' }
+        database_migration_failed          = @{ Label = 'Database migration failed'; Section = 'database_migration_failed'; DefaultCause = 'The database is locked, or a migration script failed.'; DefaultFix = 'Close programs using training.db, then rerun the launcher.' }
+        backend_port_conflict              = @{ Label = 'Backend port conflict'; Section = 'backend_port_conflict'; DefaultCause = 'Port 8000 is already in use by another program.'; DefaultFix = 'Close the process using port 8000, then retry.' }
+        backend_start_unhealthy            = @{ Label = 'Backend started but never became healthy'; Section = 'backend_start_unhealthy'; DefaultCause = 'The backend window opened, but the app failed during initialization.'; DefaultFix = 'Check the first traceback line in the backend window, then retry.' }
+        backend_start_failed               = @{ Label = 'Backend failed to start'; Section = 'backend_start_failed'; DefaultCause = 'The backend process never reached a healthy state.'; DefaultFix = 'Check dependencies, port usage, and the backend window error.' }
+        frontend_port_conflict             = @{ Label = 'Frontend port conflict'; Section = 'frontend_port_conflict'; DefaultCause = 'Port 5173 is already in use by another program.'; DefaultFix = 'Close the process using port 5173, then retry.' }
+        frontend_start_unhealthy           = @{ Label = 'Frontend started but never became ready'; Section = 'frontend_start_unhealthy'; DefaultCause = 'The frontend dev server opened, but runtime-access.json never became available.'; DefaultFix = 'Check the first error line in the frontend window, then retry.' }
+        frontend_start_failed              = @{ Label = 'Frontend failed to start'; Section = 'frontend_start_failed'; DefaultCause = 'The frontend process never reached a usable state.'; DefaultFix = 'Check dependencies, port usage, and the frontend window error.' }
+    }
+
+    if ($catalog.ContainsKey($Category)) {
+        return $catalog[$Category]
+    }
+
+    return @{
+        Label        = 'Unknown launcher error'
+        Section      = 'general'
+        DefaultCause = 'The launcher hit an uncategorized error.'
+        DefaultFix   = 'Send the failure summary and detailed log to AI or the maintainer.'
+    }
+}
+
+function Get-ShortText {
+    param([string[]]$Values, [string]$Fallback)
+
+    if ($Values -and $Values.Count -gt 0) {
+        return (($Values | Where-Object { $_ -and $_.Trim() } | Select-Object -First 1) -as [string])
+    }
+
+    return $Fallback
+}
+
+function Get-FailureSummaryText {
     param(
-        [string]$OverallStatus,
         [string]$ModeLabel,
-        [string]$Headline,
+        [string]$StepName,
         [string]$Detail,
         [string]$Category,
         [string[]]$PossibleCauses,
@@ -129,69 +248,50 @@ function Get-SummaryText {
         [string]$LogExcerpt
     )
 
+    $errorInfo = Get-ErrorTypeInfo -Category $Category
+    $mostLikelyCause = Get-ShortText -Values $PossibleCauses -Fallback $errorInfo.DefaultCause
+    $suggestedFix = Get-ShortText -Values $Suggestions -Fallback $errorInfo.DefaultFix
     $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add('Training Platform launcher summary') | Out-Null
-    $lines.Add(('Timestamp: {0}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))) | Out-Null
+    $lines.Add('Training Platform launcher failure summary') | Out-Null
+    $lines.Add(('Time: {0}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))) | Out-Null
     $lines.Add(('Mode: {0}' -f $ModeLabel)) | Out-Null
-    $lines.Add(('Status: {0}' -f $OverallStatus)) | Out-Null
-    $lines.Add(('Headline: {0}' -f $Headline)) | Out-Null
-    if ($Category) {
-        $lines.Add(('Category: {0}' -f $Category)) | Out-Null
-    }
+    $lines.Add(('Failed step: {0}' -f $StepName)) | Out-Null
+    $lines.Add(('Error type: {0}' -f $errorInfo.Label)) | Out-Null
+    $lines.Add(('Error code: {0}' -f $Category)) | Out-Null
+    $lines.Add(('Most likely cause: {0}' -f $mostLikelyCause)) | Out-Null
+    $lines.Add(('Suggested fix: {0}' -f $suggestedFix)) | Out-Null
     if ($Detail) {
-        $lines.Add(('Detail: {0}' -f $Detail)) | Out-Null
+        $lines.Add(('Failure detail: {0}' -f $Detail)) | Out-Null
     }
-
-    $lines.Add(('Project root: {0}' -f $RootDir)) | Out-Null
-    if ($null -ne $PythonSpec) {
-        $lines.Add(('Python: {0}' -f $PythonSpec.Display)) | Out-Null
-    } else {
-        $lines.Add('Python: not resolved') | Out-Null
-    }
-    if ($NodeVersion) {
-        $lines.Add(('Node: {0}' -f $NodeVersion)) | Out-Null
-    } else {
-        $lines.Add('Node: not resolved') | Out-Null
-    }
-    $lines.Add(('Backend state: {0}' -f $BackendState)) | Out-Null
-    $lines.Add(('Frontend state: {0}' -f $FrontendState)) | Out-Null
-    $lines.Add(('Frontend access URL: {0}' -f $AccessUrl)) | Out-Null
-
-    $lines.Add('') | Out-Null
-    $lines.Add('Step results:') | Out-Null
-    foreach ($result in $StepResults) {
-        $lines.Add((' - {0}: {1} - {2}' -f $result.Name, $result.Status, $result.Detail)) | Out-Null
-    }
-
-    if ($PossibleCauses -and $PossibleCauses.Count -gt 0) {
-        $lines.Add('') | Out-Null
-        $lines.Add('Possible causes:') | Out-Null
-        foreach ($cause in $PossibleCauses) {
-            $lines.Add((' - {0}' -f $cause)) | Out-Null
-        }
-    }
-
-    if ($Suggestions -and $Suggestions.Count -gt 0) {
-        $lines.Add('') | Out-Null
-        $lines.Add('Suggested fixes:') | Out-Null
-        foreach ($suggestion in $Suggestions) {
-            $lines.Add((' - {0}' -f $suggestion)) | Out-Null
-        }
-    }
-
     if ($CommandLine) {
-        $lines.Add('') | Out-Null
-        $lines.Add(('Command: {0}' -f $CommandLine)) | Out-Null
+        $lines.Add(('Failed command: {0}' -f $CommandLine)) | Out-Null
     }
-
+    $lines.Add(('Detailed log: {0}' -f $LastDetailLogFile)) | Out-Null
+    $lines.Add(('Troubleshooting doc: {0} (see section/code: {1})' -f $TroubleshootingDoc, $errorInfo.Section)) | Out-Null
     if ($LogExcerpt) {
-        $lines.Add('') | Out-Null
-        $lines.Add('Log excerpt:') | Out-Null
-        foreach ($line in ($LogExcerpt -split "`r?`n")) {
-            $lines.Add((' | {0}' -f $line)) | Out-Null
+        $lines.Add('Recent log lines:') | Out-Null
+        foreach ($line in (($LogExcerpt -split "`r?`n") | Select-Object -Last 8)) {
+            $lines.Add((' - {0}' -f $line)) | Out-Null
         }
     }
+    return ($lines -join [Environment]::NewLine)
+}
 
+function Get-SuccessSummaryText {
+    param(
+        [string]$ModeLabel,
+        [string]$Headline,
+        [string]$Detail
+    )
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add('Training Platform launcher success summary') | Out-Null
+    $lines.Add(('Time: {0}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))) | Out-Null
+    $lines.Add(('Mode: {0}' -f $ModeLabel)) | Out-Null
+    $lines.Add(('Result: {0}' -f $Headline)) | Out-Null
+    $lines.Add(('Detail: {0}' -f $Detail)) | Out-Null
+    $lines.Add(('Access URL: {0}' -f $AccessUrl)) | Out-Null
+    $lines.Add(('Detailed log: {0}' -f $LastDetailLogFile)) | Out-Null
     return ($lines -join [Environment]::NewLine)
 }
 
@@ -199,7 +299,9 @@ function Write-SummaryFile {
     param([string]$Content)
 
     Ensure-SummaryDirectory
-    Set-Content -LiteralPath $SummaryFile -Value $Content -Encoding UTF8
+    $encoding = Get-Utf8BomEncoding
+    [System.IO.File]::WriteAllText($SummaryFile, $Content, $encoding)
+    [System.IO.File]::WriteAllText($TimestampedSummaryFile, $Content, $encoding)
 }
 
 function Fail-Launcher {
@@ -214,10 +316,10 @@ function Fail-Launcher {
     )
 
     Add-StepResult -Name $StepName -Status 'FAILED' -Detail $Detail
-    $summary = Get-SummaryText `
-        -OverallStatus 'FAILED' `
+    Write-LauncherLog -Message ("FAIL | {0} | {1} | {2}" -f $StepName, $Category, $Detail) -Level 'ERROR'
+    $summary = Get-FailureSummaryText `
         -ModeLabel $Mode `
-        -Headline $StepName `
+        -StepName $StepName `
         -Detail $Detail `
         -Category $Category `
         -PossibleCauses $PossibleCauses `
@@ -230,6 +332,7 @@ function Fail-Launcher {
     Write-Host ''
     Write-Host ('[FAIL] {0}' -f $StepName) -ForegroundColor Red
     Write-Host $Detail -ForegroundColor Yellow
+    Write-Host ('Error type: {0}' -f (Get-ErrorTypeInfo -Category $Category).Label) -ForegroundColor Yellow
     if ($Suggestions -and $Suggestions.Count -gt 0) {
         Write-Host ''
         Write-Host 'Suggested fixes:' -ForegroundColor Yellow
@@ -240,6 +343,8 @@ function Fail-Launcher {
 
     Write-Host ''
     Write-Host ('Copyable summary saved to: {0}' -f $SummaryFile) -ForegroundColor Yellow
+    Write-Host ('Detailed log saved to   : {0}' -f $LastDetailLogFile) -ForegroundColor Yellow
+    Write-Host ('Troubleshooting guide    : {0}' -f $TroubleshootingDoc) -ForegroundColor Yellow
     Write-Host '----- COPY THIS SUMMARY -----' -ForegroundColor Yellow
     Write-Host $summary
     Write-Host '----- END SUMMARY -----' -ForegroundColor Yellow
@@ -305,7 +410,7 @@ function Resolve-Python312 {
             ) `
             -Suggestions @(
                 'Install Python 3.12.x from the official installer.',
-                'Enable the PATH option during installation, then run start_system.bat again.'
+                ('Enable the PATH option during installation, then run {0} again.' -f $RetryLauncherFile)
             )
     }
 
@@ -483,7 +588,7 @@ function Ensure-BackendEnvironment {
                 ) `
                 -Suggestions @(
                     'Reinstall Python 3.12 and run the launcher again.',
-                    'Delete backend\.venv manually if it still exists, then rerun start_system.bat.'
+                    ('Delete backend\.venv manually if it still exists, then rerun {0}.' -f $RetryLauncherFile)
                 )
         }
     }
@@ -511,7 +616,7 @@ function Ensure-BackendEnvironment {
             -Suggestions @(
                 'Check internet access, then run the launcher again.',
                 'If you are on a restricted network, switch to a network that can access PyPI.',
-                'If the problem repeats, delete backend\.venv and rerun start_system.bat.'
+                ('If the problem repeats, delete backend\.venv and rerun {0}.' -f $RetryLauncherFile)
             ) | Out-Null
 
         Invoke-StepCommand `
@@ -713,7 +818,7 @@ function Ensure-ServicesRunning {
                 'An old backend process is stuck in a broken state.'
             ) `
             -Suggestions @(
-                'Close the program using port 8000, then run start_system.bat again.',
+                ('Close the program using port 8000, then run {0} again.' -f $RetryLauncherFile),
                 'If another backend window is open, close it first and retry.'
             )
     } else {
@@ -743,7 +848,7 @@ function Ensure-ServicesRunning {
                 ) `
                 -Suggestions @(
                     'Check the backend window for the first traceback line.',
-                    'Run start_system.bat again after fixing the backend error.',
+                    ('Run {0} again after fixing the backend error.' -f $RetryLauncherFile),
                     'If needed, send the summary file and the backend window error to the maintainer.'
                 )
         }
@@ -769,7 +874,7 @@ function Ensure-ServicesRunning {
                 'An old frontend process is stuck in a broken state.'
             ) `
             -Suggestions @(
-                'Close the program using port 5173, then run start_system.bat again.',
+                ('Close the program using port 5173, then run {0} again.' -f $RetryLauncherFile),
                 'If another frontend window is open, close it first and retry.'
             )
     }
@@ -800,7 +905,7 @@ function Ensure-ServicesRunning {
             ) `
             -Suggestions @(
                 'Check the frontend window for the first error line.',
-                'Run start_system.bat again after fixing the frontend error.',
+                ('Run {0} again after fixing the frontend error.' -f $RetryLauncherFile),
                 'If needed, send the summary file and the frontend window error to the maintainer.'
             )
     }
@@ -814,22 +919,18 @@ function Finish-Launcher {
 
     Add-StepResult -Name $Headline -Status 'OK' -Detail $Detail
 
-    $summary = Get-SummaryText `
-        -OverallStatus 'SUCCESS' `
+    Write-LauncherLog -Message ("SUCCESS | {0} | {1}" -f $Headline, $Detail)
+    $summary = Get-SuccessSummaryText `
         -ModeLabel $Mode `
         -Headline $Headline `
-        -Detail $Detail `
-        -Category '' `
-        -PossibleCauses @() `
-        -Suggestions @() `
-        -CommandLine '' `
-        -LogExcerpt ''
+        -Detail $Detail
 
     Write-SummaryFile -Content $summary
 
     Write-Host ''
     Write-Host '[OK] Launcher finished successfully.' -ForegroundColor Green
     Write-Host ('Summary saved to: {0}' -f $SummaryFile) -ForegroundColor Green
+    Write-Host ('Detailed log saved to: {0}' -f $LastDetailLogFile) -ForegroundColor Green
     if ($Mode -eq 'start') {
         Write-Host ('Frontend: {0}' -f $AccessUrl)
         Write-Host ('Backend : {0}' -f $BackendHealthUrl.Replace('/health', ''))
@@ -848,6 +949,11 @@ Write-Host '========================================='
 Write-Host ' Training Platform Launcher'
 Write-Host (' Mode: {0}' -f $Mode.ToUpperInvariant())
 Write-Host '========================================='
+Ensure-SummaryDirectory
+$encoding = Get-Utf8BomEncoding
+[System.IO.File]::WriteAllText($DetailLogFile, '', $encoding)
+[System.IO.File]::WriteAllText($LastDetailLogFile, '', $encoding)
+Write-LauncherLog -Message ("LAUNCHER START | mode={0} | root={1}" -f $Mode, $RootDir)
 
 Write-Step -Title 'Check required tools'
 $PythonSpec = Resolve-Python312

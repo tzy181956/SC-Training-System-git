@@ -21,6 +21,18 @@
 
 ### Changed
 
+- 启动器失败摘要已收口为“可复制摘要 + 详细日志 + 排障文档”闭环：
+  - `scripts/system_launcher.ps1` 失败时会输出失败步骤、错误类型、最可能原因、建议修复，并写入 `logs/startup/last-launcher-summary.txt`
+  - 同时保留 `logs/startup/last-launcher-detail.log` 与带时间戳的摘要/详细日志副本，便于先发简版摘要给 AI，再按需补详细日志
+  - `start_system.bat` / `init_system.bat` 改为优先调用 `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`，避免仅因 `PATH` 异常就在入口层误报 `powershell_missing`
+  - `docs/phase1-launcher-failure-summary.md`、`docs/phase1-startup-launcher.md`、`docs/phase1-step-index.md` 已补齐 Step 17 记录
+
+- 第一阶段总验收已收口为“人工清单 + 一键自测 + 放行标准”：
+  - 新增 `docs/phase1-final-acceptance.md`，统一记录 1 台电脑 + 2 台 iPad 的人工验收路径、失败定义和阻塞放行规则
+  - 新增 `scripts/phase1_acceptance_check.ps1`，统一执行第一阶段最小自测命令
+  - 新增 `backend/scripts/phase1_backend_smoke_check.py`，在临时数据库副本上覆盖首组建课、增量补传、整课兜底、同步异常人工重试、状态重算、备份恢复基础能力
+  - `docs/phase1-step-index.md` 已补齐 Step 18 记录
+
 - 训练模式访问地址已收口为单一来源：
   - 前端页面的“推荐地址”改为直接读取 Vite dev server 解析出的 `Network` 地址
   - `start_system.bat` 不再自行选择另一套局域网 IP，改为读取前端启动时写入的统一地址

@@ -45,6 +45,8 @@
 | Step 14 | 危险操作二次确认与影响范围说明 | `docs/phase1-dangerous-operation-guardrails.md` | 已存在 |
 | Step 15 | 日志页基础版 | `docs/phase1-log-page.md` | 本次补齐 |
 | Step 16 | 备份恢复页基础版 | `docs/phase1-restore-page.md` | 本次新增 |
+| Step 17 | 启动器失败摘要与排障文档联动 | `docs/phase1-launcher-failure-summary.md` | 本次新增 |
+| Step 18 | 第一阶段总验收脚本与人工测试清单 | `docs/phase1-final-acceptance.md` | 本次新增 |
 
 ---
 
@@ -64,7 +66,7 @@
 截至当前，这一轮仓库内文档状态已经调整为：
 
 1. Step 08、11、12、15 的缺口已补齐。
-2. Step 16 已新增独立步骤文档。
+2. Step 16、17、18 已新增独立步骤文档。
 3. Step 09、10、13、14 的已有文档保留继续使用。
 4. Step 08 之前已完成的内容，已确认可由前置边界、状态流、迁移总览等基础文档追溯。
 5. 前置边界、状态流、迁移总览文档继续作为跨步骤基础文档。

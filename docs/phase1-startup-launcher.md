@@ -32,6 +32,12 @@
 - `scripts/init_system.bat`
   - 调用 `system_launcher.ps1 -Mode init`
 
+包装层当前直接走系统绝对路径：
+
+- `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`
+
+这样做的目的，是避免仅仅因为 `PATH` 被改坏，就在入口层误报“找不到 powershell”。
+
 也就是说：
 
 - 你平时双击运行的通常是 `.bat`
@@ -70,19 +76,35 @@
 本步要求失败时必须“说人话”，当前实现收口为：
 
 1. 启动器按步骤输出当前进度
-2. 某一步失败时，立即生成总结文件
+2. 某一步失败时，立即生成可复制失败摘要
 3. 总结文件包含：
    - 模式（`start / init`）
    - 失败步骤
-   - 失败原因类别
+   - 错误类型
+   - 最可能原因
    - 建议修复方式
-   - 命令行和日志摘录
+   - 详细日志路径
+   - 对应排障文档路径
+   - 最近日志摘录
 
 总结文件位置：
 
 - `logs/startup/last-launcher-summary.txt`
+- `logs/startup/launcher-summary-YYYYMMDD-HHMMSS.txt`
 
-这个文件就是给你或 AI 排查时直接复制使用的。
+详细日志位置：
+
+- `logs/startup/last-launcher-detail.log`
+- `logs/startup/launcher-detail-YYYYMMDD-HHMMSS.log`
+
+排障文档位置：
+
+- `docs/phase1-launcher-failure-summary.md`
+
+也就是说：
+
+- 先把 `last-launcher-summary.txt` 发给 AI
+- 如果还需要更多上下文，再补 `last-launcher-detail.log`
 
 ---
 
