@@ -21,6 +21,10 @@ const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
 const selectedPreview = computed(
   () => trainingStore.assignments.find((assignment) => assignment.id === trainingStore.previewAssignmentId) || null,
 )
+const selectedAthlete = computed(
+  () => trainingStore.athletes.find((athlete) => athlete.id === trainingStore.selectedAthleteId) || null,
+)
+const selectedAthleteName = computed(() => selectedAthlete.value?.full_name || '')
 
 const teamOptions = computed(() => {
   const teams = trainingStore.athletes
@@ -252,7 +256,7 @@ onMounted(hydrate)
         @open-plan="openPlanById"
       />
 
-      <TrainingSessionOverview :assignment="selectedPreview" />
+      <TrainingSessionOverview :assignment="selectedPreview" :athlete-name="selectedAthleteName" />
 
       <section class="panel help-panel">
         <p class="section-title">2. 训练提示</p>

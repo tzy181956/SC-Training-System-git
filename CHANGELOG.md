@@ -26,6 +26,8 @@
   - 训练端本地草稿统一表述为“浏览器 `localStorage` 本地优先保底”，明确其主要覆盖同一浏览器 / 同一设备内恢复，不再夸大为跨设备强持久化
   - `AGENTS.md`、`README.md`、`PROJECT_CONTEXT.md`、`CODEX_HANDOFF.md` 与第一阶段核心文档已同步修正旧术语和旧行为描述
 
+- 根目录 `AGENTS.md` 已按用户提供的 `AGENTS长期项目开发约束_可复制版.docx` 整体重写，覆盖旧的第一阶段阶段性协作口径并切换为长期项目开发约束。
+
 - 跨日未收口训练课的主收口触发点已改为“后端启动时先执行一次”：
   - `backend/app/main.py` 在对外提供请求前先执行 `close_due_sessions()`，并移除原来的周期性自动收口循环
   - 启动时收口失败会明确打印错误并阻止启动，确保“启动成功”就意味着昨天及更早未收口训练课已完成状态纠正
@@ -36,6 +38,11 @@
   - `scripts/system_launcher.ps1` 失败时会输出失败步骤、错误类型、最可能原因、建议修复，并写入 `logs/startup/last-launcher-summary.txt`
   - 同时保留 `logs/startup/last-launcher-detail.log` 与带时间戳的摘要/详细日志副本，便于先发简版摘要给 AI，再按需补详细日志
   - `start_system.bat` / `init_system.bat` 改为优先调用 `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`，避免仅因 `PATH` 异常就在入口层误报 `powershell_missing`
+  - 前端依赖自检已从“少数包探测”收口为“按 `frontend/package.json` 校验全部直接依赖和 devDependencies”；`node_modules` 缺失或声明包不完整时会自动执行 `npm install`
+  - `npm install` 后会再次校验声明依赖，避免启动器误判“前端依赖已就绪”却在浏览器里才报 `Failed to resolve import "qrcode"`
+  - 当前前端依赖相关失败会区分：
+    - `frontend_dependency_install_failed`
+    - `frontend_dependency_validation_failed`
   - `docs/phase1-launcher-failure-summary.md`、`docs/phase1-startup-launcher.md`、`docs/phase1-step-index.md` 已补齐 Step 17 记录
 
 - 第一阶段总验收已收口为“人工清单 + 一键自测 + 放行标准”：
@@ -119,6 +126,8 @@
 - 修复计划分配概览与下方新增分配流程之间的职责混淆，避免重复预览和重复删除入口。
 - 修复批量更新运动员性别时写入错误字符导致页面显示异常的问题。
 - 修复多份协作文档及 `backend/scripts/import_real_test_data.py` 的内容级中文乱码问题。
+- 修复训练模式“查看计划”区域在左侧队员列表滑走后缺少当前队员姓名提示的问题，避免教练和队员在预览或录课时看错人。
+- 修复训练模式中队员当前只有 1 份候选计划时，大卡片仍需先点人、再点计划才能进入训练的问题，改为点击大卡片即可直接走同一条开课链路。
 
 ### Notes
 

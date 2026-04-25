@@ -56,18 +56,27 @@
 1. 检查 PowerShell
 2. 检查 Python / Node
 3. 检查并准备后端虚拟环境
-4. 安装必要小依赖
+4. 检查并补齐前端声明依赖
 5. 检查数据库并执行迁移
+
+这里的“前端声明依赖”指 `frontend/package.json` 中声明的直接依赖和 devDependencies。  
+当前启动器不再只探测少数几个包，而是统一校验整份前端依赖声明；只要：
+
+- `frontend/node_modules` 缺失
+- 或声明包里有任意一个未安装
+
+就会自动执行一次 `npm install`，避免把“缺正式依赖”的问题拖到浏览器里才由 Vite 报错。
 
 ### 3.2 `start` 模式
 
 用于正常启动，重点做：
 
 1. 检查环境
-2. 检查数据库 / 迁移状态
-3. 启动后端
-4. 启动前端
-5. 生成推荐访问地址
+2. 检查并补齐前端声明依赖
+3. 检查数据库 / 迁移状态
+4. 启动后端
+5. 启动前端
+6. 生成推荐访问地址
 
 ---
 
@@ -105,6 +114,13 @@
 
 - 先把 `last-launcher-summary.txt` 发给 AI
 - 如果还需要更多上下文，再补 `last-launcher-detail.log`
+
+当前与前端依赖相关的失败至少会明确到两类：
+
+- `frontend_dependency_install_failed`
+  - `npm install` 本身执行失败
+- `frontend_dependency_validation_failed`
+  - 安装后再次校验时，`package.json` 声明的包仍不完整
 
 ---
 

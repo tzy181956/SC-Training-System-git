@@ -205,6 +205,7 @@ function Get-ErrorTypeInfo {
         backend_pip_upgrade_failed         = @{ Label = 'Backend pip upgrade failed'; Section = 'backend_pip_upgrade_failed'; DefaultCause = 'pip could not reach the package index, or the Python environment is damaged.'; DefaultFix = 'Check network access to PyPI, then retry.' }
         backend_dependency_install_failed  = @{ Label = 'Backend dependency install failed'; Section = 'backend_dependency_install_failed'; DefaultCause = 'One or more backend dependencies were not installed successfully.'; DefaultFix = 'Confirm network access and Python 3.12, then retry dependency installation.' }
         frontend_dependency_install_failed = @{ Label = 'Frontend dependency install failed'; Section = 'frontend_dependency_install_failed'; DefaultCause = 'npm install did not finish successfully.'; DefaultFix = 'Check npm registry access; if needed, delete frontend\\node_modules and retry.' }
+        frontend_dependency_validation_failed = @{ Label = 'Frontend dependency verification failed'; Section = 'frontend_dependency_validation_failed'; DefaultCause = 'Declared frontend packages are still missing after dependency verification.'; DefaultFix = 'Delete frontend\\node_modules, rerun the launcher, and inspect the first npm error if the problem repeats.' }
         database_migration_failed          = @{ Label = 'Database migration failed'; Section = 'database_migration_failed'; DefaultCause = 'The database is locked, or a migration script failed.'; DefaultFix = 'Close programs using training.db, then rerun the launcher.' }
         backend_port_conflict              = @{ Label = 'Backend port conflict'; Section = 'backend_port_conflict'; DefaultCause = 'Port 8000 is already in use by another program.'; DefaultFix = 'Close the process using port 8000, then retry.' }
         backend_start_unhealthy            = @{ Label = 'Backend started but never became healthy'; Section = 'backend_start_unhealthy'; DefaultCause = 'The backend window opened, but the app failed during initialization.'; DefaultFix = 'Check the first traceback line in the backend window, then retry.' }
@@ -641,14 +642,133 @@ function Ensure-BackendEnvironment {
     Add-StepResult -Name 'Backend environment' -Status 'OK' -Detail ("venv {0}; dependencies {1}" -f $venvAction, $dependencyAction)
 }
 
-function Ensure-FrontendDependencies {
-    $packageCheck = Invoke-CapturedCommand `
+function Format-DependencyPreview {
+    param(
+        [string[]]$Names,
+        [int]$MaxCount = 6
+    )
+
+    $items = @($Names | Where-Object { $_ -and $_.Trim() })
+    if ($items.Count -eq 0) {
+        return 'none'
+    }
+
+    if ($items.Count -le $MaxCount) {
+        return ($items -join ', ')
+    }
+
+    $shown = $items | Select-Object -First $MaxCount
+    return ('{0} (+{1} more)' -f ($shown -join ', '), ($items.Count - $MaxCount))
+}
+
+function Get-FrontendDependencyCheckScript {
+    return @'
+const fs = require('fs');
+const path = require('path');
+
+const projectDir = process.cwd();
+const packageJsonPath = path.join(projectDir, 'package.json');
+const nodeModulesDir = path.join(projectDir, 'node_modules');
+
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+const declaredPackages = Array.from(new Set([
+  ...Object.keys(packageJson.dependencies || {}),
+  ...Object.keys(packageJson.devDependencies || {}),
+])).sort();
+
+const missingPackages = declaredPackages.filter((packageName) => {
+  const installedPackageJson = path.join(nodeModulesDir, ...packageName.split('/'), 'package.json');
+  return !fs.existsSync(installedPackageJson);
+});
+
+const result = {
+  declaredPackages,
+  declaredCount: declaredPackages.length,
+  nodeModulesExists: fs.existsSync(nodeModulesDir),
+  missingPackages,
+};
+
+console.log(JSON.stringify(result));
+process.exit(result.nodeModulesExists && result.missingPackages.length === 0 ? 0 : 1);
+'@
+}
+
+function Get-FrontendDependencyStatus {
+    $checkScript = Get-FrontendDependencyCheckScript
+    $checkCommand = ('{0} -e <frontend declared dependency check>' -f $NodeCommand)
+    $checkResult = Invoke-CapturedCommand `
         -Command $NodeCommand `
-        -Arguments @('-e', "require.resolve('vite/package.json'); require.resolve('vue/package.json'); require.resolve('axios/package.json');") `
+        -Arguments @('-e', $checkScript) `
         -WorkingDirectory $FrontendDir
 
+    $jsonLine = $null
+    foreach ($line in ($checkResult.Output | Select-Object -Last 20)) {
+        if ($line -and $line.Trim().StartsWith('{') -and $line.Trim().EndsWith('}')) {
+            $jsonLine = $line.Trim()
+        }
+    }
+
+    $parsed = $null
+    if ($jsonLine) {
+        try {
+            $parsed = $jsonLine | ConvertFrom-Json
+        } catch {
+            $parsed = $null
+        }
+    }
+
+    if ($null -eq $parsed) {
+        return [pscustomobject]@{
+            ExitCode        = [int]$checkResult.ExitCode
+            ParseSucceeded  = $false
+            NodeModulesExists = (Test-Path (Join-Path $FrontendDir 'node_modules'))
+            DeclaredPackages = @()
+            MissingPackages  = @()
+            RawOutput        = @($checkResult.Output)
+            CheckCommand     = $checkCommand
+        }
+    }
+
+    return [pscustomobject]@{
+        ExitCode          = [int]$checkResult.ExitCode
+        ParseSucceeded    = $true
+        NodeModulesExists = [bool]$parsed.nodeModulesExists
+        DeclaredPackages  = @($parsed.declaredPackages)
+        MissingPackages   = @($parsed.missingPackages)
+        RawOutput         = @($checkResult.Output)
+        CheckCommand      = $checkCommand
+    }
+}
+
+function Ensure-FrontendDependencies {
     $dependencyAction = 'already_ready'
-    if (-not (Test-Path (Join-Path $FrontendDir 'node_modules')) -or $packageCheck.ExitCode -ne 0) {
+    $dependencyStatus = Get-FrontendDependencyStatus
+    if (-not $dependencyStatus.ParseSucceeded) {
+        $logExcerpt = ($dependencyStatus.RawOutput | Select-Object -Last 25) -join [Environment]::NewLine
+        Fail-Launcher `
+            -StepName 'Frontend dependencies' `
+            -Category 'frontend_dependency_validation_failed' `
+            -Detail 'The launcher could not verify declared frontend dependencies before startup.' `
+            -PossibleCauses @(
+                'The frontend package.json could not be parsed.',
+                'The dependency verification command crashed before returning a result.'
+            ) `
+            -Suggestions @(
+                'Check frontend/package.json for syntax problems, then rerun the launcher.',
+                'If the problem repeats, send the failure summary and detailed log to the maintainer.'
+            ) `
+            -CommandLine $dependencyStatus.CheckCommand `
+            -LogExcerpt $logExcerpt
+    }
+
+    $needsInstall = (-not $dependencyStatus.NodeModulesExists) -or $dependencyStatus.MissingPackages.Count -gt 0
+    if ($needsInstall) {
+        if (-not $dependencyStatus.NodeModulesExists) {
+            Write-Host '[INFO] frontend\node_modules was not found. Running npm install...'
+        } else {
+            Write-Host ("[INFO] Frontend dependencies are incomplete. Missing declared packages: {0}. Running npm install..." -f (Format-DependencyPreview -Names $dependencyStatus.MissingPackages))
+        }
+
         $dependencyAction = 'installed'
         Invoke-StepCommand `
             -StepName 'Frontend dependencies' `
@@ -667,9 +787,36 @@ function Ensure-FrontendDependencies {
                 'Delete frontend\node_modules and run the launcher again.',
                 'If you use a private registry, verify npm registry settings first.'
             ) | Out-Null
+
+        $dependencyStatus = Get-FrontendDependencyStatus
+        if (-not $dependencyStatus.ParseSucceeded -or -not $dependencyStatus.NodeModulesExists -or $dependencyStatus.MissingPackages.Count -gt 0) {
+            $logExcerpt = ($dependencyStatus.RawOutput | Select-Object -Last 25) -join [Environment]::NewLine
+            $missingDetail = if ($dependencyStatus.MissingPackages.Count -gt 0) {
+                Format-DependencyPreview -Names $dependencyStatus.MissingPackages -MaxCount 12
+            } else {
+                'unknown'
+            }
+
+            Fail-Launcher `
+                -StepName 'Frontend dependencies' `
+                -Category 'frontend_dependency_validation_failed' `
+                -Detail ("Declared frontend packages are still missing after npm install. Missing packages: {0}" -f $missingDetail) `
+                -PossibleCauses @(
+                    'npm install completed incompletely and left node_modules in a partial state.',
+                    'A filesystem or antivirus tool blocked package extraction.',
+                    'The frontend dependency tree is still inconsistent after installation.'
+                ) `
+                -Suggestions @(
+                    'Delete frontend\node_modules and rerun start_system.bat.',
+                    'Check whether antivirus or disk protection blocked files inside frontend\node_modules.',
+                    'If the issue repeats, inspect the first npm error in the detailed log.'
+                ) `
+                -CommandLine $dependencyStatus.CheckCommand `
+                -LogExcerpt $logExcerpt
+        }
     }
 
-    Add-StepResult -Name 'Frontend dependencies' -Status 'OK' -Detail ("dependencies {0}" -f $dependencyAction)
+    Add-StepResult -Name 'Frontend dependencies' -Status 'OK' -Detail ("dependencies {0}; verified {1} declared packages" -f $dependencyAction, $dependencyStatus.DeclaredPackages.Count)
 }
 
 function Ensure-DatabaseReady {

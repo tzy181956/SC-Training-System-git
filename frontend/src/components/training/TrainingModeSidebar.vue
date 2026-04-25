@@ -24,6 +24,16 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
   emit('updateAthlete', athleteId)
   emit('openPlan', assignmentId)
 }
+
+function handleAthleteClick(athlete: any) {
+  const assignments = Array.isArray(athlete.assignments) ? athlete.assignments : []
+  if (assignments.length === 1) {
+    openAthletePlan(athlete.id, assignments[0].id)
+    return
+  }
+
+  emit('updateAthlete', athlete.id)
+}
 </script>
 
 <template>
@@ -37,7 +47,7 @@ function openAthletePlan(athleteId: number, assignmentId: number) {
           class="athlete-card adaptive-card"
           :class="{ active: athlete.id === selectedAthleteId }"
         >
-          <button class="athlete-main" type="button" @click="emit('updateAthlete', athlete.id)">
+          <button class="athlete-main" type="button" @click="handleAthleteClick(athlete)">
             <div class="athlete-header">
               <strong class="adaptive-card-title athlete-name">{{ athlete.full_name }}</strong>
               <span class="status-pill" :class="athlete.training_status">{{ statusLabel(athlete.training_status) }}</span>

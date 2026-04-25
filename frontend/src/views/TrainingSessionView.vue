@@ -60,6 +60,10 @@ const canEndSession = computed(() => {
 const selectedAssignment = computed(
   () => trainingStore.assignments.find((item) => item.id === trainingStore.previewAssignmentId) || null,
 )
+const currentAthleteName = computed(() => {
+  const athleteId = trainingStore.session?.athlete_id || trainingStore.selectedAthleteId
+  return trainingStore.athletes.find((athlete) => athlete.id === athleteId)?.full_name || ''
+})
 const teamOptions = computed(() => {
   const teams = trainingStore.athletes
     .filter((athlete) => athlete.team?.id)
@@ -624,6 +628,7 @@ onMounted(hydrate)
         <TrainingSessionOverview
           :assignment="selectedAssignment"
           :session="trainingStore.session"
+          :athlete-name="currentAthleteName"
           :active-item-id="activeItemId"
           :on-select-item="selectActiveItem"
         />

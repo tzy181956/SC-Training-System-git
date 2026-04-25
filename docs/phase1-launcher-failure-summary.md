@@ -118,6 +118,7 @@ docs/phase1-launcher-failure-summary.md
 | `backend_pip_upgrade_failed` | 后端 pip 升级失败 | 网络访问 PyPI 失败，或环境损坏 | 先确认网络，再重试 |
 | `backend_dependency_install_failed` | 后端依赖安装失败 | `requirements.txt` 没装完整 | 检查网络与 Python 版本后重试 |
 | `frontend_dependency_install_failed` | 前端依赖安装失败 | `npm install` 失败 | 检查网络 / registry，必要时删 `frontend/node_modules` 后重试 |
+| `frontend_dependency_validation_failed` | 前端依赖校验失败 | 启动器复查 `frontend/package.json` 声明依赖时，发现仍有缺包或依赖树不完整 | 删除 `frontend/node_modules` 后重新运行启动器，并看摘要里的失败命令 |
 | `database_migration_failed` | 数据库迁移失败 | 数据库被占用，或某条迁移执行失败 | 关闭占用 `backend/training.db` 的程序后重试 |
 | `backend_port_conflict` | 后端端口冲突 | 8000 端口被其他程序占用 | 关闭占用 8000 的程序 |
 | `backend_start_unhealthy` | 后端启动后未就绪 | 后端窗口已打开，但应用初始化报错 | 看后端窗口第一条 traceback |
@@ -210,6 +211,25 @@ docs/phase1-launcher-failure-summary.md
 2. 如有必要，手动删除：
    - `frontend/node_modules`
 3. 再重新运行启动器
+
+### 5.5.1 前端依赖校验失败
+
+对应错误代码：
+
+- `frontend_dependency_validation_failed`
+
+这类错误与 `frontend_dependency_install_failed` 的区别是：
+
+- `frontend_dependency_install_failed`：`npm install` 命令本身没跑成功
+- `frontend_dependency_validation_failed`：`npm install` 跑过后，启动器再次核对 `frontend/package.json` 声明依赖，发现仍有缺包
+
+建议动作：
+
+1. 先看摘要里的 `Failed command`，确认失败的是依赖校验还是安装命令
+2. 删除：
+   - `frontend/node_modules`
+3. 重新运行 `start_system.bat` 或 `init_system.bat`
+4. 如果还是失败，把摘要和详细日志一起发给 AI 或维护者
 
 ### 5.6 数据库迁移失败
 
