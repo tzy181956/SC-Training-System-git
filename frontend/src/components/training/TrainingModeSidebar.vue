@@ -11,12 +11,17 @@ const emit = defineEmits<{
   openPlan: [assignmentId: number]
 }>()
 
+function getTrainingDisplayStatus(status?: string) {
+  return status || 'no_plan'
+}
+
 function statusLabel(status?: string) {
-  if (status === 'completed') return '已完成'
-  if (status === 'in_progress') return '进行中'
-  if (status === 'partial_complete') return '未完成'
-  if (status === 'absent') return '缺席'
-  if (status === 'not_started') return '未开始'
+  const displayStatus = getTrainingDisplayStatus(status)
+  if (displayStatus === 'completed') return '已完成'
+  if (displayStatus === 'partial_complete') return '已完成'
+  if (displayStatus === 'in_progress') return '进行中'
+  if (displayStatus === 'absent') return '缺席'
+  if (displayStatus === 'not_started') return '未开始'
   return '无计划'
 }
 
@@ -50,7 +55,9 @@ function handleAthleteClick(athlete: any) {
           <button class="athlete-main" type="button" @click="handleAthleteClick(athlete)">
             <div class="athlete-header">
               <strong class="adaptive-card-title athlete-name">{{ athlete.full_name }}</strong>
-              <span class="status-pill" :class="athlete.training_status">{{ statusLabel(athlete.training_status) }}</span>
+              <span class="status-pill" :class="getTrainingDisplayStatus(athlete.training_status)">
+                {{ statusLabel(athlete.training_status) }}
+              </span>
             </div>
             <span class="adaptive-card-subtitle athlete-team">{{ athlete.team?.name || '未分队' }}</span>
           </button>
@@ -61,7 +68,7 @@ function handleAthleteClick(athlete: any) {
                 v-for="assignment in athlete.assignments"
                 :key="assignment.id"
                 class="inline-plan adaptive-card"
-                :class="[assignment.training_status, { active: assignment.id === previewAssignmentId }]"
+                :class="[getTrainingDisplayStatus(assignment.training_status), { active: assignment.id === previewAssignmentId }]"
                 type="button"
                 @click="openAthletePlan(athlete.id, assignment.id)"
               >
@@ -174,8 +181,8 @@ function handleAthleteClick(athlete: any) {
 }
 
 .status-pill.partial_complete {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: #ecf7cf;
+  color: #4d7c0f;
 }
 
 .status-pill.absent {
@@ -263,7 +270,7 @@ function handleAthleteClick(athlete: any) {
 }
 
 .inline-plan.partial_complete .plan-dot {
-  background: #ef4444;
+  background: #84cc16;
 }
 
 .inline-plan.absent .plan-dot {

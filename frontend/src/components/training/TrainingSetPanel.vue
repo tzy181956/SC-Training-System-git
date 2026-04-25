@@ -27,6 +27,11 @@ const isCompleted = computed(() => {
   return props.item.status === 'completed' || (props.item.records?.length || 0) >= props.item.prescribed_sets
 })
 
+const latestRecord = computed(() => {
+  const records = props.item?.records || []
+  return records.length ? records[records.length - 1] : null
+})
+
 const currentSetNumber = computed(() => Math.min((props.item?.records?.length || 0) + 1, props.item?.prescribed_sets || 1))
 
 const currentSetButtonLabel = computed(() => {
@@ -36,13 +41,27 @@ const currentSetButtonLabel = computed(() => {
 })
 
 watch(
-  () => [props.item?.id, props.item?.records?.length, props.item?.initial_load, props.item?.prescribed_reps, props.suggestion?.suggestion_weight],
-  () => {
+  () => ({
+    itemId: props.item?.id ?? null,
+    recordCount: props.item?.records?.length ?? 0,
+    initialLoad: props.item?.initial_load ?? null,
+    prescribedReps: props.item?.prescribed_reps ?? null,
+    latestRecordId: latestRecord.value?.id ?? null,
+    latestWeight: latestRecord.value?.actual_weight ?? latestRecord.value?.final_weight ?? null,
+    latestReps: latestRecord.value?.actual_reps ?? null,
+    latestRir: latestRecord.value?.actual_rir ?? null,
+  }),
+  (nextState, previousState) => {
     if (!props.item) return
-    const nextWeight = props.suggestion?.suggestion_weight ?? props.item.initial_load
-    currentDraft.weight = nextWeight === null || nextWeight === undefined ? '' : formatWeight(nextWeight)
-    currentDraft.reps = String(props.item.prescribed_reps || 5)
-    currentDraft.rir = '2'
+
+    const itemChanged = nextState.itemId !== previousState?.itemId
+    const recordCountChanged = nextState.recordCount !== previousState?.recordCount
+
+    if (!itemChanged && !recordCountChanged && currentDraftDirty.value) {
+      return
+    }
+
+    applyCurrentDraftDefaults()
     currentDraftDirty.value = false
     currentSetError.value = ''
     currentSetFeedback.value = ''
@@ -76,6 +95,23 @@ function normalizeWeight(value: number) {
 function formatWeight(value: number) {
   const normalized = normalizeWeight(value)
   return Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(1)
+}
+
+function applyCurrentDraftDefaults() {
+  if (!props.item) return
+
+  if (latestRecord.value) {
+    const inheritedWeight = latestRecord.value.actual_weight ?? latestRecord.value.final_weight
+    currentDraft.weight = inheritedWeight === null || inheritedWeight === undefined ? '' : formatWeight(inheritedWeight)
+    currentDraft.reps = String(latestRecord.value.actual_reps ?? props.item.prescribed_reps ?? 5)
+    currentDraft.rir = String(latestRecord.value.actual_rir ?? 2)
+    return
+  }
+
+  currentDraft.weight =
+    props.item.initial_load === null || props.item.initial_load === undefined ? '' : formatWeight(props.item.initial_load)
+  currentDraft.reps = String(props.item.prescribed_reps || 5)
+  currentDraft.rir = '2'
 }
 
 function onCurrentInput() {

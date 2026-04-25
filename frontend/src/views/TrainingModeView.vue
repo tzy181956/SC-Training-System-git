@@ -25,6 +25,7 @@ const selectedAthlete = computed(
   () => trainingStore.athletes.find((athlete) => athlete.id === trainingStore.selectedAthleteId) || null,
 )
 const selectedAthleteName = computed(() => selectedAthlete.value?.full_name || '')
+const displaySessionDate = computed(() => formatSessionDate(trainingStore.sessionDate))
 
 const teamOptions = computed(() => {
   const teams = trainingStore.athletes
@@ -47,6 +48,11 @@ const teamOptions = computed(() => {
   }
 
   return [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }, ...options]
+})
+
+const selectedTeamLabel = computed(() => {
+  const matched = teamOptions.value.find((team) => team.id === selectedTeamFilter.value)
+  return matched?.name || '队伍'
 })
 
 const filteredAthletes = computed(() => {
@@ -193,6 +199,20 @@ function handleTeamFilterInput(event: Event) {
   selectedTeamFilter.value = (event.target as HTMLSelectElement).value
 }
 
+function formatSessionDate(value: string) {
+  if (!value) return '训练日期'
+
+  const parts = value.split('-')
+  if (parts.length !== 3) return value
+
+  const [year, month, day] = parts
+  const monthNumber = Number(month)
+  const dayNumber = Number(day)
+  if (!year || Number.isNaN(monthNumber) || Number.isNaN(dayNumber)) return value
+
+  return `${year}年${monthNumber}月${dayNumber}日`
+}
+
 watch(
   () => [trainingStore.selectedAthleteId, trainingStore.sessionDate],
   async ([athleteId, sessionDate], [prevAthleteId, prevDate]) => {
@@ -233,29 +253,39 @@ onMounted(hydrate)
 
     <template #header-filters>
       <div class="header-filter-bar">
-        <label class="compact-field compact-field--date">
+        <div class="compact-field compact-field--date">
           <span class="compact-label">训练日期</span>
-          <input
-            :value="trainingStore.sessionDate"
-            class="text-input header-filter-control"
-            type="date"
-            aria-label="训练日期"
-            title="训练日期"
-            @input="handleDateInput"
-          />
-        </label>
-        <label class="compact-field compact-field--team">
+          <div class="filter-pill-shell">
+            <button class="filter-pill date-filter" type="button" tabindex="-1" aria-hidden="true">
+              <span class="filter-pill-text">{{ displaySessionDate }}</span>
+            </button>
+            <input
+              :value="trainingStore.sessionDate"
+              class="header-filter-control filter-native-control filter-native-date"
+              type="date"
+              aria-label="训练日期"
+              title="训练日期"
+              @input="handleDateInput"
+            />
+          </div>
+        </div>
+        <div class="compact-field compact-field--team">
           <span class="compact-label">队伍</span>
-          <select
-            :value="selectedTeamFilter"
-            class="text-input header-filter-control header-team-select"
-            aria-label="队伍筛选"
-            title="队伍筛选"
-            @input="handleTeamFilterInput"
-          >
-            <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
-          </select>
-        </label>
+          <div class="filter-pill-shell">
+            <button class="filter-pill team-filter" type="button" tabindex="-1" aria-hidden="true">
+              <span class="filter-pill-text">{{ selectedTeamLabel }}</span>
+            </button>
+            <select
+              :value="selectedTeamFilter"
+              class="header-filter-control filter-native-control filter-native-team"
+              aria-label="队伍筛选"
+              title="队伍筛选"
+              @input="handleTeamFilterInput"
+            >
+              <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
+            </select>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -322,23 +352,33 @@ onMounted(hydrate)
 .header-filter-bar {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 8px;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .compact-field {
-  display: flex;
-  align-items: center;
+  display: block;
+  flex: 0 0 auto;
   min-width: 0;
+  max-width: 100%;
 }
 
 .compact-field--date {
-  width: 156px;
+  flex-basis: 160px;
+  width: 160px;
 }
 
 .compact-field--team {
-  width: 188px;
+  flex-basis: 160px;
+  width: 160px;
+}
+
+.filter-pill-shell {
+  position: relative;
+  width: 100%;
 }
 
 .compact-label {
@@ -355,13 +395,63 @@ onMounted(hydrate)
 }
 
 .header-filter-control {
-  min-height: 40px;
-  border-radius: 12px;
+  display: inline-block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.header-team-select {
+.filter-native-control {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
   appearance: none;
-  padding-right: 36px;
+  -webkit-appearance: none;
+}
+
+.filter-pill {
+  min-width: 120px;
+  max-width: 180px;
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.filter-pill-text {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.filter-pill-shell:focus-within .filter-pill {
+  border-color: rgba(15, 118, 110, 0.42);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
 .help-panel {
@@ -397,21 +487,39 @@ onMounted(hydrate)
     gap: 8px;
   }
 
-  .compact-field--date {
-    width: 124px;
-  }
-
+  .compact-field--date,
   .compact-field--team {
-    width: 148px;
+    flex-basis: 155px;
+    width: 155px;
   }
 
-  .header-filter-control {
-    min-height: 38px;
-    border-radius: 12px;
+  .filter-pill {
+    min-width: 130px;
+    max-width: 165px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 10px;
+  }
+
+  .filter-pill-text {
+    font-size: 14px;
   }
 
   .help-panel {
     gap: 8px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1050px) {
+  .compact-field--date,
+  .compact-field--team {
+    flex-basis: 150px;
+    width: 150px;
+  }
+
+  .filter-pill {
+    min-width: 125px;
+    max-width: 155px;
   }
 }
 
@@ -435,8 +543,15 @@ onMounted(hydrate)
     gap: 4px;
   }
 
+  .filter-pill {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
   .compact-field--date,
   .compact-field--team {
+    flex-basis: auto;
     width: 100%;
   }
 
@@ -454,4 +569,5 @@ onMounted(hydrate)
     color: var(--text-soft);
   }
 }
+
 </style>

@@ -10,6 +10,7 @@ const props = defineProps<{
 }>()
 
 const items = computed(() => props.session?.items || props.assignment?.template?.items || [])
+const showCurrentAthlete = computed(() => !props.session)
 const itemListRef = ref<HTMLElement | null>(null)
 
 async function scrollActiveItemIntoView() {
@@ -34,7 +35,7 @@ watch(
       <div class="heading-copy">
         <p class="section-title">4. 查看计划</p>
         <h3>{{ assignment?.template?.name || '未选择计划' }}</h3>
-        <p class="current-athlete">当前队员：{{ athleteName || '未选择队员' }}</p>
+        <p v-if="showCurrentAthlete" class="current-athlete">当前队员：{{ athleteName || '未选择队员' }}</p>
       </div>
       <div class="meta">
         <span>{{ items.length }} 个动作</span>

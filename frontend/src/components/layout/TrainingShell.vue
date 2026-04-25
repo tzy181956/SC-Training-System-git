@@ -36,21 +36,23 @@ onMounted(async () => {
 
 <template>
   <div class="training-shell">
-    <header class="training-header">
-      <div class="header-copy">
-        <h1>训练模式</h1>
+    <header class="training-topbar">
+      <div class="topbar-title">
+        <div class="header-copy">
+          <h1>训练模式</h1>
+        </div>
       </div>
 
-      <div class="header-middle" :class="{ 'header-middle--empty': !hasHeaderFilters }">
-        <div v-if="hasHeaderFilters" class="header-filters">
+      <div class="topbar-filters" :class="{ 'topbar-filters--empty': !hasHeaderFilters }">
+        <div v-if="hasHeaderFilters" class="header-filters-slot">
           <slot name="header-filters" />
         </div>
       </div>
 
-      <div class="actions">
-        <RuntimeAccessCard :info="runtimeAccess" />
-        <span class="mode-pill">{{ modeLabel }}</span>
-        <button class="primary-btn switch-btn" type="button" @click="switchMode">{{ switchLabel }}</button>
+      <div class="topbar-actions">
+        <RuntimeAccessCard class="topbar-action secondary-action" :info="runtimeAccess" />
+        <span class="mode-pill secondary-action">{{ modeLabel }}</span>
+        <button class="primary-btn switch-btn topbar-primary-action" type="button" @click="switchMode">{{ switchLabel }}</button>
       </div>
     </header>
 
@@ -77,76 +79,98 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.training-header {
+.training-topbar {
+  width: 100%;
+  max-width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  column-gap: 12px;
   min-width: 0;
-  min-height: 76px;
-  padding: 10px 16px;
+  min-height: 64px;
+  height: 64px;
+  padding: 8px 12px;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--shadow);
+  overflow: visible;
+  box-sizing: border-box;
 }
 
+.topbar-title,
+.topbar-filters,
+.topbar-actions,
 .header-copy,
-.header-middle,
-.header-filters {
+.header-filters-slot {
   min-width: 0;
+}
+
+.topbar-title {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.header-copy {
+  display: flex;
+  align-items: center;
+  min-height: 100%;
 }
 
 .header-copy h1 {
   margin: 0;
-  font-size: 1.8rem;
-  line-height: 1.02;
+  font-size: 1.5rem;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.header-middle {
+.topbar-filters {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.topbar-filters--empty {
+  display: block;
+}
+
+.header-filters-slot {
+  width: 100%;
+}
+
+.topbar-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  min-height: 0;
-}
-
-.header-middle--empty {
   justify-content: flex-end;
-}
-
-.header-filters {
-  display: flex;
-  align-items: center;
+  gap: 6px;
+  max-width: 100%;
   min-width: 0;
-}
-
-.actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: visible;
   justify-self: end;
 }
 
 .mode-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
-  padding: 0 12px;
+  min-height: 34px;
+  padding: 0 10px;
   border-radius: 999px;
   background: var(--panel-soft);
   color: var(--text);
-  font-size: 0.92rem;
+  font-size: 0.82rem;
   font-weight: 700;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .switch-btn {
-  min-height: 40px;
-  padding: 0 16px;
-  font-size: 0.94rem;
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.82rem;
   font-weight: 700;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .training-content {
@@ -171,31 +195,79 @@ onMounted(async () => {
     gap: 10px;
   }
 
-  .training-header {
-    min-height: 72px;
-    padding: 8px 12px;
-    gap: 10px;
+  .training-topbar {
+    grid-template-columns: auto minmax(320px, 1fr) auto;
+    min-height: 56px;
+    height: 56px;
+    column-gap: 10px;
+    padding: 8px 10px;
     border-radius: 18px;
   }
 
   .header-copy h1 {
-    font-size: 1.45rem;
+    font-size: 1.31rem;
   }
 
-  .actions {
+  .topbar-actions {
     gap: 6px;
   }
 
   .mode-pill {
-    min-height: 38px;
+    min-height: 32px;
+    max-width: 64px;
     padding: 0 10px;
-    font-size: 0.84rem;
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .switch-btn {
-    min-height: 38px;
-    padding: 0 12px;
-    font-size: 0.84rem;
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 0.8rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1120px) {
+  .topbar-actions .mode-pill {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1050px) {
+  .training-topbar {
+    grid-template-columns: auto minmax(308px, 1fr) auto;
+    column-gap: 8px;
+  }
+
+  .topbar-actions {
+    gap: 4px;
+  }
+
+  .topbar-actions :deep(.access-trigger) {
+    max-width: 56px;
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .switch-btn {
+    max-width: 58px;
+    padding: 0 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1080px) {
+  .topbar-actions .secondary-action {
+    display: none;
+  }
+
+  .training-topbar {
+    grid-template-columns: auto minmax(308px, 1fr) auto;
   }
 }
 
@@ -205,11 +277,12 @@ onMounted(async () => {
     gap: 12px;
   }
 
-  .training-header {
+  .training-topbar {
+    height: auto;
+    min-height: auto;
     grid-template-columns: 1fr;
     align-items: stretch;
     gap: 10px;
-    min-height: auto;
     padding: 12px 14px;
   }
 
@@ -217,18 +290,14 @@ onMounted(async () => {
     font-size: 1.6rem;
   }
 
-  .header-middle,
-  .actions {
-    justify-self: stretch;
-  }
-
-  .header-filters,
-  .actions {
+  .topbar-actions {
+    justify-content: space-between;
     flex-wrap: wrap;
   }
 
-  .actions {
-    justify-content: space-between;
+  .topbar-filters {
+    overflow: visible;
   }
 }
+
 </style>

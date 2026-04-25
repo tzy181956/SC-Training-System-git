@@ -40,6 +40,10 @@ const IN_PROGRESS_SESSION_STATUS = 'in_progress'
 const SYNC_RETRY_DELAY_MS = 4000
 const SYNC_RETRY_IDLE_MS = 1200
 const FULL_SYNC_FAILURE_THRESHOLD = 3
+const ATHLETE_NAME_COLLATOR = new Intl.Collator(['zh-Hans-CN-u-co-pinyin', 'en'], {
+  numeric: true,
+  sensitivity: 'base',
+})
 
 type DraftUiState = {
   activeItemId?: number | null
@@ -86,12 +90,10 @@ export const useTrainingStore = defineStore('training', () => {
   }
 
   async function hydrateAthletes(targetDate = sessionDate.value) {
-    athletes.value = await fetchTrainingAthletes(targetDate)
+    athletes.value = _sortTrainingAthletes(await fetchTrainingAthletes(targetDate))
     const selectedStillExists = athletes.value.some((athlete) => athlete.id === selectedAthleteId.value)
     if (!selectedStillExists) {
-      const preferredAthlete =
-        athletes.value.find((athlete) => athlete.training_status !== 'no_plan') || athletes.value[0] || null
-      selectedAthleteId.value = preferredAthlete?.id || 0
+      selectedAthleteId.value = athletes.value[0]?.id || 0
     }
   }
 
@@ -299,6 +301,26 @@ export const useTrainingStore = defineStore('training', () => {
       athleteId: targetSession.athlete_id,
       assignmentId: targetSession.assignment_id,
       sessionDate: targetSession.session_date,
+    })
+  }
+
+  function _sortTrainingAthletes(nextAthletes: any[]) {
+    return [...nextAthletes].sort((left, right) => {
+      const leftHasPlan = Array.isArray(left.assignments) && left.assignments.length > 0
+      const rightHasPlan = Array.isArray(right.assignments) && right.assignments.length > 0
+
+      if (leftHasPlan !== rightHasPlan) {
+        return leftHasPlan ? -1 : 1
+      }
+
+      const leftName = String(left.full_name || '').trim()
+      const rightName = String(right.full_name || '').trim()
+      const nameCompare = ATHLETE_NAME_COLLATOR.compare(leftName, rightName)
+      if (nameCompare !== 0) {
+        return nameCompare
+      }
+
+      return Number(left.id || 0) - Number(right.id || 0)
     })
   }
 
