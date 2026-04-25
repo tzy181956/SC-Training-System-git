@@ -287,4 +287,22 @@ function handleAthleteClick(athlete: any) {
   margin: 0;
   color: var(--muted);
 }
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .athlete-card {
+    gap: 10px;
+    min-height: 96px;
+    padding: 12px;
+  }
+
+  .athlete-name {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 767px) {
+  .athlete-name {
+    font-size: 18px;
+  }
+}
 </style>

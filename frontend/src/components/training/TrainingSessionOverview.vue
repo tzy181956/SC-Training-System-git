@@ -74,4 +74,32 @@ watch(
 .item-card{background:var(--panel-soft);border-radius:18px;padding:16px;display:grid;gap:6px;text-align:left}
 .item-card.active{background:#dbeafe}
 .item-card em{font-style:normal;color:var(--primary);font-weight:700}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .overview {
+    gap: 12px;
+  }
+
+  .heading {
+    gap: 8px;
+  }
+
+  .heading-copy {
+    gap: 6px;
+  }
+
+  .current-athlete {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  .item-list {
+    padding-right: 4px;
+  }
+
+  .item-card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+}
 </style>

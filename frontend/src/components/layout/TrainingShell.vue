@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, useSlots } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
 import RuntimeAccessCard from '@/components/layout/RuntimeAccessCard.vue'
+import TrainingViewportDebug from '@/components/layout/TrainingViewportDebug.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const slots = useSlots()
 const authStore = useAuthStore()
+const isDev = import.meta.env.DEV
 const runtimeAccess = ref<RuntimeAccessInfo>({
   accessUrl: new URL('/', window.location.origin).toString(),
   host: window.location.hostname,
@@ -16,7 +19,8 @@ const runtimeAccess = ref<RuntimeAccessInfo>({
   source: 'fallback',
 })
 
-const switchLabel = computed(() => (authStore.isTrainingMode ? '切换到管理模式' : '切换到训练模式'))
+const hasHeaderFilters = computed(() => !!slots['header-filters'])
+const switchLabel = computed(() => (authStore.isTrainingMode ? '切到管理' : '切到训练'))
 const modeLabel = computed(() => (authStore.isTrainingMode ? '训练模式' : '管理模式'))
 
 function switchMode() {
@@ -34,32 +38,29 @@ onMounted(async () => {
   <div class="training-shell">
     <header class="training-header">
       <div class="header-copy">
-        <p class="eyebrow">训练系统</p>
         <h1>训练模式</h1>
       </div>
 
-      <div class="header-middle">
-        <div v-if="$slots['header-filters']" class="header-filters">
+      <div class="header-middle" :class="{ 'header-middle--empty': !hasHeaderFilters }">
+        <div v-if="hasHeaderFilters" class="header-filters">
           <slot name="header-filters" />
-        </div>
-        <div class="header-access">
-          <RuntimeAccessCard :info="runtimeAccess" />
         </div>
       </div>
 
       <div class="actions">
-        <div class="user-pill">
-          <strong>当前模式</strong>
-          <span>{{ modeLabel }}</span>
-        </div>
+        <RuntimeAccessCard :info="runtimeAccess" />
+        <span class="mode-pill">{{ modeLabel }}</span>
         <button class="primary-btn switch-btn" type="button" @click="switchMode">{{ switchLabel }}</button>
       </div>
     </header>
+
     <main class="training-content">
       <div class="training-body">
         <slot />
       </div>
     </main>
+
+    <TrainingViewportDebug v-if="isDev" />
   </div>
 </template>
 
@@ -69,99 +70,81 @@ onMounted(async () => {
   height: 100dvh;
   min-height: 100vh;
   background: linear-gradient(180deg, #f8fafc, #eefbf7);
-  padding: 18px;
+  padding: 14px;
   display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 18px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
   overflow: hidden;
 }
 
 .training-header {
-  background: white;
-  border-radius: 24px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 76px;
+  padding: 10px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--shadow);
-  padding: 14px 18px;
-  display: grid;
-  grid-template-columns: auto minmax(380px, 1fr) auto;
-  align-items: center;
-  gap: 18px;
-  min-width: 0;
 }
 
-.header-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.header-middle {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
+.header-copy,
+.header-middle,
 .header-filters {
   min-width: 0;
 }
 
-.header-access {
-  width: min(100%, 420px);
-  min-width: 320px;
-}
-
-.eyebrow,
-.user-pill span {
+.header-copy h1 {
   margin: 0;
-  color: var(--muted);
+  font-size: 1.8rem;
+  line-height: 1.02;
 }
 
-.eyebrow {
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.training-header h1 {
-  margin: 0;
-  font-size: 2rem;
-  line-height: 1.05;
-}
-
-.actions {
+.header-middle {
   display: flex;
   align-items: center;
-  gap: 12px;
-  justify-content: flex-end;
-  justify-self: end;
-  min-width: max-content;
-  flex-wrap: nowrap;
+  justify-content: flex-start;
+  min-height: 0;
 }
 
-.user-pill {
-  background: var(--panel-soft);
-  border-radius: 16px;
-  padding: 10px 14px;
-  display: grid;
-  gap: 2px;
+.header-middle--empty {
+  justify-content: flex-end;
+}
+
+.header-filters {
+  display: flex;
+  align-items: center;
   min-width: 0;
 }
 
-.user-pill strong {
-  font-size: 1rem;
-  line-height: 1.1;
+.actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  justify-self: end;
 }
 
-.user-pill span {
-  font-size: 1.15rem;
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 0.92rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .switch-btn {
-  min-height: 48px;
-  padding: 0 20px;
-  font-size: 1rem;
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 0.94rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -182,30 +165,56 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-@media (max-width: 1440px) {
+@media (min-width: 768px) and (max-width: 1199px) {
+  .training-shell {
+    padding: 12px;
+    gap: 10px;
+  }
+
   .training-header {
-    grid-template-columns: auto minmax(320px, 1fr) auto;
+    min-height: 72px;
+    padding: 8px 12px;
+    gap: 10px;
+    border-radius: 18px;
   }
 
-  .header-middle {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
+  .header-copy h1 {
+    font-size: 1.45rem;
   }
 
-  .header-filters {
-    min-width: 0;
+  .actions {
+    gap: 6px;
   }
 
-  .header-access {
-    width: min(100%, 380px);
-    min-width: 280px;
+  .mode-pill {
+    min-height: 38px;
+    padding: 0 10px;
+    font-size: 0.84rem;
+  }
+
+  .switch-btn {
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 0.84rem;
   }
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 767px) {
+  .training-shell {
+    padding: 12px;
+    gap: 12px;
+  }
+
   .training-header {
     grid-template-columns: 1fr;
     align-items: stretch;
+    gap: 10px;
+    min-height: auto;
+    padding: 12px 14px;
+  }
+
+  .header-copy h1 {
+    font-size: 1.6rem;
   }
 
   .header-middle,
@@ -213,34 +222,13 @@ onMounted(async () => {
     justify-self: stretch;
   }
 
-  .header-middle {
-    grid-template-columns: 1fr;
-  }
-
   .header-filters,
-  .header-access {
-    min-width: 0;
-    width: 100%;
+  .actions {
+    flex-wrap: wrap;
   }
 
   .actions {
     justify-content: space-between;
-    flex-wrap: wrap;
-  }
-}
-
-@media (max-width: 720px) {
-  .training-header {
-    padding: 14px;
-  }
-
-  .training-header h1 {
-    font-size: 1.7rem;
-  }
-
-  .header-middle,
-  .actions {
-    gap: 10px;
   }
 }
 </style>

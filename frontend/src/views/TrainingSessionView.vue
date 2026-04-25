@@ -514,6 +514,14 @@ function syncSelectedAthleteForFilter() {
   }
 }
 
+function handleDateInput(event: Event) {
+  trainingStore.sessionDate = (event.target as HTMLInputElement).value
+}
+
+function handleTeamFilterInput(event: Event) {
+  selectedTeamFilter.value = (event.target as HTMLSelectElement).value
+}
+
 watch(
   () => trainingStore.session?.items,
   (items) => {
@@ -578,22 +586,46 @@ onMounted(hydrate)
       @discard-restore="handleRestorePromptDecision(false)"
     />
 
+    <template #header-filters>
+      <div class="header-filter-bar">
+        <label class="compact-field compact-field--date">
+          <span class="compact-label">训练日期</span>
+          <input
+            :value="trainingStore.sessionDate"
+            class="text-input header-filter-control"
+            type="date"
+            aria-label="训练日期"
+            title="训练日期"
+            @input="handleDateInput"
+          />
+        </label>
+        <label class="compact-field compact-field--team">
+          <span class="compact-label">训练队伍</span>
+          <select
+            :value="selectedTeamFilter"
+            class="text-input header-filter-control header-team-select"
+            aria-label="训练队伍筛选"
+            title="训练队伍筛选"
+            @input="handleTeamFilterInput"
+          >
+            <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
+          </select>
+        </label>
+      </div>
+    </template>
+
     <div class="training-mode-layout">
       <TrainingModeSidebar
+        class="layout-sidebar"
         :athletes="filteredAthletes"
         :selected-athlete-id="trainingStore.selectedAthleteId"
-        :session-date="trainingStore.sessionDate"
-        :team-options="teamOptions"
-        :selected-team-filter="selectedTeamFilter"
         :assignments="trainingStore.assignments"
         :preview-assignment-id="trainingStore.previewAssignmentId"
         @update-athlete="trainingStore.selectedAthleteId = $event"
-        @update-date="trainingStore.sessionDate = $event"
-        @update-team-filter="selectedTeamFilter = $event"
         @open-plan="openPlan"
       />
 
-      <div class="center-column">
+      <div class="center-column layout-center">
         <div class="panel hero">
           <div class="hero-copy">
             <p class="section-title">训练记录</p>
@@ -635,6 +667,7 @@ onMounted(hydrate)
       </div>
 
       <TrainingSetPanel
+        class="layout-panel"
         :item="activeItem"
         :suggestion="latestSuggestion"
         :on-submit-current-set="submitCurrentSet"
@@ -647,10 +680,74 @@ onMounted(hydrate)
 <style scoped>
 .training-mode-layout {
   display: grid;
-  grid-template-columns: 320px 1.2fr 360px;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1.15fr) minmax(320px, 360px);
+  grid-template-areas: 'sidebar center panel';
   gap: 18px;
   height: 100%;
   min-height: 0;
+}
+
+.training-mode-layout > * {
+  min-width: 0;
+}
+
+.layout-sidebar {
+  grid-area: sidebar;
+  min-height: 0;
+}
+
+.layout-center {
+  grid-area: center;
+  min-height: 0;
+}
+
+.layout-panel {
+  grid-area: panel;
+  min-height: 0;
+}
+
+.header-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.compact-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.compact-field--date {
+  width: 156px;
+}
+
+.compact-field--team {
+  width: 188px;
+}
+
+.compact-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.header-filter-control {
+  min-height: 40px;
+  border-radius: 12px;
+}
+
+.header-team-select {
+  appearance: none;
+  padding-right: 36px;
 }
 
 .center-column {
@@ -673,6 +770,7 @@ onMounted(hydrate)
 .hero-copy {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .sync-indicator {
@@ -709,6 +807,8 @@ onMounted(hydrate)
   justify-content: flex-end;
   align-items: center;
   flex-shrink: 0;
+  gap: 12px;
+  min-width: 0;
 }
 
 .end-plan-btn {
@@ -753,15 +853,103 @@ onMounted(hydrate)
   color: var(--muted);
 }
 
-@media (max-width: 1360px) {
+@media (min-width: 768px) and (max-width: 1199px) {
+  .training-mode-layout {
+    grid-template-columns: 240px minmax(0, 1fr) 260px;
+    grid-template-areas: 'sidebar center panel';
+    gap: 12px;
+    height: 100%;
+  }
+
+  .header-filter-bar {
+    gap: 8px;
+  }
+
+  .compact-field--date {
+    width: 124px;
+  }
+
+  .compact-field--team {
+    width: 148px;
+  }
+
+  .header-filter-control {
+    min-height: 38px;
+    border-radius: 12px;
+  }
+
+  .center-column {
+    gap: 12px;
+  }
+
+  .hero {
+    gap: 12px;
+    padding-block: 14px;
+  }
+
+  .hero-copy {
+    gap: 6px;
+  }
+
+  .hero-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .end-plan-btn {
+    min-width: 0;
+    padding-inline: 14px;
+  }
+}
+
+@media (max-width: 767px) {
   .training-mode-layout {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      'sidebar'
+      'center'
+      'panel';
     height: auto;
   }
 
   .hero {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .header-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compact-field {
+    display: grid;
+    gap: 4px;
+  }
+
+  .compact-field--date,
+  .compact-field--team {
+    width: 100%;
+  }
+
+  .compact-label {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+    font-size: 12px;
+    line-height: 1.1;
+    color: var(--text-soft);
+  }
+
+  .hero-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 }
 </style>

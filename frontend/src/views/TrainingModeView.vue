@@ -235,11 +235,24 @@ onMounted(hydrate)
       <div class="header-filter-bar">
         <label class="compact-field compact-field--date">
           <span class="compact-label">训练日期</span>
-          <input :value="trainingStore.sessionDate" class="text-input header-filter-control" type="date" @input="handleDateInput" />
+          <input
+            :value="trainingStore.sessionDate"
+            class="text-input header-filter-control"
+            type="date"
+            aria-label="训练日期"
+            title="训练日期"
+            @input="handleDateInput"
+          />
         </label>
         <label class="compact-field compact-field--team">
           <span class="compact-label">队伍</span>
-          <select :value="selectedTeamFilter" class="text-input header-filter-control header-team-select" @input="handleTeamFilterInput">
+          <select
+            :value="selectedTeamFilter"
+            class="text-input header-filter-control header-team-select"
+            aria-label="队伍筛选"
+            title="队伍筛选"
+            @input="handleTeamFilterInput"
+          >
             <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
           </select>
         </label>
@@ -248,6 +261,7 @@ onMounted(hydrate)
 
     <div class="training-mode-layout">
       <TrainingModeSidebar
+        class="layout-sidebar"
         :athletes="filteredAthletes"
         :selected-athlete-id="trainingStore.selectedAthleteId"
         :assignments="trainingStore.assignments"
@@ -256,9 +270,9 @@ onMounted(hydrate)
         @open-plan="openPlanById"
       />
 
-      <TrainingSessionOverview :assignment="selectedPreview" :athlete-name="selectedAthleteName" />
+      <TrainingSessionOverview class="layout-overview" :assignment="selectedPreview" :athlete-name="selectedAthleteName" />
 
-      <section class="panel help-panel">
+      <section class="panel help-panel layout-help">
         <p class="section-title">2. 训练提示</p>
         <strong v-if="loading">正在同步当天训练状态...</strong>
         <template v-else-if="selectedPreview">
@@ -279,44 +293,70 @@ onMounted(hydrate)
 <style scoped>
 .training-mode-layout {
   display: grid;
-  grid-template-columns: 320px 1.2fr 320px;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1.15fr) minmax(280px, 320px);
+  grid-template-areas: 'sidebar overview help';
   gap: 18px;
   height: 100%;
   min-height: 0;
 }
 
+.training-mode-layout > * {
+  min-width: 0;
+}
+
+.layout-sidebar {
+  grid-area: sidebar;
+  min-height: 0;
+}
+
+.layout-overview {
+  grid-area: overview;
+  min-height: 0;
+}
+
+.layout-help {
+  grid-area: help;
+  min-height: 0;
+}
+
 .header-filter-bar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   flex-wrap: nowrap;
   gap: 12px;
   min-width: 0;
 }
 
 .compact-field {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
   min-width: 0;
 }
 
 .compact-field--date {
-  width: 170px;
+  width: 156px;
 }
 
 .compact-field--team {
-  width: 220px;
+  width: 188px;
 }
 
 .compact-label {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.1;
-  color: var(--text-soft);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .header-filter-control {
-  min-height: 42px;
-  border-radius: 14px;
+  min-height: 40px;
+  border-radius: 12px;
 }
 
 .header-team-select {
@@ -345,22 +385,73 @@ onMounted(hydrate)
   color: var(--muted);
 }
 
-@media (max-width: 1360px) {
+@media (min-width: 768px) and (max-width: 1199px) {
   .training-mode-layout {
-    grid-template-columns: 1fr;
-    height: auto;
+    grid-template-columns: 240px minmax(0, 1fr) 240px;
+    grid-template-areas: 'sidebar overview help';
+    gap: 12px;
+    height: 100%;
+  }
+
+  .header-filter-bar {
+    gap: 8px;
+  }
+
+  .compact-field--date {
+    width: 124px;
+  }
+
+  .compact-field--team {
+    width: 148px;
+  }
+
+  .header-filter-control {
+    min-height: 38px;
+    border-radius: 12px;
+  }
+
+  .help-panel {
+    gap: 8px;
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
+  .training-mode-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'sidebar'
+      'overview'
+      'help';
+    height: auto;
+  }
+
   .header-filter-bar {
     flex-direction: column;
     align-items: stretch;
   }
 
+  .compact-field {
+    display: grid;
+    gap: 4px;
+  }
+
   .compact-field--date,
   .compact-field--team {
     width: 100%;
+  }
+
+  .compact-label {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+    font-size: 12px;
+    line-height: 1.1;
+    color: var(--text-soft);
   }
 }
 </style>

@@ -540,7 +540,48 @@ span {
   font-size: 13px;
 }
 
-@media (max-width: 768px) {
+@media (min-width: 768px) and (max-width: 1199px) {
+  .touch-panel {
+    gap: 12px;
+  }
+
+  .current-input,
+  .history-input {
+    min-height: 48px;
+    padding: 0 12px;
+    font-size: 16px;
+  }
+
+  .touch-btn {
+    min-height: 44px;
+    border-radius: 12px;
+  }
+
+  .confirm-btn {
+    min-height: 48px;
+  }
+
+  .suggestion-card,
+  .history-block {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .history-row {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .history-stack {
+    gap: 10px;
+  }
+
+  .step-row {
+    gap: 6px;
+  }
+}
+
+@media (max-width: 767px) {
   .step-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
