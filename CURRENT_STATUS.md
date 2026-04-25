@@ -61,7 +61,7 @@
 
 ## 当前主要风险
 
-- 数据库仍没有正式迁移体系，主要依赖 `schema_sync.py`
+- 数据库演进已接入正式迁移机制，当前以 Alembic 基线 migration 和 `backend/scripts/migrate_db.py` 为主，`schema_sync.py` 仅保留为过渡期兜底
 - 真实数据导入脚本依赖固定 Excel 结构，后续若表头变化需要同步维护
 - 仍需要持续运行中文乱码扫描，防止文本再次损坏
 
