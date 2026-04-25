@@ -17,6 +17,7 @@ const currentDraftDirty = ref(false)
 const currentSetSaving = ref(false)
 const currentSetError = ref('')
 const currentSetFeedback = ref('')
+const RIR_OPTIONS = [0, 1, 2, 3, 4] as const
 
 const savingRecordId = ref<number | null>(null)
 const recordError = ref('')
@@ -131,22 +132,23 @@ function bumpWeight(step: number) {
   currentSetFeedback.value = ''
 }
 
-function bumpCurrentField(field: 'reps' | 'rir', step: number) {
+function bumpCurrentField(field: 'reps', step: number) {
   if (field === 'reps') {
     const base = Number(currentDraft.reps || 0)
     currentDraft.reps = String(Math.max(1, Math.round(base + step)))
-  }
-
-  if (field === 'rir') {
-    const base = Number(currentDraft.rir || 0)
-    currentDraft.rir = String(Math.max(0, Math.min(4, Math.round(base + step))))
   }
 
   currentDraftDirty.value = true
   currentSetFeedback.value = ''
 }
 
-function bumpRecordField(recordId: number, field: 'weight' | 'reps' | 'rir', step: number) {
+function setCurrentRirValue(value: number) {
+  currentDraft.rir = String(Math.max(0, Math.min(4, Math.round(value))))
+  currentDraftDirty.value = true
+  currentSetFeedback.value = ''
+}
+
+function bumpRecordField(recordId: number, field: 'weight' | 'reps', step: number) {
   const draft = recordDrafts[recordId]
   if (!draft) return
 
@@ -160,11 +162,13 @@ function bumpRecordField(recordId: number, field: 'weight' | 'reps' | 'rir', ste
     draft.reps = String(Math.max(1, Math.round(base + step)))
   }
 
-  if (field === 'rir') {
-    const base = Number(draft.rir || 0)
-    draft.rir = String(Math.max(0, Math.min(4, Math.round(base + step))))
-  }
+  draft.dirty = true
+}
 
+function setRecordRirValue(recordId: number, value: number) {
+  const draft = recordDrafts[recordId]
+  if (!draft) return
+  draft.rir = String(Math.max(0, Math.min(4, Math.round(value))))
   draft.dirty = true
 }
 
@@ -330,9 +334,17 @@ function resetRecordDraft(record: any) {
           <label class="field">
             <span>RIR</span>
             <input v-model="currentDraft.rir" class="text-input current-input" type="number" step="1" min="0" max="4" @input="onCurrentInput" />
-            <div class="step-row step-row-compact">
-              <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('rir', -1)">-1</button>
-              <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('rir', 1)">+1</button>
+            <div class="step-row rir-step-row">
+              <button
+                v-for="rirValue in RIR_OPTIONS"
+                :key="`current-rir-${rirValue}`"
+                class="secondary-btn touch-btn step-btn rir-btn"
+                :class="{ active: currentDraft.rir === String(rirValue) }"
+                type="button"
+                @click="setCurrentRirValue(rirValue)"
+              >
+                {{ rirValue === 4 ? '4+' : rirValue }}
+              </button>
             </div>
           </label>
         </div>
@@ -418,9 +430,17 @@ function resetRecordDraft(record: any) {
                   inputmode="numeric"
                   @input="onRecordInput(record.id)"
                 />
-                <div class="step-row step-row-compact">
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'rir', -1)">-1</button>
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'rir', 1)">+1</button>
+                <div class="step-row rir-step-row">
+                  <button
+                    v-for="rirValue in RIR_OPTIONS"
+                    :key="`history-rir-${record.id}-${rirValue}`"
+                    class="secondary-btn touch-btn history-step-btn rir-btn"
+                    :class="{ active: recordDrafts[record.id].rir === String(rirValue) }"
+                    type="button"
+                    @click="setRecordRirValue(record.id, rirValue)"
+                  >
+                    {{ rirValue === 4 ? '4+' : rirValue }}
+                  </button>
                 </div>
               </label>
             </div>
@@ -557,9 +577,27 @@ span {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.rir-step-row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .step-btn,
 .history-step-btn {
   min-height: 48px;
+}
+
+.rir-btn {
+  min-height: 38px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.rir-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: transparent;
 }
 
 .set-label {
@@ -614,6 +652,12 @@ span {
 
   .step-row {
     gap: 6px;
+  }
+
+  .rir-btn {
+    min-height: 34px;
+    border-radius: 9px;
+    font-size: 12px;
   }
 }
 

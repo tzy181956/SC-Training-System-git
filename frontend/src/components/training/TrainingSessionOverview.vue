@@ -13,6 +13,46 @@ const items = computed(() => props.session?.items || props.assignment?.template?
 const showCurrentAthlete = computed(() => !props.session)
 const itemListRef = ref<HTMLElement | null>(null)
 
+function formatNumber(value: number) {
+  if (Number.isInteger(value)) {
+    return `${value}`
+  }
+  return `${value}`.replace(/\.?0+$/, '')
+}
+
+function findAssignmentOverride(item: any) {
+  return props.assignment?.overrides?.find((override: any) => override.template_item_id === item.id) || null
+}
+
+function buildLoadText(item: any) {
+  const override = findAssignmentOverride(item)
+  if (override?.initial_load_override !== null && override?.initial_load_override !== undefined) {
+    return `${formatNumber(Number(override.initial_load_override))} 公斤`
+  }
+
+  if (item.initial_load !== null && item.initial_load !== undefined) {
+    return `${formatNumber(Number(item.initial_load))} 公斤`
+  }
+
+  if (item.initial_load_mode === 'fixed_weight') {
+    return item.initial_load_value === null || item.initial_load_value === undefined
+      ? '训练时设置'
+      : `${formatNumber(Number(item.initial_load_value))} 公斤`
+  }
+
+  if (item.initial_load_mode === 'percent_1rm') {
+    return item.initial_load_value === null || item.initial_load_value === undefined
+      ? '按最近测试百分比'
+      : `${formatNumber(Number(item.initial_load_value))}%`
+  }
+
+  return '训练时设置'
+}
+
+function buildPrescriptionSummary(item: any) {
+  return `${item.prescribed_sets} 组 × ${item.prescribed_reps} 次 × ${buildLoadText(item)}`
+}
+
 async function scrollActiveItemIntoView() {
   if (!props.session || !props.activeItemId) return
   await nextTick()
@@ -58,8 +98,8 @@ watch(
         @click="session && onSelectItem && onSelectItem(item.id)"
       >
         <strong>{{ item.exercise.name }}</strong>
-        <span>{{ item.prescribed_sets }} 组 × {{ item.prescribed_reps }} 次</span>
-        <span>{{ item.target_note || '按设定目标完成本动作' }}</span>
+        <span class="prescription-summary">{{ buildPrescriptionSummary(item) }}</span>
+        <span v-if="item.target_note">{{ item.target_note }}</span>
         <em v-if="session">{{ item.records.length }}/{{ item.prescribed_sets }} 已完成</em>
       </button>
     </div>
@@ -73,6 +113,7 @@ watch(
 .current-athlete{margin:0;display:inline-flex;align-items:center;width:fit-content;padding:6px 10px;border-radius:999px;background:var(--panel-soft);color:var(--text);font-size:13px;line-height:1.2;font-weight:700}
 .item-list{min-height:0;overflow-y:auto;padding-right:6px;scrollbar-gutter:stable;align-content:start}
 .item-card{background:var(--panel-soft);border-radius:18px;padding:16px;display:grid;gap:6px;text-align:left}
+.prescription-summary{color:var(--text)!important;font-weight:600}
 .item-card.active{background:#dbeafe}
 .item-card em{font-style:normal;color:var(--primary);font-weight:700}
 
