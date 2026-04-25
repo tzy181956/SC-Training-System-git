@@ -13,12 +13,13 @@
 
 ---
 
-## 2. 先统一边界：状态流到底属于谁
+## 2. 先统一边界：当前代码到底用什么状态
 
 当前代码里最容易混淆的一点是：
 
 - `assignment` 是候选训练计划
 - `session` 是一堂真实训练课
+- 训练入口和训练课详情当前都对外使用同一套状态文案
 
 而业务规则又明确要求：
 
@@ -27,34 +28,25 @@
 
 这意味着：
 
-### 结论 A：`planned` 不应该是正式 `SessionStatus`
+### 结论 A：第一阶段当前实现统一使用 `not_started`
 
-因为在 `planned` 阶段，严格来说还没有一堂正式开始的训练课。
+当前仓库的后端模型、服务层和前端页面都已经统一到：
 
-所以第一阶段应拆成两层：
+1. 训练入口 / 候选计划视图用 `not_started`
+2. `TrainingSession.status` 的未开始占位也用 `not_started`
 
-1. **训练执行状态**  
-   用于训练入口、候选计划列表、训练总览  
-   可包含 `planned`
-
-2. **正式 session 状态**  
-   只用于已经正式开始并落库的 `TrainingSession`  
-   不应包含 `planned`
+因此本阶段文档不再继续沿用早期草案里的 `planned` 术语，避免后续开发误以为仓库仍存在另一套状态体系。
 
 ---
 
-## 3. 第一阶段建议统一的状态枚举
+## 3. 第一阶段当前实现统一的状态枚举
 
-## 3.1 训练执行状态（推荐作为页面与服务层统一视图状态）
+## 3.1 对外训练状态（页面、接口、服务层统一口径）
 
-### 建议名称
-
-`TrainingExecutionStatus`
-
-### 建议取值
+### 当前取值
 
 ```text
-planned
+not_started
 in_progress
 completed
 absent
@@ -63,8 +55,8 @@ partial_complete
 
 ### 含义
 
-- `planned`
-  - 已存在候选计划（assignment）
+- `not_started`
+  - 已存在候选计划，或已生成未开始占位 session
   - 但还没有正式开始训练
   - 打开计划、查看内容都不算开始
 
@@ -77,25 +69,22 @@ partial_complete
   - 或手动结束时经过重算，确认整堂课已完成
 
 - `absent`
-  - 到当天自动收口时，一组都没做
+  - 触发跨日收口时，一组都没做
 
 - `partial_complete`
   - 已经做了部分组记录
   - 但没有完成整堂课
-  - 到自动收口或手动结束重算后进入
+  - 在跨日收口或手动结束重算后进入
 
-### 为什么推荐 `planned` 而不是 `not_started`
+### 为什么当前统一为 `not_started`
 
-因为这一步的真实业务含义是：
+因为当前代码已经用 `not_started` 贯通：
 
-- “已有候选计划，但正式训练课还没开始”
+- `TrainingSession.status` 默认值
+- 训练入口状态映射
+- 前端侧边栏与训练页状态展示
 
-如果用 `not_started`，很容易让代码继续默认“session 已经存在，只是还没开始”，这会和第一阶段要修掉的旧逻辑混在一起。
-
-所以第一阶段建议统一：
-
-- **页面/服务层统一使用 `planned`**
-- 中文展示可写成：`未开始`
+所以这里按真实实现记录，不再把 `planned` 作为当前阶段文档推荐值。
 
 ---
 
@@ -105,9 +94,10 @@ partial_complete
 
 `SessionStatus`
 
-### 建议取值
+### 当前取值
 
 ```text
+not_started
 in_progress
 completed
 absent
@@ -116,23 +106,29 @@ partial_complete
 
 ### 说明
 
-正式 `session` 只有在“第一组提交成功”之后才应该存在或被确认。
+当前 `TrainingSession.status` 已对外统一为以上五个值。
+
+其中：
+
+- `not_started` 是未开始占位状态
+- `in_progress` 才表示第一组已提交、训练正式开始
+- `completed / absent / partial_complete` 是终态
 
 因此：
 
-- `planned` 不应进入正式 `SessionStatus`
-- 第一阶段应避免继续使用当前代码里的 `pending` 作为对外正式 session 状态
+- `not_started` 虽然出现在正式 session 记录里，但不代表“打开计划就算开始”
+- 第一阶段仍应避免继续使用旧的 `pending` 作为对外正式 session 状态
 
-如果内部实现上暂时还需要过渡值，也必须满足：
+如果内部实现上仍有过渡逻辑，也必须满足：
 
-- 对外接口与服务层统一按上面四个正式状态解释
+- 对外接口与服务层统一按上面五个状态解释
 - 不能再把“打开计划”直接写成 `in_progress`
 
 ---
 
 ## 4. 每个状态的进入条件与退出条件
 
-## 4.1 `planned`
+## 4.1 `not_started`
 
 ### 进入条件
 
@@ -143,7 +139,7 @@ partial_complete
 ### 退出条件
 
 - 第一组提交成功 => 进入 `in_progress`
-- 到当天自动收口且一组都没做 => 进入 `absent`
+- 触发跨日收口且一组都没做 => 进入 `absent`
 - assignment 被取消 => 退出训练候选集合，不再参与本状态流
 
 ### 备注
@@ -152,7 +148,7 @@ partial_complete
 - 查看动作列表
 - 查看动作详情
 
-以上行为都**不应该**让 `planned` 退出。
+以上行为都**不应该**让 `not_started` 退出。
 
 ---
 
@@ -167,7 +163,7 @@ partial_complete
 
 - 所有应录的组都已录完 => `completed`
 - 手动结束训练，且经重算发现仍有未完成内容 => `partial_complete`
-- 到当天自动收口时仍未全部完成 => `partial_complete`
+- 触发跨日收口时仍未全部完成 => `partial_complete`
 
 ### 备注
 
@@ -190,7 +186,7 @@ partial_complete
 
 - 课后修正或删除组记录后，经重算发现不再满足完成条件
   - 若至少做过部分内容 => `partial_complete`
-  - 若极端情况下所有记录都被撤销/清空，应按业务规则回退为 `absent` 或回到异常待处理，不建议静默回退为 `planned`
+  - 若极端情况下所有记录都被撤销/清空，应按业务规则回退为 `absent` 或回到异常待处理，不建议静默回退为 `not_started`
 
 ### 备注
 
@@ -203,7 +199,7 @@ partial_complete
 
 ### 进入条件
 
-- 到当天 24 点自动收口时
+- 触发跨日收口时
 - 该 assignment 一组都没做
 
 ### 退出条件
@@ -216,7 +212,7 @@ partial_complete
 ### 备注
 
 - `absent` 不是“没打开计划”
-- 而是“到自动收口时一组都没做”
+- 而是“触发跨日收口时一组都没做”
 
 ---
 
@@ -226,7 +222,7 @@ partial_complete
 
 满足以下任一：
 
-- 到当天 24 点自动收口时，已做部分内容但没做满
+- 触发跨日收口时，已做部分内容但没做满
 - 手动结束计划时，已做部分内容但没做满
 - 原本 `completed` 的训练课经课后修正重算后，不再满足完成条件，但仍保留部分记录
 
@@ -237,7 +233,7 @@ partial_complete
 ### 备注
 
 - 这是第一阶段必须新增并统一的正式状态
-- 当前代码库里还没有这个状态值
+- 当前代码库里已经统一为这个状态值
 
 ---
 
@@ -256,7 +252,7 @@ partial_complete
 - 允许为当前候选计划创建一个 `not_started` session 占位
 - 但不能写入 `started_at`
 - 也不能进入 `in_progress`
-- 当前训练执行状态仍为 `planned`
+- 当前训练执行状态仍为 `not_started`
 
 ### 当前代码问题
 
@@ -320,16 +316,16 @@ partial_complete
 
 手动结束应是“触发收口与重算”，不是“无条件 completed”。
 
-- 本阶段 `absent` 只由当天 24 点自动收口产生
+- 本阶段 `absent` 只由跨日收口产生
 - 手动结束时，即使一组都没做，也先统一记为 `partial_complete`
 
 ---
 
-## 5.5 当天 24 点自动收口
+## 5.5 跨日收口（无定时任务版）
 
 ### 事件
 
-系统在当天结束时自动收口未完成计划
+系统在后端启动时先收口昨日及更早未结束训练课；训练相关入口继续保留兜底收口
 
 ### 处理规则
 
@@ -339,7 +335,14 @@ partial_complete
 
 ### 备注
 
-这是第一阶段必须补齐的自动结束规则。
+这是第一阶段必须补齐的跨日收口规则；当前实现不依赖零点定时任务。
+
+当前仓库已将跨日自动收口的主触发点收口为：
+
+- 后端每次启动成功前先执行一次跨日收口
+- 训练相关入口继续保留 `close_due_sessions()` 兜底
+
+这样即使当天先进入报表、日志或管理页，而不是先进入训练流程，昨天及更早未收口的训练课也会先被统一纠正。
 
 ---
 
@@ -372,14 +375,14 @@ partial_complete
 1. 若 assignment 已失效或不参与当天训练流程，则不进入本次判断
 2. 统计当前已有 `SetRecord` 数量
 3. 若记录数为 0：
-   - 未到收口时间 => `planned`
-   - 已到收口时间 => `absent`
+   - 未触发跨日收口 => `not_started`
+   - 已触发跨日收口 => `absent`
    - 若是手动结束事件 => `partial_complete`
 4. 若记录数 > 0 且所有应录组都完成：
    - `completed`
 5. 若记录数 > 0 且未全部完成：
-   - 未到收口时间 => `in_progress`
-   - 已到收口时间或手动结束 => `partial_complete`
+   - 未触发跨日收口 => `in_progress`
+   - 已触发跨日收口或手动结束 => `partial_complete`
 
 ---
 
@@ -496,6 +499,6 @@ partial_complete
 
 1. `session_service.py` 中把“打开计划即开始训练”改掉
 2. 统一正式 `SessionStatus`
-3. 把 `planned` 留在 assignment/训练入口视图层，不作为正式 session 状态
+3. 统一 `not_started / in_progress / completed / absent / partial_complete` 这套当前已落地的状态口径
 4. 补齐 `absent / partial_complete`
-5. 把手动结束和 24 点自动收口都改成“重算状态”，而不是写死结果
+5. 把手动结束和跨日收口都改成“重算状态”，而不是写死结果

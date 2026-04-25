@@ -118,13 +118,14 @@
 
 现状：
 
-- 训练端 Local Draft 已统一落地最小 `synced / pending`
+- 训练端 Local Draft 已统一落地 `synced / pending / manual_retry_required`
 - 已有训练端本地草稿与后端 session 的基础同步生命周期定义
-- `syncing / sync_error`、长时间失败待处理、教练端 / 管理端统一可见性仍未落地
+- 教练端 / 管理端已经有“同步异常，待处理”的最小可见性
+- 当前仍未落地复杂冲突合并界面与更细粒度的持久化状态机
 
 结论：
 
-- `Sync Status` 已部分实现，但仍是第一阶段后续必须继续补齐的主链路
+- `Sync Status` 已进入第一阶段基础闭环，但后续仍可继续细化异常处理与冲突工作台
 
 ---
 
@@ -135,11 +136,11 @@
 | 训练模板 | `template` | `TrainingPlanTemplate` / `template` | 已存在 | 可复用训练内容原型，不是实际训练课 |
 | 计划分配 | `assignment` | `AthletePlanAssignment` / `assignment` | 已存在 | 模板在时间范围内对运动员的候选训练计划，不等于 session |
 | 训练课 | `session` | `TrainingSession` / `session` | 已存在但语义需收紧 | 一堂真实训练课的正式记录 |
-| 本地草稿 | `local draft` | `LocalDraft` / `sessionDraft` | 已部分实现（训练端最小版） | session 的离线镜像，训练端本地优先写入 |
+| 本地草稿 | `local draft` | `LocalDraft` / `sessionDraft` | 已实现基础闭环 | 浏览器本地 `localStorage` 中的 session 离线镜像，主要覆盖同一浏览器 / 设备内恢复 |
 | 组记录 | `set record` | `SetRecord` / `setRecord` | 已存在 | 某动作某一组的实际训练记录 |
-| 同步状态 | `sync status` | `SyncStatus` | 已部分实现（训练端最小版） | 本地草稿 / session 的同步生命周期状态，当前已落地 `synced / pending` |
-| 缺席 | `absent` | `absent` | 已实现 | 到自动结束时一组都没做 |
-| 未完全按计划完成 | `partial_complete` | `partial_complete` | 已实现 | 做了部分，但自动结束时整堂课未完成 |
+| 同步状态 | `sync status` | `SyncStatus` | 已实现基础闭环 | 本地草稿 / session 的同步生命周期状态，当前已落地 `synced / pending / manual_retry_required` |
+| 缺席 | `absent` | `absent` | 已实现 | 触发跨日收口时一组都没做 |
+| 未完全按计划完成 | `partial_complete` | `partial_complete` | 已实现 | 做了部分，但触发跨日收口时整堂课未完成 |
 
 ---
 
@@ -212,11 +213,11 @@ SessionStatus = {
   - 或系统按规则自动判定为完成
 
 - `absent`
-  - 到自动结束时，一组都没做
+  - 触发跨日收口时，一组都没做
 
 - `partial_complete`
   - 已完成部分组记录
-  - 但到自动结束时，没有完成整堂课
+  - 但触发跨日收口时，没有完成整堂课
 
 ### 当前代码现状
 
@@ -394,14 +395,13 @@ AssignmentGroupStatus = {
 
 用于本地草稿和后台同步链路。
 
-### 第一阶段必须统一为
+### 第一阶段当前已统一为
 
 ```text
 SyncStatus = {
   pending,
-  syncing,
   synced,
-  sync_error
+  manual_retry_required
 }
 ```
 
@@ -411,29 +411,27 @@ SyncStatus = {
   - 本地草稿已写入
   - 后端尚未确认接收，或仍有待补传操作
 
-- `syncing`
-  - 正在尝试把本地草稿/增量组记录同步到后端
-
 - `synced`
   - 当前本地草稿与后端已对齐
 
-- `sync_error`
-  - 自动重试仍未成功
-  - 进入待处理异常状态
+- `manual_retry_required`
+  - 自动重试与整课兜底都未成功
+  - 已进入“同步异常，待处理”状态，需人工触发重试
 
 ### 当前代码现状
 
-当前代码库已经在训练端落地最小子集：
+当前代码库已经落地：
 
-- `synced`
 - `pending`
+- `synced`
+- `manual_retry_required`
+- 训练端 / 教练端 / 管理端最小可见性
 
-当前仍需补齐：
+当前仍可继续补齐：
 
-- `syncing`
-- `sync_error`
-- 长时间失败后的待处理机制
-- 教练端 / 管理端基础可见性
+- 更细粒度的临时执行态（如仅用于界面 loading 的 `syncing`）
+- 更复杂的冲突审核界面
+- 更完整的异常归因与统计
 
 ---
 
@@ -460,7 +458,7 @@ SyncStatus = {
   - `completed`
   - `absent`
   - `partial_complete`
-- 自动结束规则明确
+- 跨日收口规则明确（后端启动主触发 + 训练入口兜底）
 
 ### Assignment 与 Session 边界
 

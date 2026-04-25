@@ -267,93 +267,67 @@ partial_complete
 
 ---
 
-## 7.2 新增 `session_local_drafts`
+## 7.2 浏览器本地草稿（当前不新增 `session_local_drafts` 表）
 
-### 计划新增
+### 当前实现口径
 
-新增表：
+第一阶段当前**没有**新增数据库表 `session_local_drafts`。
 
-```text
-session_local_drafts
-```
+当前训练端本地草稿仍保存在：
 
-### 原因
+- 浏览器 `localStorage`
 
-- 第一阶段要实现“本地草稿是 session 的离线镜像”
-- 当前训练端没有正式本地草稿承载结构
+后端当前只为同步异常与冲突落最小可见记录：
 
-### 给谁用
+- `training_sync_issues`
+- `training_sync_conflicts`
 
-- 训练端本地恢复
-- 后台补传
-- 同步异常排查
+### 为什么不写成数据库表
 
-### 建议最小字段
+- 当前部署场景是局域网内的本地笔记本 + Safari 训练端
+- 第一阶段优先要保证断网继续录入、页面异常关闭后恢复、后台补传和人工重试闭环
+- 当前实现已经落在浏览器本地优先方案上，不应再把仓库文档写成“数据库里已经有 session_local_drafts 表”
 
-- `id`
-- `session_key`
-- `athlete_id`
-- `assignment_id`
-- `session_id`
-- `session_date`
-- `status`
-- `sync_status`
-- `device_id`
-- `version`
-- `payload_json`
-- `last_modified_at`
-- `last_synced_at`
-- `created_at`
+### 当前边界
 
-### 与旧结构关系
-
-- 新增表，不替代 `training_sessions`
-- 它是 `training_sessions` 的离线镜像，而不是第二套业务表
-
-### 迁移顺序建议
-
-1. 先建表
-2. 再接训练端本地草稿逻辑
-3. 再接同步链路
-
-### 回退注意事项
-
-- 回退时如果本地草稿尚未真正投入使用，可只回退表结构
-- 若已进入使用期，回退前必须先导出或保留草稿数据
+- 草稿主要覆盖同一浏览器 / 同一设备内的恢复
+- 不等同于跨浏览器、跨设备或清缓存后仍可恢复的强持久化方案
+- 如果后续真的要把草稿正式落库，再单独补 migration 和回退说明
 
 ---
 
 ## 7.3 `sync_status` 相关结构
 
-### 计划新增/调整
+### 当前统一口径
 
-第一阶段至少需要统一：
+第一阶段当前统一使用：
 
 ```text
-local_only
-syncing
+pending
 synced
-sync_error
+manual_retry_required
 ```
 
-### 结构建议
+### 结构落点
 
-优先放在：
+当前主要落在：
 
-- `session_local_drafts.sync_status`
+- 浏览器本地草稿 `sync_status`
+- 后端 `training_sync_issues.issue_status` / `resolved_at`（用于“同步异常，待处理”最小可见性）
 
-可选后续扩展到：
+当前**没有**落到：
 
 - `training_sessions.sync_status`
 
 ### 原因
 
-- 当前系统没有正式同步状态枚举
-- 无法支撑训练端、教练端、管理端统一查看同步健康度
+- 当前系统已经有正式同步状态枚举，不再是“尚未统一”阶段
+- 训练端、教练端、管理端已经有第一版同步异常可见性与人工重试入口
+- 但这仍是第一阶段基础闭环，不应误写成更复杂的持久化状态机已经完成
 
 ### 给谁用
 
-- 训练端本地提示
+- 训练端状态灯与手动同步入口
 - 教练课后异常处理
 - 管理端故障诊断
 
@@ -449,10 +423,12 @@ training_session_change_logs
 
 ### Migration 0003
 
-本地草稿基础结构：
+如后续把浏览器本地草稿正式迁移为后端持久化方案，可考虑：
 
 - `session_local_drafts`
 - `sync_status`
+
+说明：当前第一阶段真实实现**未落**这条 migration，当前草稿仍以浏览器 `localStorage` 为主。
 
 ### Migration 0004
 

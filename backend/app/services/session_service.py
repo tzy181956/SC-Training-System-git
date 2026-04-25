@@ -436,6 +436,12 @@ def complete_session(db: Session, session_id: int) -> TrainingSession:
 
 
 def close_due_sessions(db: Session, reference_time: datetime | None = None) -> int:
+    """Finalize sessions dated before today.
+
+    This function is intentionally idempotent and is used in two places:
+    - once during backend startup as the primary cross-day close trigger
+    - again inside training-related entry points as a fallback safety net
+    """
     now = _resolve_local_now(reference_time)
     local_today = now.date()
     due_sessions = (
