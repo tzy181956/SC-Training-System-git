@@ -189,10 +189,10 @@ def _build_athlete_card(
     sync_issues: list[TrainingSyncIssue],
 ) -> dict:
     sessions = [sessions_by_assignment[assignment.id] for assignment in assignments if assignment.id in sessions_by_assignment]
-    session_status = _resolve_athlete_status(assignments, sessions)
-    primary_session = _choose_primary_session(sessions)
     latest_record = _find_latest_record(sessions)
     totals = _build_progress_totals(assignments, sessions_by_assignment)
+    session_status = _resolve_athlete_status(assignments, sessions_by_assignment, totals)
+    primary_session = _choose_primary_session(sessions)
 
     return {
         "athlete_id": athlete.id,
@@ -202,7 +202,12 @@ def _build_athlete_card(
         "session_id": primary_session.id if primary_session else None,
         "session_status": session_status,
         "sync_status": "manual_retry_required" if sync_issues else "synced",
-        "current_exercise_name": _resolve_current_exercise(assignments, sessions_by_assignment, primary_session, latest_record),
+        "current_exercise_name": _resolve_current_exercise(
+            assignments,
+            sessions_by_assignment,
+            primary_session,
+            latest_record,
+        ),
         "completed_items": totals["completed_items"],
         "total_items": totals["total_items"],
         "completed_sets": totals["completed_sets"],
@@ -212,25 +217,52 @@ def _build_athlete_card(
     }
 
 
-def _resolve_athlete_status(assignments: list[AthletePlanAssignment], sessions: list[TrainingSession]) -> str:
+def _resolve_athlete_status(
+    assignments: list[AthletePlanAssignment],
+    sessions_by_assignment: dict[int, TrainingSession],
+    totals: dict[str, int],
+) -> str:
     if not assignments:
         return "no_plan"
+
+    assignment_ids = {assignment.id for assignment in assignments}
+    sessions = [
+        sessions_by_assignment[assignment_id]
+        for assignment_id in assignment_ids
+        if assignment_id in sessions_by_assignment
+    ]
     if not sessions:
         return "not_started"
 
-    statuses = []
-    for session in sessions:
-        statuses.append(_resolve_single_session_status(session))
+    statuses = [_resolve_single_session_status(session) for session in sessions]
 
-    if any(status == "in_progress" for status in statuses):
-        return "in_progress"
+    if len(sessions) == len(assignments) and statuses and all(status == "absent" for status in statuses):
+        return "absent"
+
     if any(status == "partial_complete" for status in statuses):
         return "partial_complete"
-    if statuses and all(status == "completed" for status in statuses):
+
+    if totals["completed_sets"] == 0:
+        return "not_started"
+
+    if _all_assignments_completed(assignments, sessions_by_assignment):
         return "completed"
-    if statuses and all(status == "absent" for status in statuses):
-        return "absent"
-    return "not_started"
+
+    return "in_progress"
+
+
+def _all_assignments_completed(
+    assignments: list[AthletePlanAssignment],
+    sessions_by_assignment: dict[int, TrainingSession],
+) -> bool:
+    if not assignments:
+        return False
+
+    for assignment in assignments:
+        session = sessions_by_assignment.get(assignment.id)
+        if not session or not _session_is_fully_completed(session):
+            return False
+    return True
 
 
 def _choose_primary_session(sessions: list[TrainingSession]) -> TrainingSession | None:

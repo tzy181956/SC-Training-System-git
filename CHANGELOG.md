@@ -19,6 +19,10 @@
   - `frontend/src/components/monitoring/MonitoringAthleteBoard.vue`
   - `frontend/src/components/monitoring/MonitoringAthleteCard.vue`
   - `frontend/src/components/monitoring/MonitoringAlertPanel.vue`
+- 新增监控端状态准确性 smoke check：
+  - `backend/scripts/monitoring_smoke_check.py`
+- 新增监控端运动员排序工具：
+  - `frontend/src/utils/monitoringSort.ts`
 - 新增训练端与监控端共用的公共基础：
   - `frontend/src/composables/useTeamFilter.ts`
   - `frontend/src/constants/trainingStatus.ts`
@@ -42,9 +46,13 @@
 
 - `auth` store、前端路由和管理端导航已预留 `monitor` 独立模式与 `/monitor` 入口，不再把监控端混入现有管理页或训练页。
 - `/api/monitoring/today` 已注册为监控端第一版只读接口，按日期、队伍和未分队参数聚合运动员、计划分配、训练课、组记录与同步异常。
-- `/api/monitoring/today` 的状态判断已按真实训练数据收紧：有效计划无记录为 `not_started`，有记录未完成为 `in_progress`，组数全部完成为 `completed`，手动结束未完成为 `partial_complete`，跨日缺席为 `absent`，无有效计划为 `no_plan`。
+- 本轮为“监控端状态准确性与验收脚本收口”，不新增自动刷新、详情弹层、图表、编辑、删除或补录能力。
+- `/api/monitoring/today` 的状态判断已按真实训练数据继续收紧：有效计划无记录为 `not_started`，有记录且不是所有当天有效计划目标组数完成为 `in_progress`，所有当天有效计划目标组数完成才是 `completed`，手动结束未完成为 `partial_complete`，全部最终缺席为 `absent`，无有效计划为 `no_plan`。
+- `/api/monitoring/today` 已修正同一运动员当天多份 active assignment 的聚合风险：无 session 的 assignment 也计入 `total_sets` 和 `total_items`，避免一份计划完成时误把当天整体显示为 `completed`。
 - `MonitorDashboardView` 已从占位页改为监控端取数容器，页面展示拆到 monitoring 组件目录，并预留手动刷新以外的自动刷新状态。
-- 监控端运动员卡片已按同步异常、进行中、未开始、已结束未完成、缺席、已完成、无计划排序，并支持跳转到训练录入或训练报告页。
+- 监控端运动员卡片排序已抽到 `frontend/src/utils/monitoringSort.ts`，规则仍为同步异常、进行中、未开始、已结束未完成、缺席、已完成、无计划，并支持跳转到训练录入或训练报告页。
+- 监控端自动刷新预留变量默认值收口为 30000ms，当前第一版仍只启用手动刷新。
+- 监控端运动员看板在普通 iPad 横屏宽度下优先使用 2 列卡片，避免 1024px - 1080px 下 3 列过窄影响阅读。
 - `TrainingModeView` 与 `TrainingSessionView` 已复用 `useTeamFilter`，统一队伍筛选、筛选后队员列表和选中队员同步逻辑。
 - `TrainingModeSidebar`、`TrainingSessionView`、`TrainingReportsView` 与 `TrainingSessionCard` 已开始复用集中训练状态文案和 tone，为后续监控端接口与看板共用状态显示打底。
 

@@ -59,6 +59,7 @@
 
 - 返回当天训练现场主看板所需数据
 - 优先服务监控端首页的运动员卡片和顶部汇总
+- 状态判断基于当天所有有效计划聚合，不只看已有训练课
 
 推荐返回字段：
 
@@ -98,6 +99,17 @@
   ]
 }
 ```
+
+状态聚合规则：
+
+- 没有当天有效计划：`no_plan`
+- 有计划，但所有计划都没有记录：`not_started`
+- 有任意记录，但不是所有当天有效计划的目标组数都完成：`in_progress`
+- 所有当天有效计划的所有目标组数均完成：`completed`
+- 有训练课已手动结束为 `partial_complete` 时，整体状态优先显示 `partial_complete`
+- 所有当天有效计划都已最终收口为 `absent`：`absent`
+- 同一运动员当天多份 active assignment 会合并计算 `completed_sets / total_sets` 和 `completed_items / total_items`
+- 没有 session 的 assignment 仍计入 `total_sets` 和 `total_items`，避免一份已完成计划掩盖另一份未开始计划
 
 ### GET `/api/monitoring/team-summary`
 
@@ -184,6 +196,7 @@
 
 - 当前只启用手动刷新
 - 页面已预留 `autoRefreshEnabled` 和 `refreshIntervalMs`
+- `refreshIntervalMs` 当前默认保守设为 30000ms，第一版不接入自动刷新
 - 自动刷新后续再接入，第一版不默认开启
 
 ## 8. 当前排序与跳转规则
@@ -198,6 +211,7 @@
 - `completed`
 - `no_plan`
 - 同优先级内按姓名升序
+- 排序规则集中在 `frontend/src/utils/monitoringSort.ts`，页面不再维护独立优先级表
 
 点击跳转：
 
@@ -205,3 +219,27 @@
 - `completed` / `partial_complete` / `absent`：跳转训练报告页，并带当天日期查询参数
 - `not_started`：跳转训练端并保留当前日期查询参数
 - `no_plan`：不跳转，只提示当天没有有效训练计划
+
+## 9. 当前验收脚本
+
+新增 `backend/scripts/monitoring_smoke_check.py`，使用临时 SQLite 数据库构造监控端状态矩阵，不读取也不污染真实 `backend/training.db`。
+
+覆盖样本：
+
+- `no_plan`
+- `not_started`
+- `in_progress`
+- `completed`
+- `partial_complete`
+- `absent`
+- `manual_retry_required`
+- 同日多计划：一份计划已完成，另一份计划未开始，整体预期不能显示为 `completed`
+
+脚本验证：
+
+- `session_status` 分布
+- `sync_status`
+- `completed_sets / total_sets`
+- `completed_items / total_items`
+- `latest_set`
+- `MonitoringTodayRead` schema 结构

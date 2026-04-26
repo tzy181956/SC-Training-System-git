@@ -11,6 +11,7 @@ import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.v
 import { ALL_TEAMS_VALUE, UNASSIGNED_TEAM_VALUE } from '@/composables/useTeamFilter'
 import type { MonitoringAthleteCard, MonitoringTodayResponse } from '@/types/monitoring'
 import { todayString } from '@/utils/date'
+import { sortMonitoringAthletes } from '@/utils/monitoringSort'
 
 const router = useRouter()
 const monitorDate = ref(todayString())
@@ -21,15 +22,7 @@ const loadError = ref('')
 const monitorNotice = ref('')
 const lastRefreshAt = ref<string | null>(null)
 const autoRefreshEnabled = ref(false)
-const refreshIntervalMs = ref(5000)
-const athleteStatusSortPriority: Record<string, number> = {
-  in_progress: 1,
-  not_started: 2,
-  partial_complete: 3,
-  absent: 4,
-  completed: 5,
-  no_plan: 6,
-}
+const refreshIntervalMs = ref(30000)
 
 const monitorTeamOptions = computed(() => (
   [
@@ -52,7 +45,7 @@ const displayedAthletes = computed<MonitoringAthleteCard[]>(() => {
   }
   return athletes
 })
-const sortedAthletes = computed(() => [...displayedAthletes.value].sort(sortMonitoringAthletes))
+const sortedAthletes = computed(() => sortMonitoringAthletes(displayedAthletes.value))
 const refreshHint = computed(() => {
   if (loading.value) return '正在刷新监控数据'
   if (loadError.value) return loadError.value
@@ -90,17 +83,6 @@ async function loadMonitoringData() {
   } finally {
     loading.value = false
   }
-}
-
-function sortMonitoringAthletes(left: MonitoringAthleteCard, right: MonitoringAthleteCard) {
-  const priorityDiff = getAthleteSortPriority(left) - getAthleteSortPriority(right)
-  if (priorityDiff !== 0) return priorityDiff
-  return left.athlete_name.localeCompare(right.athlete_name, 'zh-CN')
-}
-
-function getAthleteSortPriority(athlete: MonitoringAthleteCard) {
-  if (athlete.sync_status === 'manual_retry_required') return 0
-  return athleteStatusSortPriority[athlete.session_status] ?? 99
 }
 
 function handleAthleteClick(athlete: MonitoringAthleteCard) {
