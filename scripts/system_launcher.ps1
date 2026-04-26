@@ -16,6 +16,7 @@ $FrontendDir = Join-Path $RootDir 'frontend'
 $BackendVenvDir = Join-Path $BackendDir '.venv'
 $BackendPython = Join-Path $BackendVenvDir 'Scripts\python.exe'
 $BackendPyvenvCfg = Join-Path $BackendVenvDir 'pyvenv.cfg'
+$BackendRequirements = Join-Path $BackendDir 'requirements.txt'
 $BackendHealthUrl = 'http://127.0.0.1:8000/health'
 $FrontendLocalUrl = 'http://127.0.0.1:5173/'
 $FrontendRuntimeUrl = 'http://127.0.0.1:5173/runtime-access.json'
@@ -202,11 +203,14 @@ function Get-ErrorTypeInfo {
         npm_missing                        = @{ Label = 'npm missing'; Section = 'npm_missing'; DefaultCause = 'The current Node.js installation does not expose npm.'; DefaultFix = 'Reinstall Node.js and confirm npm works from a new terminal.' }
         backend_venv_create_failed         = @{ Label = 'Backend virtual environment creation failed'; Section = 'backend_venv_create_failed'; DefaultCause = 'Python can run, but backend\\.venv could not be created.'; DefaultFix = 'Make sure the project folder is writable and not blocked by antivirus, then retry.' }
         backend_venv_validation_failed     = @{ Label = 'Backend virtual environment validation failed'; Section = 'backend_venv_validation_failed'; DefaultCause = 'The recreated backend\\.venv still points to an invalid or damaged Python.'; DefaultFix = 'Reinstall Python 3.12, delete backend\\.venv, and run the launcher again.' }
+        backend_requirements_missing       = @{ Label = 'Backend requirements.txt missing'; Section = 'backend_requirements_missing'; DefaultCause = 'backend\\requirements.txt is missing, so backend dependencies cannot be installed.'; DefaultFix = 'Restore backend\\requirements.txt from the repository, then run the launcher again.' }
         backend_pip_upgrade_failed         = @{ Label = 'Backend pip upgrade failed'; Section = 'backend_pip_upgrade_failed'; DefaultCause = 'pip could not reach the package index, or the Python environment is damaged.'; DefaultFix = 'Check network access to PyPI, then retry.' }
         backend_dependency_install_failed  = @{ Label = 'Backend dependency install failed'; Section = 'backend_dependency_install_failed'; DefaultCause = 'One or more backend dependencies were not installed successfully.'; DefaultFix = 'Confirm network access and Python 3.12, then retry dependency installation.' }
+        backend_dependency_missing         = @{ Label = 'Backend dependency missing'; Section = 'backend_dependency_missing'; DefaultCause = 'A required backend Python package is missing or failed to import.'; DefaultFix = 'Check backend\\requirements.txt and network access, then rerun the launcher.' }
         frontend_dependency_install_failed = @{ Label = 'Frontend dependency install failed'; Section = 'frontend_dependency_install_failed'; DefaultCause = 'npm install did not finish successfully.'; DefaultFix = 'Check npm registry access; if needed, delete frontend\\node_modules and retry.' }
         frontend_dependency_validation_failed = @{ Label = 'Frontend dependency verification failed'; Section = 'frontend_dependency_validation_failed'; DefaultCause = 'Declared frontend packages are still missing after dependency verification.'; DefaultFix = 'Delete frontend\\node_modules, rerun the launcher, and inspect the first npm error if the problem repeats.' }
-        database_migration_failed          = @{ Label = 'Database migration failed'; Section = 'database_migration_failed'; DefaultCause = 'The database is locked, or a migration script failed.'; DefaultFix = 'Close programs using training.db, then rerun the launcher.' }
+        database_locked                    = @{ Label = 'Database locked'; Section = 'database_locked'; DefaultCause = 'The SQLite database file is locked by another process.'; DefaultFix = 'Close other backend windows or database tools using backend\\training.db, then rerun the launcher.' }
+        database_migration_failed          = @{ Label = 'Database migration failed'; Section = 'database_migration_failed'; DefaultCause = 'Alembic migration failed while applying or checking schema changes.'; DefaultFix = 'Check the migration log excerpt, then send the summary to the maintainer if needed.' }
         backend_port_conflict              = @{ Label = 'Backend port conflict'; Section = 'backend_port_conflict'; DefaultCause = 'Port 8000 is already in use by another program.'; DefaultFix = 'Close the process using port 8000, then retry.' }
         backend_start_unhealthy            = @{ Label = 'Backend started but never became healthy'; Section = 'backend_start_unhealthy'; DefaultCause = 'The backend window opened, but the app failed during initialization.'; DefaultFix = 'Check the first traceback line in the backend window, then retry.' }
         backend_start_failed               = @{ Label = 'Backend failed to start'; Section = 'backend_start_failed'; DefaultCause = 'The backend process never reached a healthy state.'; DefaultFix = 'Check dependencies, port usage, and the backend window error.' }
@@ -546,17 +550,92 @@ function Test-BackendVenv {
     return [pscustomobject]@{ Status = 'healthy'; Reason = 'backend\.venv is healthy.' }
 }
 
+function Test-BackendCriticalDependencies {
+    Write-LauncherLog -Message ("BACKEND PYTHON | {0}" -f $BackendPython)
+    Write-Host ('[INFO] Backend Python: {0}' -f $BackendPython)
+
+    $checkScript = @'
+from alembic.config import Config
+import sqlalchemy
+import fastapi
+print("[OK] Backend critical dependencies are available.")
+'@
+
+    $result = Invoke-CapturedCommand `
+        -Command $BackendPython `
+        -Arguments @('-c', $checkScript) `
+        -WorkingDirectory $BackendDir
+
+    $passed = ($result.ExitCode -eq 0)
+    if ($passed) {
+        Write-Host '[INFO] Backend critical dependency check passed.'
+        Write-LauncherLog -Message 'BACKEND DEPENDENCY CHECK | passed | alembic.config, sqlalchemy, fastapi'
+    } else {
+        Write-Host '[ERROR] Backend critical dependency check failed.' -ForegroundColor Red
+        Write-LauncherLog -Message 'BACKEND DEPENDENCY CHECK | failed | alembic.config, sqlalchemy, fastapi' -Level 'ERROR'
+    }
+
+    return [pscustomobject]@{
+        Passed      = $passed
+        ExitCode    = [int]$result.ExitCode
+        Output      = @($result.Output)
+        CommandLine = ('{0} -c <backend critical dependency check>' -f $BackendPython)
+    }
+}
+
+function Get-BackendDependencyMissingMessage {
+    return [System.Text.Encoding]::UTF8.GetString([byte[]](
+        0xE5,0x90,0x8E,0xE7,0xAB,0xAF,0x20,0x50,0x79,0x74,0x68,0x6F,0x6E,0x20,
+        0xE4,0xBE,0x9D,0xE8,0xB5,0x96,0xE7,0xBC,0xBA,0xE5,0xA4,0xB1,0xE6,
+        0x88,0x96,0xE5,0xAE,0x89,0xE8,0xA3,0x85,0xE5,0xA4,0xB1,0xE8,0xB4,
+        0xA5,0xEF,0xBC,0x8C,0xE8,0xAF,0xB7,0xE6,0xA3,0x80,0xE6,0x9F,0xA5,
+        0x20,0x62,0x61,0x63,0x6B,0x65,0x6E,0x64,0x2F,0x72,0x65,0x71,0x75,
+        0x69,0x72,0x65,0x6D,0x65,0x6E,0x74,0x73,0x2E,0x74,0x78,0x74,0x20,
+        0xE6,0x88,0x96,0xE7,0xBD,0x91,0xE7,0xBB,0x9C,0xE8,0xBF,0x9E,0xE6,
+        0x8E,0xA5
+    ))
+}
+
+function Assert-BackendCriticalDependencies {
+    param([string]$StepName)
+
+    $dependencyCheck = Test-BackendCriticalDependencies
+    if (-not $dependencyCheck.Passed) {
+        $logExcerpt = ($dependencyCheck.Output | Select-Object -Last 25) -join [Environment]::NewLine
+        Fail-Launcher `
+            -StepName $StepName `
+            -Category 'backend_dependency_missing' `
+            -Detail (Get-BackendDependencyMissingMessage) `
+            -PossibleCauses @(
+                'backend\requirements.txt is missing required dependencies.',
+                'pip install did not complete successfully.',
+                'The current network cannot reach the Python package index.'
+            ) `
+            -Suggestions @(
+                'Confirm backend\requirements.txt exists and includes alembic, sqlalchemy, and fastapi.',
+                'Confirm the network can access PyPI or a configured pip mirror.',
+                ('After fixing dependencies, rerun {0}.' -f $RetryLauncherFile)
+            ) `
+            -CommandLine $dependencyCheck.CommandLine `
+            -LogExcerpt $logExcerpt
+    }
+
+    return $dependencyCheck
+}
+
 function Ensure-BackendEnvironment {
     $venvCheck = Test-BackendVenv
     $venvAction = 'reused'
 
     if ($venvCheck.Status -ne 'healthy') {
-        $venvAction = 'rebuilt'
+        $venvAction = if ($venvCheck.Status -eq 'missing') { 'created' } else { 'rebuilt' }
         if (Test-Path $BackendVenvDir) {
             Write-Host ('[INFO] Removing unusable backend\.venv: {0}' -f $venvCheck.Reason)
+            Write-LauncherLog -Message ("BACKEND VENV | removing unusable venv | {0}" -f $venvCheck.Reason)
             Remove-Item -LiteralPath $BackendVenvDir -Recurse -Force
         } else {
             Write-Host '[INFO] backend\.venv was not found. A new virtual environment will be created.'
+            Write-LauncherLog -Message 'BACKEND VENV | missing | creating new venv'
         }
 
         Invoke-StepCommand `
@@ -594,52 +673,72 @@ function Ensure-BackendEnvironment {
         }
     }
 
-    $importCheck = Invoke-CapturedCommand `
-        -Command $BackendPython `
-        -Arguments @('-c', 'import fastapi, uvicorn, sqlalchemy, alembic, openpyxl') `
-        -WorkingDirectory $BackendDir
+    Write-Host ('[INFO] Backend Python: {0}' -f $BackendPython)
+    Write-LauncherLog -Message ("BACKEND PYTHON | {0}" -f $BackendPython)
+    Write-Host ('[INFO] Backend venv action: {0}' -f $venvAction)
+    Write-LauncherLog -Message ("BACKEND VENV | action={0}" -f $venvAction)
 
-    $dependencyAction = 'already_ready'
-    if ($importCheck.ExitCode -ne 0) {
-        $dependencyAction = 'installed'
-        Invoke-StepCommand `
+    if (-not (Test-Path $BackendRequirements)) {
+        Fail-Launcher `
             -StepName 'Backend environment' `
-            -Command $BackendPython `
-            -Arguments @('-m', 'pip', 'install', '--upgrade', 'pip') `
-            -WorkingDirectory $BackendDir `
-            -Category 'backend_pip_upgrade_failed' `
-            -FailureDetail 'Failed to upgrade pip inside backend\.venv.' `
+            -Category 'backend_requirements_missing' `
+            -Detail ('Missing backend requirements file: {0}' -f $BackendRequirements) `
             -PossibleCauses @(
-                'The internet connection is unavailable.',
-                'The Python package index could not be reached.',
-                'The current Python environment is damaged.'
+                'backend\requirements.txt was not committed or was deleted locally.',
+                'The repository checkout is incomplete.'
             ) `
             -Suggestions @(
-                'Check internet access, then run the launcher again.',
-                'If you are on a restricted network, switch to a network that can access PyPI.',
-                ('If the problem repeats, delete backend\.venv and rerun {0}.' -f $RetryLauncherFile)
-            ) | Out-Null
-
-        Invoke-StepCommand `
-            -StepName 'Backend environment' `
-            -Command $BackendPython `
-            -Arguments @('-m', 'pip', 'install', '-r', 'requirements.txt') `
-            -WorkingDirectory $BackendDir `
-            -Category 'backend_dependency_install_failed' `
-            -FailureDetail 'Failed to install backend dependencies from requirements.txt.' `
-            -PossibleCauses @(
-                'One or more Python packages could not be downloaded.',
-                'The current Python version does not match the project requirement.',
-                'A proxy or firewall blocked pip.'
-            ) `
-            -Suggestions @(
-                'Check internet access and rerun the launcher.',
-                'Confirm that Python 3.12 is the version being used.',
-                'If your network uses a proxy, configure pip first and rerun.'
-            ) | Out-Null
+                'Restore backend\requirements.txt from GitHub, then rerun the launcher.',
+                'Confirm the project was cloned completely before starting the system.'
+            )
     }
 
-    Add-StepResult -Name 'Backend environment' -Status 'OK' -Detail ("venv {0}; dependencies {1}" -f $venvAction, $dependencyAction)
+    Write-Host ('[INFO] Backend requirements.txt: {0}' -f $BackendRequirements)
+    Write-LauncherLog -Message ("BACKEND REQUIREMENTS | {0}" -f $BackendRequirements)
+
+    Write-Host '[INFO] Upgrading pip inside backend\.venv...'
+    Write-LauncherLog -Message 'BACKEND PIP | upgrade pip | executing'
+    Invoke-StepCommand `
+        -StepName 'Backend environment' `
+        -Command $BackendPython `
+        -Arguments @('-m', 'pip', 'install', '--upgrade', 'pip') `
+        -WorkingDirectory $BackendDir `
+        -Category 'backend_pip_upgrade_failed' `
+        -FailureDetail 'Failed to upgrade pip inside backend\.venv.' `
+        -PossibleCauses @(
+            'The internet connection is unavailable.',
+            'The Python package index could not be reached.',
+            'The current Python environment is damaged.'
+        ) `
+        -Suggestions @(
+            'Check internet access, then run the launcher again.',
+            'If you are on a restricted network, switch to a network that can access PyPI.',
+            ('If the problem repeats, delete backend\.venv and rerun {0}.' -f $RetryLauncherFile)
+        ) | Out-Null
+
+    Write-Host '[INFO] Installing backend dependencies from requirements.txt...'
+    Write-LauncherLog -Message 'BACKEND PIP | install requirements | executing'
+    Invoke-StepCommand `
+        -StepName 'Backend environment' `
+        -Command $BackendPython `
+        -Arguments @('-m', 'pip', 'install', '-r', $BackendRequirements) `
+        -WorkingDirectory $BackendDir `
+        -Category 'backend_dependency_install_failed' `
+        -FailureDetail 'Failed to install backend dependencies from backend\requirements.txt.' `
+        -PossibleCauses @(
+            'One or more Python packages could not be downloaded.',
+            'The current Python version does not match the project requirement.',
+            'A proxy or firewall blocked pip.'
+        ) `
+        -Suggestions @(
+            'Check internet access and rerun the launcher.',
+            'Confirm that Python 3.12 is the version being used.',
+            'If your network uses a proxy, configure pip first and rerun.'
+        ) | Out-Null
+
+    Assert-BackendCriticalDependencies -StepName 'Backend environment' | Out-Null
+
+    Add-StepResult -Name 'Backend environment' -Status 'OK' -Detail ("python {0}; venv {1}; pip upgrade executed; pip install executed; requirements {2}; critical dependencies OK" -f $BackendPython, $venvAction, $BackendRequirements)
 }
 
 function Format-DependencyPreview {
@@ -820,28 +919,79 @@ function Ensure-FrontendDependencies {
 }
 
 function Ensure-DatabaseReady {
+    Assert-BackendCriticalDependencies -StepName 'Database migration check' | Out-Null
+
     $previousPythonPath = $env:PYTHONPATH
     $env:PYTHONPATH = $BackendDir
     try {
-        $migrationOutput = Invoke-StepCommand `
-            -StepName 'Database migration check' `
+        $migrationResult = Invoke-CapturedCommand `
             -Command $BackendPython `
             -Arguments @('scripts\migrate_db.py', 'ensure') `
-            -WorkingDirectory $BackendDir `
-            -Category 'database_migration_failed' `
-            -FailureDetail 'Database migration check did not complete successfully.' `
-            -PossibleCauses @(
-                'The database file is locked by another program.',
-                'A migration script failed while applying schema changes.',
-                'The current backend dependencies are incomplete.'
-            ) `
-            -Suggestions @(
-                'Close other backend windows or tools that may lock backend\training.db, then rerun the launcher.',
-                'Check the summary log excerpt for the failing migration.',
-                'If the issue persists, send the summary file to the maintainer for diagnosis.'
-            )
+            -WorkingDirectory $BackendDir
     } finally {
         $env:PYTHONPATH = $previousPythonPath
+    }
+
+    $migrationOutput = @($migrationResult.Output)
+    if ($migrationResult.ExitCode -ne 0) {
+        $logText = $migrationOutput -join [Environment]::NewLine
+        $logExcerpt = ($migrationOutput | Select-Object -Last 25) -join [Environment]::NewLine
+        $commandLine = ('{0} scripts\migrate_db.py ensure' -f $BackendPython)
+
+        if ($logText -match '(?i)ModuleNotFoundError|ImportError') {
+            Fail-Launcher `
+                -StepName 'Database migration check' `
+                -Category 'backend_dependency_missing' `
+                -Detail (Get-BackendDependencyMissingMessage) `
+                -PossibleCauses @(
+                    'The database migration script failed while importing backend dependencies.',
+                    'backend\.venv is missing packages declared by requirements.txt.',
+                    'pip install may not have completed successfully.'
+                ) `
+                -Suggestions @(
+                    'Confirm backend\requirements.txt includes alembic, sqlalchemy, and fastapi.',
+                    'Rerun the launcher after network access is available so dependencies can be installed automatically.',
+                    ('If it still fails, delete backend\.venv and rerun {0}.' -f $RetryLauncherFile)
+                ) `
+                -CommandLine $commandLine `
+                -LogExcerpt $logExcerpt
+        }
+
+        if ($logText -match '(?i)database is locked|\blocked\b') {
+            Fail-Launcher `
+                -StepName 'Database migration check' `
+                -Category 'database_locked' `
+                -Detail 'Database migration could not continue because the SQLite database appears to be locked.' `
+                -PossibleCauses @(
+                    'Another backend window is using backend\training.db.',
+                    'A database browser or editor is holding a write lock.',
+                    'A previous launcher run left a backend process open.'
+                ) `
+                -Suggestions @(
+                    'Close other backend windows and database tools, then rerun the launcher.',
+                    'If a previous backend window is open, close it before retrying.',
+                    ('Run {0} again after the database lock is released.' -f $RetryLauncherFile)
+                ) `
+                -CommandLine $commandLine `
+                -LogExcerpt $logExcerpt
+        }
+
+        Fail-Launcher `
+            -StepName 'Database migration check' `
+            -Category 'database_migration_failed' `
+            -Detail 'Alembic database migration check did not complete successfully.' `
+            -PossibleCauses @(
+                'A migration script failed while applying schema changes.',
+                'The database schema is inconsistent with the current migration history.',
+                'The migration command returned a non-zero exit code.'
+            ) `
+            -Suggestions @(
+                'Check the summary log excerpt for the failing migration.',
+                'Confirm the current database backup exists before attempting manual repair.',
+                'If the issue persists, send the summary file to the maintainer for diagnosis.'
+            ) `
+            -CommandLine $commandLine `
+            -LogExcerpt $logExcerpt
     }
 
     $detail = 'database already ready'
@@ -950,14 +1100,14 @@ function Start-ServiceWindow {
     return $process
 }
 
-function Ensure-ServicesRunning {
+function Ensure-BackendServiceRunning {
     $backendAlreadyRunning = Test-BackendHealthy
     if ($backendAlreadyRunning) {
         $script:BackendState = 'reused_existing_service'
         Write-Host '[INFO] Backend is already healthy on port 8000. Reusing the existing service.'
     } elseif (Test-TcpPort -Port 8000) {
         Fail-Launcher `
-            -StepName 'Start services' `
+            -StepName 'Start backend' `
             -Category 'backend_port_conflict' `
             -Detail 'Port 8000 is already in use, but the expected backend health endpoint is not responding.' `
             -PossibleCauses @(
@@ -985,7 +1135,7 @@ function Ensure-ServicesRunning {
             }
 
             Fail-Launcher `
-                -StepName 'Start services' `
+                -StepName 'Start backend' `
                 -Category $category `
                 -Detail $detail `
                 -PossibleCauses @(
@@ -1002,7 +1152,9 @@ function Ensure-ServicesRunning {
 
         $script:BackendState = 'started_new_window'
     }
+}
 
+function Ensure-FrontendServiceRunning {
     $frontendInfo = Get-FrontendRuntimeInfo
     if ($frontendInfo) {
         $script:FrontendState = 'reused_existing_service'
@@ -1013,7 +1165,7 @@ function Ensure-ServicesRunning {
 
     if (Test-TcpPort -Port 5173) {
         Fail-Launcher `
-            -StepName 'Start services' `
+            -StepName 'Start frontend' `
             -Category 'frontend_port_conflict' `
             -Detail 'Port 5173 is already in use, but the expected frontend runtime endpoint is not responding.' `
             -PossibleCauses @(
@@ -1042,7 +1194,7 @@ function Ensure-ServicesRunning {
         }
 
         Fail-Launcher `
-            -StepName 'Start services' `
+            -StepName 'Start frontend' `
             -Category $category `
             -Detail $detail `
             -PossibleCauses @(
@@ -1121,11 +1273,14 @@ if ($Mode -eq 'init') {
     Finish-Launcher -Headline 'Initialization finish' -Detail 'Environment, dependencies, and database checks are ready. You can now run start_system.bat.'
 }
 
-Write-Step -Title 'Start or reuse services'
-Ensure-ServicesRunning
-Add-StepResult -Name 'Start services' -Status 'OK' -Detail ("backend {0}; frontend {1}" -f $BackendState, $FrontendState)
+Write-Step -Title 'Start backend'
+Ensure-BackendServiceRunning
+Add-StepResult -Name 'Start backend' -Status 'OK' -Detail ("backend {0}" -f $BackendState)
 
-Write-Step -Title 'Open browser and print access info'
+Write-Step -Title 'Start frontend'
+Ensure-FrontendServiceRunning
+Add-StepResult -Name 'Start frontend' -Status 'OK' -Detail ("frontend {0}; access {1}" -f $FrontendState, $AccessUrl)
+
 if (-not $NoBrowser) {
     Start-Process $AccessUrl | Out-Null
 }

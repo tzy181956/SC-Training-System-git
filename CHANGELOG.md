@@ -48,6 +48,7 @@
 
 ### Changed
 
+- 启动器后端环境准备阶段已改为完整自修复流程：自动创建或复用 `backend/.venv`、升级 pip、按 `backend/requirements.txt` 安装依赖，并在数据库迁移前验证 `alembic.config`、`sqlalchemy`、`fastapi`；依赖缺失会归类为 `backend_dependency_missing`，不再误提示数据库被锁。
 - `auth` store、前端路由和管理端导航已预留 `monitor` 独立模式与 `/monitor` 入口，不再把监控端混入现有管理页或训练页。
 - `/api/monitoring/today` 已注册为监控端第一版只读接口，按日期、队伍和未分队参数聚合运动员、计划分配、训练课、组记录与同步异常。
 - 前一轮为“监控端状态准确性与验收脚本收口”，未新增自动刷新、详情弹层、图表、编辑、删除或补录能力。

@@ -55,9 +55,16 @@
 
 1. 检查 PowerShell
 2. 检查 Python / Node
-3. 检查并准备后端虚拟环境
+3. 检查并准备后端虚拟环境，自动升级 pip 并按 `backend/requirements.txt` 安装后端依赖
 4. 检查并补齐前端声明依赖
 5. 检查数据库并执行迁移
+
+后端依赖准备会固定使用：
+
+- `backend/.venv/Scripts/python.exe`
+- `backend/requirements.txt`
+
+如果 `backend/.venv` 不存在，启动器会自动创建；如果 `requirements.txt` 缺失，会在后端环境准备阶段给出明确错误，不会继续进入数据库迁移。
 
 这里的“前端声明依赖”指 `frontend/package.json` 中声明的直接依赖和 devDependencies。  
 当前启动器不再只探测少数几个包，而是统一校验整份前端依赖声明；只要：
@@ -72,11 +79,13 @@
 用于正常启动，重点做：
 
 1. 检查环境
-2. 检查并补齐前端声明依赖
-3. 检查数据库 / 迁移状态
-4. 启动后端
-5. 启动前端
-6. 生成推荐访问地址
+2. 准备后端虚拟环境并安装依赖
+3. 检查并补齐前端声明依赖
+4. 检查数据库 / 迁移状态
+5. 启动后端
+6. 启动前端
+
+数据库迁移前会先验证 `alembic.config`、`sqlalchemy`、`fastapi` 是否能被后端 Python 正常导入。依赖缺失会归类为 `backend_dependency_missing`，不会再误提示为数据库被锁。
 
 ---
 

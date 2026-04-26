@@ -115,11 +115,14 @@ docs/phase1-launcher-failure-summary.md
 | `npm_missing` | npm 未找到 | Node 安装不完整或 PATH 缺 npm | 重装 Node.js，并确认 npm 可用 |
 | `backend_venv_create_failed` | 后端虚拟环境创建失败 | 项目目录不可写，或被安全软件拦截 | 确认可写、关闭拦截后重试 |
 | `backend_venv_validation_failed` | 后端虚拟环境校验失败 | `.venv` 指向错误 Python 或创建不完整 | 删除 `backend/.venv` 后重建 |
+| `backend_requirements_missing` | 后端依赖清单缺失 | `backend/requirements.txt` 不存在 | 从仓库恢复 `backend/requirements.txt` 后重试 |
 | `backend_pip_upgrade_failed` | 后端 pip 升级失败 | 网络访问 PyPI 失败，或环境损坏 | 先确认网络，再重试 |
 | `backend_dependency_install_failed` | 后端依赖安装失败 | `requirements.txt` 没装完整 | 检查网络与 Python 版本后重试 |
+| `backend_dependency_missing` | 后端关键依赖缺失 | `alembic.config`、`sqlalchemy` 或 `fastapi` 导入失败 | 检查 `backend/requirements.txt` 和网络连接后重试 |
 | `frontend_dependency_install_failed` | 前端依赖安装失败 | `npm install` 失败 | 检查网络 / registry，必要时删 `frontend/node_modules` 后重试 |
 | `frontend_dependency_validation_failed` | 前端依赖校验失败 | 启动器复查 `frontend/package.json` 声明依赖时，发现仍有缺包或依赖树不完整 | 删除 `frontend/node_modules` 后重新运行启动器，并看摘要里的失败命令 |
-| `database_migration_failed` | 数据库迁移失败 | 数据库被占用，或某条迁移执行失败 | 关闭占用 `backend/training.db` 的程序后重试 |
+| `database_locked` | 数据库被锁定 | `backend/training.db` 被后端窗口或数据库工具占用 | 关闭占用 `backend/training.db` 的程序后重试 |
+| `database_migration_failed` | 数据库迁移失败 | Alembic 迁移脚本执行失败 | 查看迁移日志摘录，必要时把摘要发给维护者 |
 | `backend_port_conflict` | 后端端口冲突 | 8000 端口被其他程序占用 | 关闭占用 8000 的程序 |
 | `backend_start_unhealthy` | 后端启动后未就绪 | 后端窗口已打开，但应用初始化报错 | 看后端窗口第一条 traceback |
 | `backend_start_failed` | 后端启动失败 | 后端进程没拉起来到健康状态 | 检查依赖、端口和后端窗口报错 |
@@ -189,15 +192,18 @@ docs/phase1-launcher-failure-summary.md
 
 - `backend_venv_create_failed`
 - `backend_venv_validation_failed`
+- `backend_requirements_missing`
 - `backend_pip_upgrade_failed`
 - `backend_dependency_install_failed`
+- `backend_dependency_missing`
 
 建议动作：
 
 1. 先关闭可能占用项目目录的程序
 2. 如有必要，手动删除：
    - `backend/.venv`
-3. 确认网络正常后重新运行启动器
+3. 确认 `backend/requirements.txt` 存在，并包含 `alembic`、`sqlalchemy`、`fastapi`
+4. 确认网络正常后重新运行启动器
 
 ### 5.5 前端依赖安装失败
 
@@ -235,13 +241,15 @@ docs/phase1-launcher-failure-summary.md
 
 对应错误代码：
 
+- `database_locked`
 - `database_migration_failed`
 
 建议动作：
 
-1. 关闭占用 `backend/training.db` 的程序
-2. 再运行启动器
-3. 若仍失败，把失败摘要和详细日志一起发给 AI 或维护者
+1. 如果错误是 `database_locked`，先关闭占用 `backend/training.db` 的后端窗口或数据库工具
+2. 如果错误是 `database_migration_failed`，优先查看摘要中的迁移日志摘录
+3. 再运行启动器
+4. 若仍失败，把失败摘要和详细日志一起发给 AI 或维护者
 
 ### 5.7 端口冲突
 
