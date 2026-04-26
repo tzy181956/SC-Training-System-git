@@ -1,7 +1,0 @@
-﻿Training Platform launcher success summary
-Time: 2026-04-25 10:45:19
-Mode: start
-Result: Startup finish
-Detail: Browser entry prepared at http://127.0.0.1:5173/
-Access URL: http://127.0.0.1:5173/
-Detailed log: C:\Users\tzy\Documents\GitHub\SC-Training-System-git\logs\startup\last-launcher-detail.log

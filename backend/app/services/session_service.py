@@ -1,5 +1,3 @@
-import hashlib
-import json
 from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session, joinedload
@@ -25,9 +23,16 @@ from app.schemas.training_session import (
 from app.services import athlete_service, backup_service, dangerous_operation_service
 from app.services.assignment_service import get_active_assignment_for_date, get_assignment, list_active_assignments_for_date
 from app.services.progression_service import compute_next_weight
-
-NOT_STARTED_SESSION_STATUS = "not_started"
-FINAL_SESSION_STATUSES = {"completed", "absent", "partial_complete"}
+from app.services.session_state_utils import (
+    FINAL_SESSION_STATUSES,
+    NOT_STARTED_SESSION_STATUS,
+    build_snapshot_signature,
+    resolve_finalized_session_status,
+    resolve_session_item_status,
+    resolve_session_status,
+    serialize_full_sync_payload,
+    serialize_session_snapshot,
+)
 DEFAULT_POST_CLASS_ACTOR = "管理端"
 
 
@@ -638,11 +643,9 @@ def _recompute_item_records(item: TrainingSessionItem) -> None:
             record.user_decision = "accepted" if abs(record.final_weight - expected_weight) < 0.001 else "modified"
 
     if not ordered_records:
-        item.status = "pending"
-    elif len(ordered_records) >= item.prescribed_sets:
-        item.status = "completed"
+        item.status = resolve_session_item_status(0, item.prescribed_sets)
     else:
-        item.status = "in_progress"
+        item.status = resolve_session_item_status(len(ordered_records), item.prescribed_sets)
 
 
 def _recompute_session_status(session: TrainingSession, allow_final_reopen: bool = False) -> None:
@@ -651,15 +654,14 @@ def _recompute_session_status(session: TrainingSession, allow_final_reopen: bool
 
     items = list(session.items)
     is_final_context = allow_final_reopen and (session.status in FINAL_SESSION_STATUSES or session.completed_at is not None)
-    if not items:
-        session.status = "absent" if is_final_context else NOT_STARTED_SESSION_STATUS
-        session.started_at = None
-        session.completed_at = session.completed_at or datetime.now(timezone.utc) if is_final_context else None
-        return
-
-    total_records = sum(len(item.records or []) for item in items)
-    if total_records == 0:
-        session.status = "absent" if is_final_context else NOT_STARTED_SESSION_STATUS
+    next_status = resolve_session_status(
+        has_items=bool(items),
+        total_records=sum(len(item.records or []) for item in items),
+        all_items_completed=bool(items) and all(item.status == "completed" for item in items),
+        is_final_context=is_final_context,
+    )
+    session.status = next_status
+    if next_status in {"absent", NOT_STARTED_SESSION_STATUS}:
         session.started_at = None
         session.completed_at = session.completed_at or datetime.now(timezone.utc) if is_final_context else None
         return
@@ -668,19 +670,16 @@ def _recompute_session_status(session: TrainingSession, allow_final_reopen: bool
         (_ensure_utc_datetime(record.completed_at) for item in items for record in item.records),
         default=datetime.now(timezone.utc),
     )
-    if all(item.status == "completed" for item in items):
-        session.status = "completed"
+    if next_status == "completed":
         session.started_at = session.started_at or first_record_time
         session.completed_at = session.completed_at or datetime.now(timezone.utc)
         return
 
-    if is_final_context:
-        session.status = "partial_complete"
+    if next_status == "partial_complete":
         session.started_at = session.started_at or first_record_time
         session.completed_at = session.completed_at or datetime.now(timezone.utc)
         return
 
-    session.status = "in_progress"
     session.started_at = session.started_at or first_record_time
     session.completed_at = None
 
@@ -700,13 +699,11 @@ def _finalize_session(session: TrainingSession, closure_reason: str) -> None:
     total_records = sum(len(item.records or []) for item in items)
     all_completed = bool(items) and all(item.status == "completed" for item in items)
 
-    if all_completed:
-        session.status = "completed"
-    elif closure_reason == "midnight_cutoff" and total_records == 0:
-        session.status = "absent"
-    else:
-        session.status = "partial_complete"
-
+    session.status = resolve_finalized_session_status(
+        total_records=total_records,
+        all_items_completed=all_completed,
+        closure_reason=closure_reason,
+    )
     session.completed_at = datetime.now(timezone.utc)
 
 
@@ -802,13 +799,13 @@ def _format_session_status_label(status: str) -> str:
 
 
 def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: SessionFullSyncPayload) -> bool:
-    remote_snapshot = _serialize_session_snapshot(session)
-    local_snapshot = _serialize_full_sync_payload(payload)
+    remote_snapshot = serialize_session_snapshot(session)
+    local_snapshot = serialize_full_sync_payload(payload)
     if remote_snapshot == local_snapshot:
         return False
 
     remote_has_data = any(item["records"] for item in remote_snapshot["items"]) or remote_snapshot["status"] in FINAL_SESSION_STATUSES
-    remote_signature = _build_snapshot_signature(remote_snapshot)
+    remote_signature = build_snapshot_signature(remote_snapshot)
     remote_updated_at = session.updated_at
     conflict_type: str | None = None
     summary: str | None = None
@@ -816,14 +813,14 @@ def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: S
     if payload.last_server_signature is None and payload.last_server_updated_at is None and remote_has_data:
         conflict_type = "remote_session_exists_before_local_overwrite"
         summary = (
-            "The backend session already contained training data before this device had a confirmed sync baseline. "
-            "The full-session fallback kept the local draft and replaced the backend snapshot."
+            "当前设备在没有已确认同步基线的情况下发起了整课覆盖补传，但后端训练课已存在训练数据。"
+            "系统已保留本地草稿，并用本地快照覆盖了后端记录。"
         )
     elif payload.last_server_signature is not None and payload.last_server_signature != remote_signature:
         conflict_type = "remote_changed_since_last_sync"
         summary = (
-            "The backend session changed after the last confirmed sync signature baseline. "
-            "The full-session fallback kept the local draft and replaced the backend snapshot."
+            "后端训练课在最近一次确认同步签名之后发生了变化。"
+            "系统已保留本地草稿，并用本地快照覆盖了后端记录。"
         )
     elif (
         payload.last_server_signature is None
@@ -833,8 +830,8 @@ def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: S
     ):
         conflict_type = "remote_changed_since_last_sync"
         summary = (
-            f"The backend session changed after the last confirmed sync at {payload.last_server_updated_at.isoformat()}. "
-            "The full-session fallback kept the local draft and replaced the backend snapshot."
+            f"后端训练课在最近一次确认同步时间 {payload.last_server_updated_at.isoformat()} 之后发生了变化。"
+            "系统已保留本地草稿，并用本地快照覆盖了后端记录。"
         )
 
     if not conflict_type or not summary:
@@ -938,91 +935,8 @@ def _apply_full_sync_session_status(session: TrainingSession, payload: SessionFu
     session.completed_at = payload.completed_at if payload.status in FINAL_SESSION_STATUSES else None
 
 
-def _serialize_session_snapshot(session: TrainingSession) -> dict:
-    return {
-        "athlete_id": session.athlete_id,
-        "assignment_id": session.assignment_id,
-        "template_id": session.template_id,
-        "session_date": session.session_date.isoformat(),
-        "status": session.status,
-        "started_at": session.started_at.isoformat() if session.started_at else None,
-        "completed_at": session.completed_at.isoformat() if session.completed_at else None,
-        "items": [
-            {
-                "template_item_id": item.template_item_id,
-                "exercise_id": item.exercise_id,
-                "sort_order": item.sort_order,
-                "prescribed_sets": item.prescribed_sets,
-                "prescribed_reps": item.prescribed_reps,
-                "target_note": item.target_note,
-                "is_main_lift": item.is_main_lift,
-                "enable_auto_load": item.enable_auto_load,
-                "status": item.status,
-                "initial_load": item.initial_load,
-                "records": [
-                    {
-                        "set_number": record.set_number,
-                        "actual_weight": record.actual_weight,
-                        "actual_reps": record.actual_reps,
-                        "actual_rir": record.actual_rir,
-                        "final_weight": record.final_weight,
-                        "notes": record.notes,
-                        "completed_at": record.completed_at.isoformat(),
-                    }
-                    for record in sorted(item.records, key=lambda current: current.set_number)
-                ],
-            }
-            for item in sorted(session.items, key=lambda current: (current.sort_order, current.template_item_id))
-        ],
-    }
-
-
-def _serialize_full_sync_payload(payload: SessionFullSyncPayload) -> dict:
-    return {
-        "athlete_id": payload.athlete_id,
-        "assignment_id": payload.assignment_id,
-        "template_id": payload.template_id,
-        "session_date": payload.session_date.isoformat(),
-        "status": payload.status,
-        "started_at": payload.started_at.isoformat() if payload.started_at else None,
-        "completed_at": payload.completed_at.isoformat() if payload.completed_at else None,
-        "items": [
-            {
-                "template_item_id": item.template_item_id,
-                "exercise_id": item.exercise_id,
-                "sort_order": item.sort_order,
-                "prescribed_sets": item.prescribed_sets,
-                "prescribed_reps": item.prescribed_reps,
-                "target_note": item.target_note,
-                "is_main_lift": item.is_main_lift,
-                "enable_auto_load": item.enable_auto_load,
-                "status": item.status,
-                "initial_load": item.initial_load,
-                "records": [
-                    {
-                        "set_number": record.set_number,
-                        "actual_weight": record.actual_weight,
-                        "actual_reps": record.actual_reps,
-                        "actual_rir": record.actual_rir,
-                        "final_weight": record.final_weight,
-                        "notes": record.notes,
-                        "completed_at": record.completed_at.isoformat(),
-                    }
-                    for record in sorted(item.records, key=lambda current: current.set_number)
-                ],
-            }
-            for item in sorted(payload.items, key=lambda current: (current.sort_order, current.template_item_id))
-        ],
-    }
-
-
-def _build_snapshot_signature(snapshot: dict) -> str:
-    normalized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
 def _attach_session_signature(session: TrainingSession) -> TrainingSession:
-    session.server_signature = _build_snapshot_signature(_serialize_session_snapshot(session))
+    session.server_signature = build_snapshot_signature(serialize_session_snapshot(session))
     return session
 
 
@@ -1059,7 +973,7 @@ def _get_next_suggestion(item: TrainingSessionItem):
         "suggestion_weight": latest_record.suggestion_weight,
         "decision_hint": latest_record.user_decision,
         "reason_code": "updated_record",
-        "reason_text": latest_record.suggestion_reason or "Continue with the latest training response.",
+        "reason_text": latest_record.suggestion_reason or "按最新一组训练反馈继续下一组。",
         "should_deload": False,
         "should_stop_progression": False,
     }

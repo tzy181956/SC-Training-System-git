@@ -68,7 +68,7 @@ def report_sync_issue(db: Session, payload: TrainingSyncIssueReportPayload) -> d
 def resolve_sync_issue(db: Session, issue_id: int) -> dict:
     issue = db.get(TrainingSyncIssue, issue_id)
     if issue is None:
-        raise HTTPException(status_code=404, detail="Sync issue not found")
+        raise HTTPException(status_code=404, detail="未找到同步异常记录")
 
     issue.issue_status = "resolved"
     issue.resolved_at = datetime.now(timezone.utc)
@@ -81,9 +81,9 @@ def resolve_sync_issue(db: Session, issue_id: int) -> dict:
 def retry_sync_issue(db: Session, issue_id: int) -> tuple[dict, object, bool]:
     issue = db.get(TrainingSyncIssue, issue_id)
     if issue is None:
-        raise HTTPException(status_code=404, detail="Sync issue not found")
+        raise HTTPException(status_code=404, detail="未找到同步异常记录")
     if not issue.sync_payload:
-        raise HTTPException(status_code=400, detail="Sync issue does not contain a retry snapshot")
+        raise HTTPException(status_code=400, detail="同步异常记录中缺少可重试的本地快照")
 
     try:
         payload = SessionFullSyncPayload.model_validate(issue.sync_payload)
@@ -93,7 +93,7 @@ def retry_sync_issue(db: Session, issue_id: int) -> tuple[dict, object, bool]:
         issue.issue_status = "manual_retry_required"
         issue.failure_count = max(issue.failure_count, 0) + 1
         issue.last_error = str(detail or exc)
-        issue.summary = "Manual retry failed. The local draft still needs coach or admin handling."
+        issue.summary = "手动重试失败，本地草稿仍需教练或管理员继续处理。"
         issue.resolved_at = None
         db.commit()
         raise
@@ -102,7 +102,7 @@ def retry_sync_issue(db: Session, issue_id: int) -> tuple[dict, object, bool]:
     issue.issue_status = "resolved"
     issue.resolved_at = datetime.now(timezone.utc)
     issue.last_error = None
-    issue.summary = "Manual retry finished. The backend session has been updated from the latest local draft snapshot."
+    issue.summary = "手动重试已完成，后端训练课已按最新本地草稿更新。"
     db.commit()
     db.refresh(issue)
     return _serialize_issue(db, issue), session, conflict_logged

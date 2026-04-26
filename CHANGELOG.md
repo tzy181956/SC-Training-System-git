@@ -21,6 +21,14 @@
 
 ### Changed
 
+- 本轮“重构结构”分支结构收口不新增业务功能，重点收紧：
+  - 移除 Git 跟踪的临时数据库 `backend/tmp_step8.db` 与运行时启动摘要 `logs/startup/*.txt`，并补齐 `.gitignore` / `logs/startup/.gitkeep`
+  - 训练顶部日期 / 队伍筛选统一抽为 `frontend/src/components/training/TrainingHeaderFilters.vue`，避免 `TrainingModeView` 与 `TrainingSessionView` 继续复制 iPad Safari 适配样式
+  - 训练端顶栏高度、左侧栏宽度、右侧栏宽度、三栏 gap、筛选宽度统一收口到 `frontend/src/components/training/trainingLayout.css`
+  - `frontend/src/stores/training.ts` 将本地 session 状态重算拆到 `utils/trainingSessionState.ts`，草稿与同步队列辅助逻辑拆到 `services/trainingDraftSync.ts`
+  - `backend/app/services/session_service.py` 将 item 状态判断、session 状态判断、session/full-sync snapshot 序列化和冲突签名计算抽到 `session_state_utils.py`
+  - 同步异常摘要、手动补传结果和整课覆盖冲突说明统一改为中文可读文案，避免教练端和管理端继续出现英文处理提示
+
 - 第一阶段协作文档已统一收口为“真实实现口径”：
   - 跨日未收口统一表述为“后端启动时自动跨日收口昨日及更早未结束训练课，训练入口保留兜底收口”，不再把当前实现写成零点定时任务
   - 训练端本地草稿统一表述为“浏览器 `localStorage` 本地优先保底”，明确其主要覆盖同一浏览器 / 同一设备内恢复，不再夸大为跨设备强持久化

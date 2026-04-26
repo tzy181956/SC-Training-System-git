@@ -58,6 +58,8 @@
 - 重量、次数、RIR 等高频交互优先减少输入成本
 - 若已有状态管理逻辑，优先延续当前 store 结构
 - 训练端本地草稿与后台补传优先走“本地优先、后台静默重试”，不要让同步失败打断现场录入
+- 训练顶部日期 / 队伍筛选统一复用 `frontend/src/components/training/TrainingHeaderFilters.vue`，不要在 `TrainingModeView.vue` 和 `TrainingSessionView.vue` 各自复制 pill 结构或 iPad Safari 兼容样式
+- 训练端共享尺寸变量统一收口在 `frontend/src/components/training/trainingLayout.css`，包括顶栏高度、三栏 gap、左侧栏宽度、右侧栏宽度与筛选宽度；后续不要再在两个训练 View 各写一套相似断点
 
 ## 接口规范
 

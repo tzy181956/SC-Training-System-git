@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import TrainingShell from '@/components/layout/TrainingShell.vue'
 import TrainingDraftRestoreModal from '@/components/training/TrainingDraftRestoreModal.vue'
+import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
 import TrainingModeSidebar from '@/components/training/TrainingModeSidebar.vue'
 import TrainingSessionOverview from '@/components/training/TrainingSessionOverview.vue'
 import TrainingSetPanel from '@/components/training/TrainingSetPanel.vue'
@@ -519,12 +520,12 @@ function syncSelectedAthleteForFilter() {
   }
 }
 
-function handleDateInput(event: Event) {
-  trainingStore.sessionDate = (event.target as HTMLInputElement).value
+function handleDateInput(value: string) {
+  trainingStore.sessionDate = value
 }
 
-function handleTeamFilterInput(event: Event) {
-  selectedTeamFilter.value = (event.target as HTMLSelectElement).value
+function handleTeamFilterInput(value: string) {
+  selectedTeamFilter.value = value
 }
 
 function formatSessionDate(value: string) {
@@ -606,44 +607,20 @@ onMounted(hydrate)
     />
 
     <template #header-filters>
-      <div class="header-filter-bar">
-        <div class="compact-field compact-field--date">
-          <span class="compact-label">训练日期</span>
-          <div class="filter-pill-shell">
-            <button class="filter-pill date-filter" type="button" tabindex="-1" aria-hidden="true">
-              <span class="filter-pill-text">{{ displaySessionDate }}</span>
-            </button>
-            <input
-              :value="trainingStore.sessionDate"
-              class="header-filter-control filter-native-control filter-native-date"
-              type="date"
-              aria-label="训练日期"
-              title="训练日期"
-              @input="handleDateInput"
-            />
-          </div>
-        </div>
-        <div class="compact-field compact-field--team">
-          <span class="compact-label">训练队伍</span>
-          <div class="filter-pill-shell">
-            <button class="filter-pill team-filter" type="button" tabindex="-1" aria-hidden="true">
-              <span class="filter-pill-text">{{ selectedTeamLabel }}</span>
-            </button>
-            <select
-              :value="selectedTeamFilter"
-              class="header-filter-control filter-native-control filter-native-team"
-              aria-label="训练队伍筛选"
-              title="训练队伍筛选"
-              @input="handleTeamFilterInput"
-            >
-              <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
-            </select>
-          </div>
-        </div>
-      </div>
+      <TrainingHeaderFilters
+        :session-date="trainingStore.sessionDate"
+        :session-date-label="displaySessionDate"
+        :selected-team-value="selectedTeamFilter"
+        :selected-team-label="selectedTeamLabel"
+        :team-options="teamOptions"
+        team-field-label="训练队伍"
+        team-aria-label="训练队伍筛选"
+        @update:session-date="handleDateInput"
+        @update:team-value="handleTeamFilterInput"
+      />
     </template>
 
-    <div class="training-mode-layout">
+    <div class="training-session-layout training-three-column-layout">
       <TrainingModeSidebar
         class="layout-sidebar"
         :athletes="filteredAthletes"
@@ -654,7 +631,7 @@ onMounted(hydrate)
         @open-plan="openPlan"
       />
 
-      <div class="center-column layout-center">
+      <div class="center-column layout-center training-scroll-column">
         <div class="panel hero">
           <div class="hero-copy">
             <h3 class="hero-athlete-name">{{ currentAthleteName || '未选择队员' }}</h3>
@@ -705,17 +682,9 @@ onMounted(hydrate)
 </template>
 
 <style scoped>
-.training-mode-layout {
-  display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1.15fr) minmax(320px, 360px);
+.training-session-layout {
+  --training-panel-min-width: 280px;
   grid-template-areas: 'sidebar center panel';
-  gap: 18px;
-  height: 100%;
-  min-height: 0;
-}
-
-.training-mode-layout > * {
-  min-width: 0;
 }
 
 .layout-sidebar {
@@ -733,117 +702,10 @@ onMounted(hydrate)
   min-height: 0;
 }
 
-.header-filter-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.compact-field {
-  display: block;
-  flex: 0 0 auto;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.compact-field--date {
-  flex-basis: 160px;
-  width: 160px;
-}
-
-.compact-field--team {
-  flex-basis: 160px;
-  width: 160px;
-}
-
-.filter-pill-shell {
-  position: relative;
-  width: 100%;
-}
-
-.compact-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.header-filter-control {
-  display: inline-block;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.filter-native-control {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  min-height: 100%;
-  margin: 0;
-  border: 0;
-  opacity: 0;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.filter-pill {
-  min-width: 120px;
-  max-width: 180px;
-  width: 100%;
-  height: 34px;
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: white;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  box-sizing: border-box;
-  color: var(--text);
-  pointer-events: none;
-}
-
-.filter-pill-text {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.filter-pill-shell:focus-within .filter-pill {
-  border-color: rgba(15, 118, 110, 0.42);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
-}
-
 .center-column {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
 }
 
 .hero {
@@ -975,35 +837,6 @@ onMounted(hydrate)
 }
 
 @media (min-width: 768px) and (max-width: 1199px) {
-  .training-mode-layout {
-    grid-template-columns: 240px minmax(0, 1fr) 260px;
-    grid-template-areas: 'sidebar center panel';
-    gap: 12px;
-    height: 100%;
-  }
-
-  .header-filter-bar {
-    gap: 8px;
-  }
-
-  .compact-field--date,
-  .compact-field--team {
-    flex-basis: 155px;
-    width: 155px;
-  }
-
-  .filter-pill {
-    min-width: 130px;
-    max-width: 165px;
-    height: 32px;
-    min-height: 32px;
-    padding: 0 10px;
-  }
-
-  .filter-pill-text {
-    font-size: 14px;
-  }
-
   .center-column {
     gap: 12px;
   }
@@ -1033,27 +866,12 @@ onMounted(hydrate)
   }
 }
 
-@media (min-width: 768px) and (max-width: 1050px) {
-  .compact-field--date,
-  .compact-field--team {
-    flex-basis: 150px;
-    width: 150px;
-  }
-
-  .filter-pill {
-    min-width: 125px;
-    max-width: 155px;
-  }
-}
-
 @media (max-width: 767px) {
-  .training-mode-layout {
-    grid-template-columns: 1fr;
+  .training-session-layout {
     grid-template-areas:
       'sidebar'
       'center'
       'panel';
-    height: auto;
   }
 
   .hero {
@@ -1068,42 +886,6 @@ onMounted(hydrate)
 
   .hero-copy {
     align-items: flex-start;
-  }
-
-  .header-filter-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .compact-field {
-    display: grid;
-    gap: 4px;
-  }
-
-  .filter-pill {
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-  }
-
-  .compact-field--date,
-  .compact-field--team {
-    flex-basis: auto;
-    width: 100%;
-  }
-
-  .compact-label {
-    position: static;
-    width: auto;
-    height: auto;
-    padding: 0;
-    margin: 0;
-    overflow: visible;
-    clip: auto;
-    white-space: normal;
-    font-size: 12px;
-    line-height: 1.1;
-    color: var(--text-soft);
   }
 
   .hero-actions {

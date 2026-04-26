@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
 import RuntimeAccessCard from '@/components/layout/RuntimeAccessCard.vue'
 import TrainingViewportDebug from '@/components/layout/TrainingViewportDebug.vue'
+import '@/components/training/trainingLayout.css'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -72,10 +73,10 @@ onMounted(async () => {
   height: 100dvh;
   min-height: 100vh;
   background: linear-gradient(180deg, #f8fafc, #eefbf7);
-  padding: 14px;
+  padding: var(--training-shell-padding);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--training-shell-gap);
   overflow: hidden;
 }
 
@@ -87,10 +88,10 @@ onMounted(async () => {
   align-items: center;
   column-gap: 12px;
   min-width: 0;
-  min-height: 64px;
-  height: 64px;
+  min-height: var(--training-topbar-height);
+  height: var(--training-topbar-height);
   padding: 8px 12px;
-  border-radius: 20px;
+  border-radius: var(--training-topbar-radius);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--shadow);
   overflow: visible;
@@ -190,18 +191,10 @@ onMounted(async () => {
 }
 
 @media (min-width: 768px) and (max-width: 1199px) {
-  .training-shell {
-    padding: 12px;
-    gap: 10px;
-  }
-
   .training-topbar {
     grid-template-columns: auto minmax(320px, 1fr) auto;
-    min-height: 56px;
-    height: 56px;
     column-gap: 10px;
     padding: 8px 10px;
-    border-radius: 18px;
   }
 
   .header-copy h1 {
