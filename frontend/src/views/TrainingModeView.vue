@@ -6,6 +6,7 @@ import TrainingShell from '@/components/layout/TrainingShell.vue'
 import TrainingDraftRestoreModal from '@/components/training/TrainingDraftRestoreModal.vue'
 import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
 import TrainingModeSidebar from '@/components/training/TrainingModeSidebar.vue'
+import { useTeamFilter } from '@/composables/useTeamFilter'
 import TrainingSessionOverview from '@/components/training/TrainingSessionOverview.vue'
 import { useTrainingStore } from '@/stores/training'
 import { todayString } from '@/utils/date'
@@ -15,9 +16,12 @@ const trainingStore = useTrainingStore()
 const loading = ref(false)
 const restoreDraft = ref<any | null>(null)
 const restoreBusy = ref(false)
-const ALL_TEAMS_VALUE = '__all__'
-const UNASSIGNED_TEAM_VALUE = '__unassigned__'
-const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
+const selectedAthleteIdRef = computed({
+  get: () => trainingStore.selectedAthleteId,
+  set: (value: number) => {
+    trainingStore.selectedAthleteId = value
+  },
+})
 
 const selectedPreview = computed(
   () => trainingStore.assignments.find((assignment) => assignment.id === trainingStore.previewAssignmentId) || null,
@@ -27,45 +31,16 @@ const selectedAthlete = computed(
 )
 const selectedAthleteName = computed(() => selectedAthlete.value?.full_name || '')
 const displaySessionDate = computed(() => formatSessionDate(trainingStore.sessionDate))
-
-const teamOptions = computed(() => {
-  const teams = trainingStore.athletes
-    .filter((athlete) => athlete.team?.id)
-    .map((athlete) => ({
-      id: String(athlete.team.id),
-      name: athlete.team.name,
-    }))
-
-  const uniqueTeams = teams.filter((team, index, source) => source.findIndex((current) => current.id === team.id) === index)
-  const hasUnassignedAthletes = trainingStore.athletes.some((athlete) => !athlete.team?.id)
-  const options = [...uniqueTeams]
-
-  if (hasUnassignedAthletes) {
-    options.push({ id: UNASSIGNED_TEAM_VALUE, name: '未分队' })
-  }
-
-  if (options.length <= 1) {
-    return options
-  }
-
-  return [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }, ...options]
-})
-
-const selectedTeamLabel = computed(() => {
-  const matched = teamOptions.value.find((team) => team.id === selectedTeamFilter.value)
-  return matched?.name || '队伍'
-})
-
-const filteredAthletes = computed(() => {
-  if (selectedTeamFilter.value === ALL_TEAMS_VALUE) {
-    return trainingStore.athletes
-  }
-
-  if (selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE) {
-    return trainingStore.athletes.filter((athlete) => !athlete.team?.id)
-  }
-
-  return trainingStore.athletes.filter((athlete) => String(athlete.team?.id || '') === selectedTeamFilter.value)
+const {
+  selectedTeamFilter,
+  teamOptions,
+  selectedTeamLabel,
+  filteredAthletes,
+  syncTeamFilter,
+  syncSelectedAthleteForFilter,
+} = useTeamFilter({
+  athletes: () => trainingStore.athletes,
+  selectedAthleteId: selectedAthleteIdRef,
 })
 
 async function hydrate() {
@@ -164,34 +139,6 @@ function discardDraftRestore() {
   maybePromptDraftRestore()
 }
 
-function syncTeamFilter() {
-  const options = teamOptions.value
-  if (!options.length) {
-    selectedTeamFilter.value = ALL_TEAMS_VALUE
-    return
-  }
-
-  const currentExists = options.some((option) => option.id === selectedTeamFilter.value)
-  if (currentExists) return
-
-  selectedTeamFilter.value = options.length === 1 ? options[0].id : ALL_TEAMS_VALUE
-}
-
-function syncSelectedAthleteForFilter() {
-  const visibleAthletes = filteredAthletes.value
-  if (!visibleAthletes.length) {
-    trainingStore.selectedAthleteId = 0
-    trainingStore.assignments = []
-    trainingStore.previewAssignmentId = 0
-    return
-  }
-
-  const selectedStillVisible = visibleAthletes.some((athlete) => athlete.id === trainingStore.selectedAthleteId)
-  if (!selectedStillVisible) {
-    trainingStore.selectedAthleteId = visibleAthletes[0].id
-  }
-}
-
 function handleDateInput(value: string) {
   trainingStore.sessionDate = value
 }
@@ -227,7 +174,11 @@ watch(
   () => trainingStore.athletes,
   () => {
     syncTeamFilter()
-    syncSelectedAthleteForFilter()
+    syncSelectedAthleteForFilter(() => {
+      trainingStore.selectedAthleteId = 0
+      trainingStore.assignments = []
+      trainingStore.previewAssignmentId = 0
+    })
   },
   { immediate: true, deep: true },
 )
@@ -235,7 +186,11 @@ watch(
 watch(
   () => selectedTeamFilter.value,
   () => {
-    syncSelectedAthleteForFilter()
+    syncSelectedAthleteForFilter(() => {
+      trainingStore.selectedAthleteId = 0
+      trainingStore.assignments = []
+      trainingStore.previewAssignmentId = 0
+    })
   },
 )
 

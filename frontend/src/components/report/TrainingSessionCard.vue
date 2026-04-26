@@ -6,6 +6,7 @@ import {
   coachDeleteTrainingReportSetRecord,
   coachUpdateTrainingReportSetRecord,
 } from '@/api/trainingReports'
+import { getTrainingStatusLabel, getTrainingStatusTone } from '@/constants/trainingStatus'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
 
 const props = defineProps<{ session: any; onlyIncomplete?: boolean; onlyMainLift?: boolean }>()
@@ -154,6 +155,14 @@ function formatDateTime(value?: string | null) {
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString('zh-CN', { hour12: false })
 }
+
+function sessionStatusLabel(status?: string) {
+  return getTrainingStatusLabel(status)
+}
+
+function sessionStatusTone(status?: string) {
+  return getTrainingStatusTone(status)
+}
 </script>
 
 <template>
@@ -164,7 +173,7 @@ function formatDateTime(value?: string | null) {
         <h4 class="adaptive-card-title">{{ session.template_name }}</h4>
       </div>
       <div class="session-meta">
-        <span class="status-chip">{{ session.status }}</span>
+        <span class="status-chip" :class="sessionStatusTone(session.status)">{{ sessionStatusLabel(session.status) }}</span>
         <span>{{ session.completed_items }}/{{ session.total_items }} 个动作</span>
         <span>{{ session.completed_sets }}/{{ session.total_sets }} 组</span>
       </div>
@@ -338,7 +347,12 @@ function formatDateTime(value?: string | null) {
 .session-head h4,.item-head h5{margin:4px 0 0}
 .session-meta{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;color:var(--text-soft);font-size:14px}
 .status-chip,.item-badge,.decision-pill{padding:6px 10px;border-radius:999px;font-size:13px}
-.status-chip{background:rgba(15,118,110,.14);color:#0f766e}
+.status-chip.success{background:#dcfce7;color:#166534}
+.status-chip.progress{background:#dbeafe;color:#1d4ed8}
+.status-chip.partial{background:#ffedd5;color:#c2410c}
+.status-chip.neutral{background:#e5e7eb;color:#374151}
+.status-chip.danger{background:#fee2e2;color:#b91c1c}
+.status-chip.warning{background:#fef3c7;color:#92400e}
 .item-badge{background:var(--panel-soft);color:var(--text);flex-shrink:0}
 .item-badge.main{background:rgba(251,191,36,.18);color:#92400e}
 .decision-pill.accepted{background:rgba(34,197,94,.16);color:#166534}

@@ -10,6 +10,7 @@ const authStore = useAuthStore()
 
 const links = [
   { name: 'dashboard', label: '总览' },
+  { name: 'monitor-dashboard', label: '监控端' },
   { name: 'athletes', label: '运动员' },
   { name: 'exercises', label: '动作库' },
   { name: 'plans', label: '训练模板' },

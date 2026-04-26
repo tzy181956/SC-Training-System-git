@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { getTrainingStatusLabel, getTrainingStatusTone } from '@/constants/trainingStatus'
+
 defineProps<{
   athletes: any[]
   selectedAthleteId: number
@@ -11,18 +13,12 @@ const emit = defineEmits<{
   openPlan: [assignmentId: number]
 }>()
 
-function getTrainingDisplayStatus(status?: string) {
-  return status || 'no_plan'
+function statusLabel(status?: string) {
+  return getTrainingStatusLabel(status)
 }
 
-function statusLabel(status?: string) {
-  const displayStatus = getTrainingDisplayStatus(status)
-  if (displayStatus === 'completed') return '已完成'
-  if (displayStatus === 'partial_complete') return '已完成'
-  if (displayStatus === 'in_progress') return '进行中'
-  if (displayStatus === 'absent') return '缺席'
-  if (displayStatus === 'not_started') return '未开始'
-  return '无计划'
+function statusTone(status?: string) {
+  return getTrainingStatusTone(status)
 }
 
 function openAthletePlan(athleteId: number, assignmentId: number) {
@@ -55,7 +51,7 @@ function handleAthleteClick(athlete: any) {
           <button class="athlete-main" type="button" @click="handleAthleteClick(athlete)">
             <div class="athlete-header">
               <strong class="adaptive-card-title athlete-name">{{ athlete.full_name }}</strong>
-              <span class="status-pill" :class="getTrainingDisplayStatus(athlete.training_status)">
+              <span class="status-pill" :class="statusTone(athlete.training_status)">
                 {{ statusLabel(athlete.training_status) }}
               </span>
             </div>
@@ -68,7 +64,7 @@ function handleAthleteClick(athlete: any) {
                 v-for="assignment in athlete.assignments"
                 :key="assignment.id"
                 class="inline-plan adaptive-card"
-                :class="[getTrainingDisplayStatus(assignment.training_status), { active: assignment.id === previewAssignmentId }]"
+                :class="[statusTone(assignment.training_status), { active: assignment.id === previewAssignmentId }]"
                 type="button"
                 @click="openAthletePlan(athlete.id, assignment.id)"
               >
@@ -170,34 +166,34 @@ function handleAthleteClick(athlete: any) {
   font-weight: 700;
 }
 
-.status-pill.completed {
+.status-pill.success {
   background: #dcfce7;
   color: #166534;
 }
 
-.status-pill.in_progress {
-  background: #fef3c7;
-  color: #92400e;
+.status-pill.progress {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
-.status-pill.partial_complete {
-  background: #ecf7cf;
-  color: #4d7c0f;
+.status-pill.partial {
+  background: #ffedd5;
+  color: #c2410c;
 }
 
-.status-pill.absent {
+.status-pill.neutral {
   background: #e5e7eb;
   color: #374151;
 }
 
-.status-pill.not_started {
+.status-pill.danger {
   background: #fee2e2;
   color: #b91c1c;
 }
 
-.status-pill.no_plan {
-  background: #e5e7eb;
-  color: #4b5563;
+.status-pill.warning {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .plans-wrap,
@@ -261,24 +257,28 @@ function handleAthleteClick(athlete: any) {
   background: #9ca3af;
 }
 
-.inline-plan.completed .plan-dot {
+.inline-plan.success .plan-dot {
   background: #22c55e;
 }
 
-.inline-plan.in_progress .plan-dot {
-  background: #f59e0b;
+.inline-plan.progress .plan-dot {
+  background: #3b82f6;
 }
 
-.inline-plan.partial_complete .plan-dot {
-  background: #84cc16;
+.inline-plan.partial .plan-dot {
+  background: #f97316;
 }
 
-.inline-plan.absent .plan-dot {
+.inline-plan.neutral .plan-dot {
   background: #6b7280;
 }
 
-.inline-plan.not_started .plan-dot {
+.inline-plan.danger .plan-dot {
   background: #ef4444;
+}
+
+.inline-plan.warning .plan-dot {
+  background: #f59e0b;
 }
 
 .empty-plan-hint {

@@ -4,6 +4,15 @@
 
 ### Added
 
+- 新增监控端第一轮结构预留：
+  - `frontend/src/views/MonitorDashboardView.vue`
+  - `frontend/src/components/layout/MonitorShell.vue`
+  - `frontend/src/types/monitoring.ts`
+  - `docs/monitoring-dashboard-design.md`
+- 新增训练端与监控端共用的公共基础：
+  - `frontend/src/composables/useTeamFilter.ts`
+  - `frontend/src/constants/trainingStatus.ts`
+
 - 新增训练模式主链路、计划分配概览、批量分配预览与基础训练录入能力。
 - 新增动作库结构化分类、标签筛选、维护入口与配套导入链路。
 - 新增训练模式顶部局域网访问入口卡片，支持复制地址和二维码。
@@ -20,6 +29,10 @@
   - `docs/phase1-local-draft-and-session.md`
 
 ### Changed
+
+- `auth` store、前端路由和管理端导航已预留 `monitor` 独立模式与 `/monitor` 入口，不再把监控端混入现有管理页或训练页。
+- `TrainingModeView` 与 `TrainingSessionView` 已复用 `useTeamFilter`，统一队伍筛选、筛选后队员列表和选中队员同步逻辑。
+- `TrainingModeSidebar`、`TrainingSessionView`、`TrainingReportsView` 与 `TrainingSessionCard` 已开始复用集中训练状态文案和 tone，为后续监控端接口与看板共用状态显示打底。
 
 - 本轮“重构结构”分支结构收口不新增业务功能，重点收紧：
   - 移除 Git 跟踪的临时数据库 `backend/tmp_step8.db` 与运行时启动摘要 `logs/startup/*.txt`，并补齐 `.gitignore` / `logs/startup/.gitkeep`

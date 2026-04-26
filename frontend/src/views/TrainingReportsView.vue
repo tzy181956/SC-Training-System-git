@@ -8,6 +8,7 @@ import { fetchTrainingReport } from '@/api/trainingReports'
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import TrainingSessionCard from '@/components/report/TrainingSessionCard.vue'
+import { getTrainingStatusLabel } from '@/constants/trainingStatus'
 import { todayString } from '@/utils/date'
 
 const athletes = ref<any[]>([])
@@ -20,6 +21,7 @@ const mainLiftChartRef = ref<HTMLDivElement | null>(null)
 const completionChartRef = ref<HTMLDivElement | null>(null)
 let mainLiftChart: echarts.ECharts | null = null
 let completionChart: echarts.ECharts | null = null
+const completedStatusLabel = getTrainingStatusLabel('completed')
 
 const filters = reactive({
   athleteId: 0,
@@ -179,7 +181,7 @@ function getDateBefore(days: number) {
         <template v-if="report">
           <div class="summary-grid">
             <StatCard label="训练课次" :value="report.summary.total_sessions" hint="当前时间范围内的训练课次数" />
-            <StatCard label="已完成课次" :value="report.summary.completed_sessions" hint="状态为已完成的训练课次" />
+            <StatCard label="已完成课次" :value="report.summary.completed_sessions" :hint="`状态为${completedStatusLabel}的训练课次`" />
             <StatCard
               label="已完成组数"
               :value="`${report.summary.completed_sets}/${report.summary.total_sets}`"

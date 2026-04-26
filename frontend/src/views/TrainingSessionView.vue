@@ -8,6 +8,8 @@ import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.v
 import TrainingModeSidebar from '@/components/training/TrainingModeSidebar.vue'
 import TrainingSessionOverview from '@/components/training/TrainingSessionOverview.vue'
 import TrainingSetPanel from '@/components/training/TrainingSetPanel.vue'
+import { getTrainingStatusLabel, getTrainingStatusTone, isFinalTrainingStatus } from '@/constants/trainingStatus'
+import { useTeamFilter } from '@/composables/useTeamFilter'
 import { useTrainingStore } from '@/stores/training'
 import { todayString } from '@/utils/date'
 
@@ -23,10 +25,13 @@ const sessionNoticeTone = ref<'success' | 'warning' | 'error'>('success')
 const restorePromptDraft = ref<any | null>(null)
 const restorePromptResolver = ref<((accepted: boolean) => void) | null>(null)
 const restoreToActionList = ref(false)
-const ALL_TEAMS_VALUE = '__all__'
-const UNASSIGNED_TEAM_VALUE = '__unassigned__'
-const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
 let noticeTimer: number | null = null
+const selectedAthleteIdRef = computed({
+  get: () => trainingStore.selectedAthleteId,
+  set: (value: number) => {
+    trainingStore.selectedAthleteId = value
+  },
+})
 
 const activeItem = computed(
   () =>
@@ -34,14 +39,8 @@ const activeItem = computed(
       ? null
       : trainingStore.session?.items?.find((item: any) => item.id === activeItemId.value) || trainingStore.session?.items?.[0] || null,
 )
-const sessionStatusText = computed(() => {
-  const status = trainingStore.session?.status
-  if (status === 'completed') return '已完成'
-  if (status === 'partial_complete') return '未完全完成'
-  if (status === 'absent') return '缺席'
-  if (status === 'in_progress') return '进行中'
-  return '未开始'
-})
+const sessionStatusText = computed(() => getTrainingStatusLabel(trainingStore.session?.status))
+const sessionStatusTone = computed(() => getTrainingStatusTone(trainingStore.session?.status))
 const syncIndicatorLabel = computed(() => (trainingStore.syncStatus === 'synced' ? '正常' : '有未同步数据'))
 const syncIndicatorTone = computed(() => (trainingStore.syncStatus === 'synced' ? 'success' : 'warning'))
 const manualRetryHint = computed(() =>
@@ -56,7 +55,7 @@ const canEndSession = computed(() => {
   if (!trainingStore.session) return false
   const hasRecordedSets = (trainingStore.session.items || []).some((item: any) => (item.records?.length || 0) > 0)
   if (!trainingStore.session.id && !hasRecordedSets) return false
-  return !closingSession.value && !['completed', 'absent', 'partial_complete'].includes(trainingStore.session.status)
+  return !closingSession.value && !isFinalTrainingStatus(trainingStore.session.status)
 })
 const selectedAssignment = computed(
   () => trainingStore.assignments.find((item) => item.id === trainingStore.previewAssignmentId) || null,
@@ -66,42 +65,16 @@ const currentAthleteName = computed(() => {
   const athleteId = trainingStore.session?.athlete_id || trainingStore.selectedAthleteId
   return trainingStore.athletes.find((athlete) => athlete.id === athleteId)?.full_name || ''
 })
-const teamOptions = computed(() => {
-  const teams = trainingStore.athletes
-    .filter((athlete) => athlete.team?.id)
-    .map((athlete) => ({
-      id: String(athlete.team.id),
-      name: athlete.team.name,
-    }))
-
-  const uniqueTeams = teams.filter((team, index, source) => source.findIndex((current) => current.id === team.id) === index)
-  const hasUnassignedAthletes = trainingStore.athletes.some((athlete) => !athlete.team?.id)
-  const options = [...uniqueTeams]
-
-  if (hasUnassignedAthletes) {
-    options.push({ id: UNASSIGNED_TEAM_VALUE, name: '未分队' })
-  }
-
-  if (options.length <= 1) {
-    return options
-  }
-
-  return [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }, ...options]
-})
-const selectedTeamLabel = computed(() => {
-  const matched = teamOptions.value.find((team) => team.id === selectedTeamFilter.value)
-  return matched?.name || '队伍'
-})
-const filteredAthletes = computed(() => {
-  if (selectedTeamFilter.value === ALL_TEAMS_VALUE) {
-    return trainingStore.athletes
-  }
-
-  if (selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE) {
-    return trainingStore.athletes.filter((athlete) => !athlete.team?.id)
-  }
-
-  return trainingStore.athletes.filter((athlete) => String(athlete.team?.id || '') === selectedTeamFilter.value)
+const {
+  selectedTeamFilter,
+  teamOptions,
+  selectedTeamLabel,
+  filteredAthletes,
+  syncTeamFilter,
+  syncSelectedAthleteForFilter,
+} = useTeamFilter({
+  athletes: () => trainingStore.athletes,
+  selectedAthleteId: selectedAthleteIdRef,
 })
 
 function findNextPendingItemId(currentItemId?: number | null) {
@@ -497,29 +470,6 @@ function selectActiveItem(itemId: number) {
   activeItemId.value = itemId
 }
 
-function syncTeamFilter() {
-  const options = teamOptions.value
-  if (!options.length) {
-    selectedTeamFilter.value = ALL_TEAMS_VALUE
-    return
-  }
-
-  const currentExists = options.some((option) => option.id === selectedTeamFilter.value)
-  if (currentExists) return
-
-  selectedTeamFilter.value = options.length === 1 ? options[0].id : ALL_TEAMS_VALUE
-}
-
-function syncSelectedAthleteForFilter() {
-  const visibleAthletes = filteredAthletes.value
-  if (!visibleAthletes.length) return
-
-  const selectedStillVisible = visibleAthletes.some((athlete) => athlete.id === trainingStore.selectedAthleteId)
-  if (!selectedStillVisible) {
-    trainingStore.selectedAthleteId = visibleAthletes[0].id
-  }
-}
-
 function handleDateInput(value: string) {
   trainingStore.sessionDate = value
 }
@@ -635,7 +585,9 @@ onMounted(hydrate)
         <div class="panel hero">
           <div class="hero-copy">
             <h3 class="hero-athlete-name">{{ currentAthleteName || '未选择队员' }}</h3>
-            <span class="hero-status-pill">{{ trainingStore.session ? sessionStatusText : '待开始' }}</span>
+            <span class="hero-status-pill" :class="trainingStore.session ? sessionStatusTone : 'neutral'">
+              {{ trainingStore.session ? sessionStatusText : '待开始' }}
+            </span>
             <div v-if="trainingStore.session" class="sync-indicator" :class="syncIndicatorTone">
               <span class="sync-indicator-dot"></span>
               <span>同步{{ syncIndicatorLabel }}</span>
@@ -740,12 +692,35 @@ onMounted(hydrate)
   min-height: 34px;
   padding: 0 12px;
   border-radius: 999px;
-  background: var(--panel-soft);
-  color: var(--text);
   font-size: 0.9rem;
   line-height: 1.1;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.hero-status-pill.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.hero-status-pill.progress {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.hero-status-pill.partial {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.hero-status-pill.neutral {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.hero-status-pill.danger {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .hero-inline-hint {

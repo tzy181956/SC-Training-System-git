@@ -1,28 +1,42 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-type ModeType = 'training' | 'management'
+export type AppMode = 'training' | 'management' | 'monitor'
 
 const MODE_STORAGE_KEY = 'training-platform-mode'
 
-function resolveInitialMode(): ModeType {
+export function resolveRouteForMode(mode: AppMode) {
+  if (mode === 'training') return { name: 'training-mode' as const }
+  if (mode === 'monitor') return { name: 'monitor-dashboard' as const }
+  return { name: 'dashboard' as const }
+}
+
+function resolveInitialMode(): AppMode {
   const savedMode = localStorage.getItem(MODE_STORAGE_KEY)
-  return savedMode === 'management' ? 'management' : 'training'
+  if (savedMode === 'management' || savedMode === 'monitor') {
+    return savedMode
+  }
+  return 'training'
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const currentMode = ref<ModeType>(resolveInitialMode())
+  const currentMode = ref<AppMode>(resolveInitialMode())
 
   const isTrainingMode = computed(() => currentMode.value === 'training')
   const isManagementMode = computed(() => currentMode.value === 'management')
-  const homeRoute = computed(() => (isTrainingMode.value ? { name: 'training-mode' } : { name: 'dashboard' }))
+  const isMonitorMode = computed(() => currentMode.value === 'monitor')
+  const homeRoute = computed(() => resolveRouteForMode(currentMode.value))
 
-  function setMode(mode: ModeType) {
+  function setMode(mode: AppMode) {
     currentMode.value = mode
     localStorage.setItem(MODE_STORAGE_KEY, mode)
   }
 
   function toggleMode() {
+    if (currentMode.value === 'monitor') {
+      setMode('training')
+      return
+    }
     setMode(isTrainingMode.value ? 'management' : 'training')
   }
 
@@ -30,6 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
     currentMode,
     isTrainingMode,
     isManagementMode,
+    isMonitorMode,
     homeRoute,
     setMode,
     toggleMode,
