@@ -165,6 +165,12 @@
 - `has_alert`
 - `updated_at`
 
+接口类型约束：
+
+- `session_status` 在后端 schema 中收紧为 `no_plan / not_started / in_progress / completed / partial_complete / absent`
+- `sync_status` 在后端 schema 中收紧为 `synced / pending / manual_retry_required`
+- API 返回字段结构保持不变，类型约束用于防止监控端状态字符串继续发散
+
 ## 6. 第一版明确不做
 
 - 不做训练记录编辑
@@ -194,10 +200,12 @@
 
 刷新策略：
 
-- 当前只启用手动刷新
-- 页面已预留 `autoRefreshEnabled` 和 `refreshIntervalMs`
-- `refreshIntervalMs` 当前默认保守设为 30000ms，第一版不接入自动刷新
-- 自动刷新后续再接入，第一版不默认开启
+- 当前默认仍是手动刷新
+- 页面提供“开启自动刷新 / 关闭自动刷新”按钮
+- 自动刷新默认间隔为 30000ms
+- 页面隐藏时暂停自动刷新，页面重新可见后恢复
+- 自动刷新失败不弹窗，只在顶部状态显示“最近刷新失败，数据可能不是最新”
+- 组件卸载时清理 timer，避免长期停留或切换页面后继续请求
 
 ## 8. 当前排序与跳转规则
 
@@ -243,3 +251,8 @@
 - `completed_items / total_items`
 - `latest_set`
 - `MonitoringTodayRead` schema 结构
+
+统一验收：
+
+- `scripts/phase1_acceptance_check.ps1` 已纳入 `Monitoring status aggregation smoke check`
+- 该步骤失败时，第一阶段整体验收失败

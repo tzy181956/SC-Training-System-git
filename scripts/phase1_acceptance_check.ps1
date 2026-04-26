@@ -85,7 +85,8 @@ if (-not $launcherOk) {
     Add-Result -Id "C03" -Name "Backend compileall" -Status "SKIPPED" -Detail "launcher init failed"
     Add-Result -Id "C04" -Name "Database migration ensure" -Status "SKIPPED" -Detail "launcher init failed"
     Add-Result -Id "C05" -Name "Backend phase1 smoke" -Status "SKIPPED" -Detail "launcher init failed"
-    Add-Result -Id "C06" -Name "Frontend production build" -Status "SKIPPED" -Detail "launcher init failed"
+    Add-Result -Id "C06" -Name "Monitoring status aggregation smoke check" -Status "SKIPPED" -Detail "launcher init failed"
+    Add-Result -Id "C07" -Name "Frontend production build" -Status "SKIPPED" -Detail "launcher init failed"
 } else {
     Invoke-Check -Id "C02" -Name "Text encoding check" -Action {
         Invoke-Native -FilePath $BackendPython -ArgumentList @((Join-Path $ScriptDir "check_text_encoding.py")) -WorkingDirectory $RootDir
@@ -103,7 +104,11 @@ if (-not $launcherOk) {
         Invoke-Native -FilePath $BackendPython -ArgumentList @("scripts\phase1_backend_smoke_check.py") -WorkingDirectory $BackendDir
     } | Out-Null
 
-    Invoke-Check -Id "C06" -Name "Frontend production build" -Action {
+    Invoke-Check -Id "C06" -Name "Monitoring status aggregation smoke check" -Action {
+        Invoke-Native -FilePath $BackendPython -ArgumentList @("scripts\monitoring_smoke_check.py") -WorkingDirectory $BackendDir
+    } | Out-Null
+
+    Invoke-Check -Id "C07" -Name "Frontend production build" -Action {
         Invoke-Native -FilePath "npm.cmd" -ArgumentList @("run", "build") -WorkingDirectory $FrontendDir
     } | Out-Null
 }

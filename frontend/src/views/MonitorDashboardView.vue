@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { fetchMonitoringToday } from '@/api/monitoring'
@@ -23,6 +23,15 @@ const monitorNotice = ref('')
 const lastRefreshAt = ref<string | null>(null)
 const autoRefreshEnabled = ref(false)
 const refreshIntervalMs = ref(30000)
+const backgroundRefreshing = ref(false)
+const pageVisible = ref(true)
+
+let refreshTimerId: number | null = null
+let activeRequestId = 0
+
+type LoadMonitoringOptions = {
+  background?: boolean
+}
 
 const monitorTeamOptions = computed(() => (
   [
@@ -54,34 +63,97 @@ const refreshHint = computed(() => {
   return `${lastRefreshAt.value} 刷新`
 })
 const refreshModeLabel = computed(() =>
-  autoRefreshEnabled.value ? `自动刷新 ${Math.round(refreshIntervalMs.value / 1000)} 秒` : '手动刷新',
+  autoRefreshEnabled.value
+    ? pageVisible.value
+      ? `自动刷新 ${Math.round(refreshIntervalMs.value / 1000)} 秒`
+      : '自动刷新已暂停'
+    : '手动刷新',
 )
 
 async function handleDateInput(value: string) {
   monitorDate.value = value
   await loadMonitoringData()
+  restartAutoRefreshTimer()
 }
 
 async function handleTeamFilterInput(value: string) {
   selectedTeamFilter.value = value
   await loadMonitoringData()
+  restartAutoRefreshTimer()
 }
 
-async function loadMonitoringData() {
-  loading.value = true
-  loadError.value = ''
-  monitorNotice.value = ''
+async function handleManualRefresh() {
+  await loadMonitoringData()
+  restartAutoRefreshTimer()
+}
+
+async function loadMonitoringData(options: LoadMonitoringOptions = {}) {
+  const isBackground = options.background === true
+  if (isBackground && (loading.value || backgroundRefreshing.value)) return
+
+  const requestId = activeRequestId + 1
+  activeRequestId = requestId
+  if (isBackground) {
+    backgroundRefreshing.value = true
+  } else {
+    loading.value = true
+    monitorNotice.value = ''
+  }
+
   try {
-    monitoringData.value = await fetchMonitoringToday({
+    const nextData = await fetchMonitoringToday({
       session_date: monitorDate.value,
       team_id: resolveSelectedTeamId(),
       include_unassigned: selectedTeamFilter.value !== ALL_TEAMS_VALUE ? selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE : true,
     })
+    if (requestId !== activeRequestId) return
+
+    monitoringData.value = nextData
+    loadError.value = ''
     lastRefreshAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   } catch {
-    loadError.value = '监控数据加载失败，请稍后手动刷新。'
+    if (requestId === activeRequestId) {
+      loadError.value = '最近刷新失败，数据可能不是最新。'
+    }
   } finally {
-    loading.value = false
+    if (isBackground) {
+      backgroundRefreshing.value = false
+    } else {
+      loading.value = false
+    }
+  }
+}
+
+function toggleAutoRefresh() {
+  autoRefreshEnabled.value = !autoRefreshEnabled.value
+  restartAutoRefreshTimer()
+}
+
+function restartAutoRefreshTimer() {
+  stopAutoRefreshTimer()
+  if (!autoRefreshEnabled.value || !pageVisible.value) return
+
+  refreshTimerId = window.setInterval(() => {
+    void loadMonitoringData({ background: true })
+  }, refreshIntervalMs.value)
+}
+
+function stopAutoRefreshTimer() {
+  if (refreshTimerId === null) return
+  window.clearInterval(refreshTimerId)
+  refreshTimerId = null
+}
+
+function handleVisibilityChange() {
+  pageVisible.value = !document.hidden
+  if (!pageVisible.value) {
+    stopAutoRefreshTimer()
+    return
+  }
+
+  restartAutoRefreshTimer()
+  if (autoRefreshEnabled.value) {
+    void loadMonitoringData({ background: true })
   }
 }
 
@@ -140,7 +212,16 @@ function formatMonitorDate(value: string) {
   return `${year}年${monthNumber}月${dayNumber}日`
 }
 
-onMounted(loadMonitoringData)
+onMounted(() => {
+  pageVisible.value = !document.hidden
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  void loadMonitoringData()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefreshTimer()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 </script>
 
 <template>
@@ -160,7 +241,10 @@ onMounted(loadMonitoringData)
     </template>
 
     <template #header-actions>
-      <button class="secondary-btn refresh-btn" type="button" :disabled="loading" @click="loadMonitoringData">
+      <button class="secondary-btn refresh-btn" type="button" @click="toggleAutoRefresh">
+        {{ autoRefreshEnabled ? '关闭自动刷新' : '开启自动刷新' }}
+      </button>
+      <button class="secondary-btn refresh-btn" type="button" :disabled="loading" @click="handleManualRefresh">
         {{ loading ? '刷新中...' : '刷新' }}
       </button>
     </template>

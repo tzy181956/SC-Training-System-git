@@ -1,6 +1,11 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
+
+
+MonitoringSessionStatus = Literal["no_plan", "not_started", "in_progress", "completed", "partial_complete", "absent"]
+MonitoringSyncStatus = Literal["synced", "pending", "manual_retry_required"]
 
 
 class MonitoringLatestSetRead(BaseModel):
@@ -22,8 +27,8 @@ class MonitoringAthleteCardRead(BaseModel):
     team_id: int | None = None
     team_name: str | None = None
     session_id: int | None = None
-    session_status: str
-    sync_status: str
+    session_status: MonitoringSessionStatus
+    sync_status: MonitoringSyncStatus
     current_exercise_name: str | None = None
     completed_items: int
     total_items: int
