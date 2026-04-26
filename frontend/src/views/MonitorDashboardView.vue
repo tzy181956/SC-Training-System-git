@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { fetchMonitoringToday } from '@/api/monitoring'
+import { fetchMonitoringAthleteDetail, fetchMonitoringToday } from '@/api/monitoring'
 import MonitorShell from '@/components/layout/MonitorShell.vue'
 import MonitoringAlertPanel from '@/components/monitoring/MonitoringAlertPanel.vue'
 import MonitoringAthleteBoard from '@/components/monitoring/MonitoringAthleteBoard.vue'
+import MonitoringAthleteDetailOverlay from '@/components/monitoring/MonitoringAthleteDetailOverlay.vue'
 import MonitoringSummaryCards from '@/components/monitoring/MonitoringSummaryCards.vue'
 import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
 import { ALL_TEAMS_VALUE, UNASSIGNED_TEAM_VALUE } from '@/composables/useTeamFilter'
-import type { MonitoringAthleteCard, MonitoringTodayResponse } from '@/types/monitoring'
+import type { MonitoringAthleteCard, MonitoringAthleteDetailResponse, MonitoringTodayResponse } from '@/types/monitoring'
 import { todayString } from '@/utils/date'
 import { sortMonitoringAthletes } from '@/utils/monitoringSort'
 
@@ -25,9 +26,14 @@ const autoRefreshEnabled = ref(false)
 const refreshIntervalMs = ref(30000)
 const backgroundRefreshing = ref(false)
 const pageVisible = ref(true)
+const selectedAthleteId = ref<number | null>(null)
+const selectedAthleteDetail = ref<MonitoringAthleteDetailResponse | null>(null)
+const detailLoading = ref(false)
+const detailError = ref('')
 
 let refreshTimerId: number | null = null
 let activeRequestId = 0
+let activeDetailRequestId = 0
 
 type LoadMonitoringOptions = {
   background?: boolean
@@ -55,6 +61,10 @@ const displayedAthletes = computed<MonitoringAthleteCard[]>(() => {
   return athletes
 })
 const sortedAthletes = computed(() => sortMonitoringAthletes(displayedAthletes.value))
+const selectedAthlete = computed(() => {
+  if (!selectedAthleteId.value) return null
+  return sortedAthletes.value.find((athlete) => athlete.athlete_id === selectedAthleteId.value) || null
+})
 const refreshHint = computed(() => {
   if (loading.value) return '正在刷新监控数据'
   if (loadError.value) return loadError.value
@@ -73,17 +83,26 @@ const refreshModeLabel = computed(() =>
 async function handleDateInput(value: string) {
   monitorDate.value = value
   await loadMonitoringData()
+  if (selectedAthleteId.value) {
+    await loadAthleteDetail(selectedAthleteId.value)
+  }
   restartAutoRefreshTimer()
 }
 
 async function handleTeamFilterInput(value: string) {
   selectedTeamFilter.value = value
   await loadMonitoringData()
+  if (selectedAthleteId.value) {
+    await loadAthleteDetail(selectedAthleteId.value)
+  }
   restartAutoRefreshTimer()
 }
 
 async function handleManualRefresh() {
   await loadMonitoringData()
+  if (selectedAthleteId.value) {
+    await loadAthleteDetail(selectedAthleteId.value)
+  }
   restartAutoRefreshTimer()
 }
 
@@ -158,36 +177,81 @@ function handleVisibilityChange() {
 }
 
 function handleAthleteClick(athlete: MonitoringAthleteCard) {
-  monitorNotice.value = ''
+  selectedAthleteId.value = athlete.athlete_id
+  void loadAthleteDetail(athlete.athlete_id)
+}
 
-  if (athlete.session_id && athlete.session_status === 'in_progress') {
-    router.push({ name: 'training-session', params: { sessionId: athlete.session_id } })
-    return
-  }
+function closeAthleteDetail() {
+  activeDetailRequestId += 1
+  selectedAthleteId.value = null
+  selectedAthleteDetail.value = null
+  detailLoading.value = false
+  detailError.value = ''
+}
 
-  if (['completed', 'partial_complete', 'absent'].includes(athlete.session_status)) {
-    router.push({
-      name: 'training-reports',
-      query: {
-        athleteId: String(athlete.athlete_id),
-        dateFrom: monitorDate.value,
-        dateTo: monitorDate.value,
-      },
+async function loadAthleteDetail(athleteId: number) {
+  const requestId = activeDetailRequestId + 1
+  activeDetailRequestId = requestId
+  selectedAthleteDetail.value = null
+  detailError.value = ''
+  detailLoading.value = true
+
+  try {
+    const detail = await fetchMonitoringAthleteDetail({
+      session_date: monitorDate.value,
+      athlete_id: athleteId,
     })
-    return
+    if (requestId !== activeDetailRequestId || selectedAthleteId.value !== athleteId) return
+    selectedAthleteDetail.value = detail
+  } catch {
+    if (requestId === activeDetailRequestId && selectedAthleteId.value === athleteId) {
+      detailError.value = '训练明细加载失败，请稍后重试。'
+    }
+  } finally {
+    if (requestId === activeDetailRequestId) {
+      detailLoading.value = false
+    }
   }
+}
 
-  if (athlete.session_status === 'not_started') {
-    router.push({
-      name: 'training-mode',
-      query: {
-        sessionDate: monitorDate.value,
-      },
-    })
-    return
+function retryLoadAthleteDetail() {
+  if (!selectedAthleteId.value) return
+  void loadAthleteDetail(selectedAthleteId.value)
+}
+
+function openTrainingSessionFromDetail() {
+  const sessionId = resolveDetailSessionId()
+  if (!sessionId) return
+  router.push({
+    name: 'training-session',
+    params: { sessionId },
+  })
+}
+
+function openTrainingReportFromDetail() {
+  if (!selectedAthlete.value) return
+
+  router.push({
+    name: 'training-reports',
+    query: {
+      athleteId: String(selectedAthlete.value.athlete_id),
+      dateFrom: monitorDate.value,
+      dateTo: monitorDate.value,
+    },
+  })
+}
+
+function resolveDetailSessionId() {
+  if (selectedAthleteDetail.value) {
+    const preferredAssignment = selectedAthleteDetail.value.assignments.find(
+      (assignment) => assignment.session_id && !['completed', 'absent'].includes(assignment.session_status),
+    )
+    if (preferredAssignment?.session_id) return preferredAssignment.session_id
+
+    const firstAssignmentWithSession = selectedAthleteDetail.value.assignments.find((assignment) => assignment.session_id)
+    if (firstAssignmentWithSession?.session_id) return firstAssignmentWithSession.session_id
   }
-
-  monitorNotice.value = `${athlete.athlete_name} 当天没有有效训练计划。`
+  return selectedAthlete.value?.session_id || null
 }
 
 function resolveSelectedTeamId() {
@@ -211,6 +275,13 @@ function formatMonitorDate(value: string) {
 
   return `${year}年${monthNumber}月${dayNumber}日`
 }
+
+watch(sortedAthletes, (athletes) => {
+  if (!selectedAthleteId.value) return
+  if (!athletes.some((athlete) => athlete.athlete_id === selectedAthleteId.value)) {
+    closeAthleteDetail()
+  }
+})
 
 onMounted(() => {
   pageVisible.value = !document.hidden
@@ -274,6 +345,19 @@ onBeforeUnmount(() => {
         />
         <MonitoringAlertPanel class="board-side" :athletes="sortedAthletes" :loading="loading" />
       </section>
+
+      <MonitoringAthleteDetailOverlay
+        :athlete="selectedAthlete"
+        :detail="selectedAthleteDetail"
+        :loading="detailLoading"
+        :error="detailError"
+        :session-date="monitorDateLabel"
+        :visible="selectedAthlete !== null"
+        @close="closeAthleteDetail"
+        @open-report="openTrainingReportFromDetail"
+        @open-session="openTrainingSessionFromDetail"
+        @retry-load="retryLoadAthleteDetail"
+      />
     </div>
   </MonitorShell>
 </template>

@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.exceptions import not_found
 from app.models import (
     Athlete,
     AthletePlanAssignment,
@@ -49,6 +50,51 @@ def get_today_monitoring(
                 sync_issues=sync_issues_by_athlete.get(athlete.id, []),
             )
             for athlete in visible_athletes
+        ],
+    }
+
+
+def get_athlete_monitoring_detail(
+    db: Session,
+    session_date: date,
+    athlete_id: int,
+) -> dict:
+    """Build a read-only training detail payload for one athlete on one date."""
+    session_service.close_due_sessions(db)
+
+    athlete = (
+        db.query(Athlete)
+        .options(joinedload(Athlete.team))
+        .filter(Athlete.id == athlete_id, Athlete.is_active.is_(True))
+        .first()
+    )
+    if not athlete:
+        raise not_found("Athlete not found")
+
+    assignments_by_athlete = _get_active_assignments_by_athlete(db, [athlete_id], session_date)
+    assignments = assignments_by_athlete.get(athlete_id, [])
+    sessions_by_assignment = _get_sessions_by_assignment(db, assignments_by_athlete, session_date)
+    sync_issues = _get_sync_issues_by_athlete(db, [athlete_id], session_date).get(athlete_id, [])
+    athlete_card = _build_athlete_card(
+        athlete=athlete,
+        assignments=assignments,
+        sessions_by_assignment=sessions_by_assignment,
+        sync_issues=sync_issues,
+    )
+
+    return {
+        "session_date": session_date,
+        "updated_at": datetime.now(timezone.utc),
+        "athlete_id": athlete.id,
+        "athlete_name": athlete.full_name,
+        "team_id": athlete.team_id,
+        "team_name": athlete.team.name if athlete.team else None,
+        "session_status": athlete_card["session_status"],
+        "sync_status": athlete_card["sync_status"],
+        "has_alert": athlete_card["has_alert"],
+        "assignments": [
+            _build_assignment_detail(assignment, sessions_by_assignment.get(assignment.id))
+            for assignment in assignments
         ],
     }
 
@@ -105,6 +151,7 @@ def _get_active_assignments_by_athlete(
     assignments = (
         db.query(AthletePlanAssignment)
         .options(
+            joinedload(AthletePlanAssignment.overrides),
             joinedload(AthletePlanAssignment.template)
             .joinedload(TrainingPlanTemplate.items)
             .joinedload(TrainingPlanTemplateItem.exercise),
@@ -334,6 +381,94 @@ def _build_progress_totals(
         totals["total_sets"] += sum(item.prescribed_sets for item in template_items)
 
     return totals
+
+
+def _build_assignment_detail(
+    assignment: AthletePlanAssignment,
+    session: TrainingSession | None,
+) -> dict:
+    if session:
+        exercises = [_serialize_session_item_detail(item) for item in session.items]
+        return {
+            "assignment_id": assignment.id,
+            "template_id": assignment.template_id,
+            "template_name": assignment.template.name if assignment.template else "未命名训练计划",
+            "session_id": session.id,
+            "session_status": _resolve_single_session_status(session),
+            "completed_items": sum(1 for item in session.items if len(item.records) >= item.prescribed_sets),
+            "total_items": len(session.items),
+            "completed_sets": sum(len(item.records) for item in session.items),
+            "total_sets": sum(item.prescribed_sets for item in session.items),
+            "exercises": exercises,
+        }
+
+    template_items = assignment.template.items if assignment.template else []
+    exercises = [_serialize_template_item_detail(assignment, item) for item in template_items]
+    return {
+        "assignment_id": assignment.id,
+        "template_id": assignment.template_id,
+        "template_name": assignment.template.name if assignment.template else "未命名训练计划",
+        "session_id": None,
+        "session_status": "not_started",
+        "completed_items": 0,
+        "total_items": len(template_items),
+        "completed_sets": 0,
+        "total_sets": sum(item.prescribed_sets for item in template_items),
+        "exercises": exercises,
+    }
+
+
+def _serialize_session_item_detail(item: TrainingSessionItem) -> dict:
+    ordered_records = sorted(item.records, key=lambda record: (record.set_number, record.completed_at, record.id))
+    return {
+        "item_id": item.id,
+        "exercise_id": item.exercise_id,
+        "exercise_name": item.exercise.name if item.exercise else "未命名动作",
+        "sort_order": item.sort_order,
+        "prescribed_sets": item.prescribed_sets,
+        "prescribed_reps": item.prescribed_reps,
+        "target_weight": item.initial_load,
+        "target_note": item.target_note,
+        "is_main_lift": item.is_main_lift,
+        "status": item.status,
+        "completed_sets": len(ordered_records),
+        "records": [_serialize_set_record_detail(record) for record in ordered_records],
+    }
+
+
+def _serialize_template_item_detail(
+    assignment: AthletePlanAssignment,
+    item: TrainingPlanTemplateItem,
+) -> dict:
+    override_map = {override.template_item_id: override.initial_load_override for override in assignment.overrides}
+    return {
+        "item_id": None,
+        "exercise_id": item.exercise_id,
+        "exercise_name": item.exercise.name if item.exercise else "未命名动作",
+        "sort_order": item.sort_order,
+        "prescribed_sets": item.prescribed_sets,
+        "prescribed_reps": item.prescribed_reps,
+        "target_weight": override_map.get(item.id, item.initial_load_value),
+        "target_note": item.target_note,
+        "is_main_lift": item.is_main_lift,
+        "status": "pending",
+        "completed_sets": 0,
+        "records": [],
+    }
+
+
+def _serialize_set_record_detail(record: SetRecord) -> dict:
+    return {
+        "id": record.id,
+        "set_number": record.set_number,
+        "target_weight": record.target_weight,
+        "target_reps": record.target_reps,
+        "actual_weight": record.actual_weight,
+        "actual_reps": record.actual_reps,
+        "actual_rir": record.actual_rir,
+        "completed_at": record.completed_at,
+        "notes": record.notes,
+    }
 
 
 def _find_latest_record(sessions: list[TrainingSession]) -> SetRecord | None:

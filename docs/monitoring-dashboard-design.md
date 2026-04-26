@@ -141,6 +141,82 @@
 }
 ```
 
+### GET `/api/monitoring/athlete-detail`
+
+当前第一版新增该只读接口，用于队员详情覆盖层按需加载“本次训练”完整明细，不把动作和组记录塞进 `/api/monitoring/today`。
+
+参数：
+
+- `session_date`：训练日期，必填
+- `athlete_id`：运动员 ID，必填
+
+用途：
+
+- 返回指定队员当天所有有效训练计划
+- 每份计划独立展示训练课状态、动作进度、组数进度
+- 每个动作展示目标组数、目标次数、目标重量或目标说明
+- 每个动作展示已完成的每组记录，包括实际重量、实际次数、RIR、完成时间、备注
+- 当 assignment 尚未创建 session 时，仍从 template items 构建动作列表，records 为空
+- 当同一天有多份有效 assignment 时，按 assignment 分组返回
+- `session_status` 与 `/api/monitoring/today` 复用同一套状态判断口径
+
+推荐返回字段：
+
+```json
+{
+  "session_date": "2026-04-26",
+  "updated_at": "2026-04-26T10:22:11+08:00",
+  "athlete_id": 101,
+  "athlete_name": "张三",
+  "team_id": 1,
+  "team_name": "一队",
+  "session_status": "in_progress",
+  "sync_status": "synced",
+  "has_alert": false,
+  "assignments": [
+    {
+      "assignment_id": 301,
+      "template_id": 12,
+      "template_name": "下肢力量 A",
+      "session_id": 9001,
+      "session_status": "in_progress",
+      "completed_items": 1,
+      "total_items": 4,
+      "completed_sets": 3,
+      "total_sets": 12,
+      "exercises": [
+        {
+          "item_id": 5001,
+          "exercise_id": 8,
+          "exercise_name": "深蹲",
+          "sort_order": 1,
+          "prescribed_sets": 4,
+          "prescribed_reps": 5,
+          "target_weight": 100,
+          "target_note": null,
+          "is_main_lift": true,
+          "status": "in_progress",
+          "completed_sets": 2,
+          "records": [
+            {
+              "id": 7001,
+              "set_number": 1,
+              "target_weight": 100,
+              "target_reps": 5,
+              "actual_weight": 100,
+              "actual_reps": 5,
+              "actual_rir": 2,
+              "completed_at": "2026-04-26T10:20:02+08:00",
+              "notes": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## 5. 第一版展示字段建议
 
 监控端第一版优先展示：
@@ -196,6 +272,7 @@
 - `MonitoringSummaryCards.vue`：负责状态汇总卡片
 - `MonitoringAthleteBoard.vue`：负责运动员看板容器
 - `MonitoringAthleteCard.vue`：负责单个运动员状态卡片
+- `MonitoringAthleteDetailOverlay.vue`：负责当前页居中大卡片详情覆盖层
 - `MonitoringAlertPanel.vue`：负责同步异常和未完成提醒
 
 刷新策略：
@@ -207,7 +284,7 @@
 - 自动刷新失败不弹窗，只在顶部状态显示“最近刷新失败，数据可能不是最新”
 - 组件卸载时清理 timer，避免长期停留或切换页面后继续请求
 
-## 8. 当前排序与跳转规则
+## 8. 当前排序与详情交互规则
 
 运动员卡片排序：
 
@@ -221,12 +298,33 @@
 - 同优先级内按姓名升序
 - 排序规则集中在 `frontend/src/utils/monitoringSort.ts`，页面不再维护独立优先级表
 
-点击跳转：
+点击队员卡片：
 
-- `in_progress` 且有 `session_id`：跳转训练记录页
-- `completed` / `partial_complete` / `absent`：跳转训练报告页，并带当天日期查询参数
-- `not_started`：跳转训练端并保留当前日期查询参数
-- `no_plan`：不跳转，只提示当天没有有效训练计划
+- 不离开 `/monitor`
+- 不展开摘要卡片，不撑开运动员看板 grid
+- 在当前页面上方显示居中的大卡片详情覆盖层
+- 覆盖层四周保留空白，点击空白关闭
+- 点击详情卡片内部不关闭
+- 按 Escape 可以关闭
+- 自动刷新后，如果当前队员仍在筛选范围内，详情层继续显示并使用最新数据；如果不在当前筛选范围，详情层自动关闭
+
+详情覆盖层会在打开时请求 `/api/monitoring/athlete-detail`，不影响底层看板布局和自动刷新。
+
+详情覆盖层展示：
+
+- 队员姓名、队伍、今日状态、同步状态
+- 完成动作数 / 总动作数、完成组数 / 总组数
+- 按 assignment 分组的训练计划名称、训练课状态、动作进度、组数进度
+- 每个动作的动作名、主项标识、目标组数、目标次数、目标重量或目标说明、动作状态
+- 每个动作已完成的每组记录：目标重量、目标次数、实际重量、实际次数、RIR、完成时间、备注
+- 未完成动作显示“暂无完成组记录”，未录满动作显示剩余未完成组数
+- `no_plan`、`manual_retry_required`、`partial_complete`、`absent` 的轻量提示
+
+详情覆盖层按钮：
+
+- `关闭`：只关闭覆盖层
+- `查看训练报告`：跳转训练报告页，并带当天日期查询参数
+- `进入训练记录页`：仅存在 `session_id` 时显示，点击后跳转训练记录页
 
 ## 9. 当前验收脚本
 

@@ -40,7 +40,7 @@ def main() -> None:
             TrainingSessionItem,
             TrainingSyncIssue,
         )
-        from app.schemas.monitoring import MonitoringTodayRead
+        from app.schemas.monitoring import MonitoringAthleteDetailRead, MonitoringTodayRead
         from app.services import monitoring_service
 
         Base.metadata.create_all(bind=engine)
@@ -260,9 +260,54 @@ def main() -> None:
             require(latest_set["actual_rir"] == 2, "latest_set actual_rir mismatch")
             require(latest_set["completed_at"] is not None, "latest_set completed_at should exist")
 
+            no_plan_detail = monitoring_service.get_athlete_monitoring_detail(db, TEST_SESSION_DATE, no_plan.id)
+            MonitoringAthleteDetailRead.model_validate(no_plan_detail)
+            require(no_plan_detail["session_status"] == "no_plan", "No-plan detail status should be no_plan")
+            require(no_plan_detail["assignments"] == [], "No-plan detail assignments should be empty")
+
+            not_started_detail = monitoring_service.get_athlete_monitoring_detail(db, TEST_SESSION_DATE, not_started.id)
+            MonitoringAthleteDetailRead.model_validate(not_started_detail)
+            require(not_started_detail["session_status"] == "not_started", "Not-started detail status mismatch")
+            require(len(not_started_detail["assignments"]) == 1, "Not-started detail should include one assignment")
+            not_started_assignment_detail = not_started_detail["assignments"][0]
+            require(len(not_started_assignment_detail["exercises"]) == 2, "Not-started detail should include template exercises")
+            require(not_started_assignment_detail["total_sets"] == 3, "Not-started detail total_sets mismatch")
+            require(all(not exercise["records"] for exercise in not_started_assignment_detail["exercises"]), "Not-started detail records should be empty")
+
+            completed_detail = monitoring_service.get_athlete_monitoring_detail(db, TEST_SESSION_DATE, completed.id)
+            MonitoringAthleteDetailRead.model_validate(completed_detail)
+            completed_assignment_detail = completed_detail["assignments"][0]
+            require(completed_assignment_detail["session_status"] == "completed", "Completed detail assignment status mismatch")
+            require([len(exercise["records"]) for exercise in completed_assignment_detail["exercises"]] == [2, 1], "Completed detail record counts mismatch")
+            first_completed_record = completed_assignment_detail["exercises"][0]["records"][0]
+            require(first_completed_record["actual_weight"] == 30.0 + completed_assignment.id, "Completed detail actual_weight mismatch")
+            require(first_completed_record["actual_reps"] == 5, "Completed detail actual_reps mismatch")
+            require(first_completed_record["actual_rir"] == 2, "Completed detail actual_rir mismatch")
+
+            in_progress_detail = monitoring_service.get_athlete_monitoring_detail(db, TEST_SESSION_DATE, in_progress.id)
+            MonitoringAthleteDetailRead.model_validate(in_progress_detail)
+            in_progress_assignment_detail = in_progress_detail["assignments"][0]
+            require(in_progress_assignment_detail["completed_sets"] == 1, "In-progress detail completed_sets mismatch")
+            require(in_progress_assignment_detail["completed_sets"] < in_progress_assignment_detail["total_sets"], "In-progress detail should be incomplete")
+            require(len(in_progress_assignment_detail["exercises"][0]["records"]) == 1, "In-progress first exercise should include one record")
+            require(len(in_progress_assignment_detail["exercises"][1]["records"]) == 0, "In-progress second exercise should have no records")
+
+            multi_plan_detail = monitoring_service.get_athlete_monitoring_detail(db, TEST_SESSION_DATE, multi_plan.id)
+            MonitoringAthleteDetailRead.model_validate(multi_plan_detail)
+            require(multi_plan_detail["session_status"] != "completed", "Multi-plan detail must not be completed")
+            require(len(multi_plan_detail["assignments"]) == 2, "Multi-plan detail should include two assignments")
+            require(any(assignment["session_id"] is None for assignment in multi_plan_detail["assignments"]), "Multi-plan detail should include not-started assignment")
+            require(any(assignment["session_status"] == "completed" for assignment in multi_plan_detail["assignments"]), "Multi-plan detail should include completed assignment")
+
+            retry_detail = monitoring_service.get_athlete_monitoring_detail(db, TEST_SESSION_DATE, retry.id)
+            MonitoringAthleteDetailRead.model_validate(retry_detail)
+            require(retry_detail["sync_status"] == "manual_retry_required", "Retry detail sync_status mismatch")
+            require(retry_detail["has_alert"] is True, "Retry detail should have alert")
+
             print("[CHECK] monitoring schema validation passed")
             print("[CHECK] monitoring status distribution passed")
             print("[CHECK] monitoring totals, latest_set and sync_status passed")
+            print("[CHECK] monitoring athlete detail smoke passed")
 
         engine.dispose()
 

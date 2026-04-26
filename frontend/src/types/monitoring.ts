@@ -17,6 +17,46 @@ export type MonitoringLatestSetSnapshot = {
   completed_at: string | null
 }
 
+export type MonitoringSetRecord = {
+  id: number | null
+  set_number: number
+  target_weight: number | null
+  target_reps: number | null
+  actual_weight: number | null
+  actual_reps: number | null
+  actual_rir: number | null
+  completed_at: string | null
+  notes: string | null
+}
+
+export type MonitoringExerciseItem = {
+  item_id: number | null
+  exercise_id: number | null
+  exercise_name: string
+  sort_order: number
+  prescribed_sets: number
+  prescribed_reps: number | null
+  target_weight: number | null
+  target_note: string | null
+  is_main_lift: boolean
+  status: string
+  completed_sets: number
+  records: MonitoringSetRecord[]
+}
+
+export type MonitoringAssignmentDetail = {
+  assignment_id: number
+  template_id: number | null
+  template_name: string
+  session_id: number | null
+  session_status: TrainingStatus
+  completed_items: number
+  total_items: number
+  completed_sets: number
+  total_sets: number
+  exercises: MonitoringExerciseItem[]
+}
+
 export type MonitoringAthleteCard = {
   athlete_id: number
   athlete_name: string
@@ -58,6 +98,19 @@ export type MonitoringTodayResponse = {
   updated_at: string | null
   teams: MonitoringTeamOption[]
   athletes: MonitoringAthleteCard[]
+}
+
+export type MonitoringAthleteDetailResponse = {
+  session_date: string
+  updated_at: string | null
+  athlete_id: number
+  athlete_name: string
+  team_id: number | null
+  team_name: string | null
+  session_status: TrainingStatus
+  sync_status: MonitoringSyncStatus
+  has_alert: boolean
+  assignments: MonitoringAssignmentDetail[]
 }
 
 export type MonitoringTeamSummaryResponse = {

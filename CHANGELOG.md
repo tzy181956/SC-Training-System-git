@@ -18,12 +18,15 @@
   - `frontend/src/components/monitoring/MonitoringSummaryCards.vue`
   - `frontend/src/components/monitoring/MonitoringAthleteBoard.vue`
   - `frontend/src/components/monitoring/MonitoringAthleteCard.vue`
+  - `frontend/src/components/monitoring/MonitoringAthleteDetailOverlay.vue`
   - `frontend/src/components/monitoring/MonitoringAlertPanel.vue`
 - 新增监控端状态准确性 smoke check：
   - `backend/scripts/monitoring_smoke_check.py`
 - 新增监控端运动员排序工具：
   - `frontend/src/utils/monitoringSort.ts`
 - 监控端第一版自动刷新已接入页面开关，默认关闭，开启后按 30 秒间隔静默刷新。
+- 新增监控端队员今日训练详情只读接口：
+  - `GET /api/monitoring/athlete-detail`
 - 新增训练端与监控端共用的公共基础：
   - `frontend/src/composables/useTeamFilter.ts`
   - `frontend/src/constants/trainingStatus.ts`
@@ -53,7 +56,11 @@
 - `/api/monitoring/today` 已修正同一运动员当天多份 active assignment 的聚合风险：无 session 的 assignment 也计入 `total_sets` 和 `total_items`，避免一份计划完成时误把当天整体显示为 `completed`。
 - `/api/monitoring/today` 的后端 schema 已将 `session_status` 与 `sync_status` 收紧为 Literal 枚举，接口结构保持不变。
 - `MonitorDashboardView` 已从占位页改为监控端取数容器，页面展示拆到 monitoring 组件目录，并预留手动刷新以外的自动刷新状态。
-- 监控端运动员卡片排序已抽到 `frontend/src/utils/monitoringSort.ts`，规则仍为同步异常、进行中、未开始、已结束未完成、缺席、已完成、无计划，并支持跳转到训练录入或训练报告页。
+- 监控端队员卡片点击已改为当前 `/monitor` 页面上的居中大卡片覆盖层，不跳转页面、不使用右侧抽屉、不展开摘要卡片，不影响看板 grid 布局。
+- 监控端详情覆盖层打开时按需请求队员当天训练明细，按 assignment 分组展示所有动作、目标组数、目标次数、目标重量或目标说明，以及每组实际重量、实际次数、RIR、完成时间和备注。
+- 监控端详情仍保持只读，不提供编辑、删除、补录；“查看训练报告 / 进入训练记录页”仍作为次级跳转按钮。
+- `backend/scripts/monitoring_smoke_check.py` 已增强队员详情验证，覆盖未开始模板动作、完成记录、进行中未完成组、多计划展示和同步异常状态。
+- 监控端运动员卡片排序已抽到 `frontend/src/utils/monitoringSort.ts`，规则仍为同步异常、进行中、未开始、已结束未完成、缺席、已完成、无计划；跳转能力改由详情覆盖层内按钮触发。
 - 监控端自动刷新第一版已实现：默认关闭，可手动开启/关闭，页面隐藏时暂停，请求失败仅在顶部状态提示，组件卸载时清理 timer。
 - `scripts/phase1_acceptance_check.ps1` 已纳入 `Monitoring status aggregation smoke check`，该步骤失败会阻断第一阶段统一验收。
 - 监控端运动员看板在普通 iPad 横屏宽度下优先使用 2 列卡片，避免 1024px - 1080px 下 3 列过窄影响阅读。
