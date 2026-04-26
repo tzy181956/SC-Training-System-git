@@ -53,6 +53,8 @@
 
 ### GET `/api/monitoring/today`
 
+当前第一版已新增该接口骨架，用于支撑“今日训练状态看板”的只读数据链路。
+
 用途：
 
 - 返回当天训练现场主看板所需数据
@@ -167,3 +169,39 @@
 - 只读展示
 - 手动刷新 + 后续可扩展轮询
 - 跳转到已有训练记录或管理端页面
+
+## 7. 当前前端组件骨架
+
+第一版页面拆分为：
+
+- `MonitorDashboardView.vue`：负责日期、队伍、加载数据、手动刷新和向子组件传参
+- `MonitoringSummaryCards.vue`：负责状态汇总卡片
+- `MonitoringAthleteBoard.vue`：负责运动员看板容器
+- `MonitoringAthleteCard.vue`：负责单个运动员状态卡片
+- `MonitoringAlertPanel.vue`：负责同步异常和未完成提醒
+
+刷新策略：
+
+- 当前只启用手动刷新
+- 页面已预留 `autoRefreshEnabled` 和 `refreshIntervalMs`
+- 自动刷新后续再接入，第一版不默认开启
+
+## 8. 当前排序与跳转规则
+
+运动员卡片排序：
+
+- 同步异常 `manual_retry_required`
+- `in_progress`
+- `not_started`
+- `partial_complete`
+- `absent`
+- `completed`
+- `no_plan`
+- 同优先级内按姓名升序
+
+点击跳转：
+
+- `in_progress` 且有 `session_id`：跳转训练记录页
+- `completed` / `partial_complete` / `absent`：跳转训练报告页，并带当天日期查询参数
+- `not_started`：跳转训练端并保留当前日期查询参数
+- `no_plan`：不跳转，只提示当天没有有效训练计划

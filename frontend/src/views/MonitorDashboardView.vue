@@ -1,62 +1,147 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
+import { fetchMonitoringToday } from '@/api/monitoring'
 import MonitorShell from '@/components/layout/MonitorShell.vue'
+import MonitoringAlertPanel from '@/components/monitoring/MonitoringAlertPanel.vue'
+import MonitoringAthleteBoard from '@/components/monitoring/MonitoringAthleteBoard.vue'
+import MonitoringSummaryCards from '@/components/monitoring/MonitoringSummaryCards.vue'
 import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
-import { ALL_TEAMS_VALUE, useTeamFilter } from '@/composables/useTeamFilter'
-import type { MonitoringBoardSection } from '@/types/monitoring'
+import { ALL_TEAMS_VALUE, UNASSIGNED_TEAM_VALUE } from '@/composables/useTeamFilter'
+import type { MonitoringAthleteCard, MonitoringTodayResponse } from '@/types/monitoring'
 import { todayString } from '@/utils/date'
 
+const router = useRouter()
 const monitorDate = ref(todayString())
+const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
+const monitoringData = ref<MonitoringTodayResponse | null>(null)
+const loading = ref(false)
+const loadError = ref('')
+const monitorNotice = ref('')
 const lastRefreshAt = ref<string | null>(null)
-const monitorAthletes = ref<any[]>([])
-
-const {
-  selectedTeamFilter,
-  teamOptions,
-  selectedTeamLabel,
-} = useTeamFilter({
-  athletes: () => monitorAthletes.value,
-})
+const autoRefreshEnabled = ref(false)
+const refreshIntervalMs = ref(5000)
+const athleteStatusSortPriority: Record<string, number> = {
+  in_progress: 1,
+  not_started: 2,
+  partial_complete: 3,
+  absent: 4,
+  completed: 5,
+  no_plan: 6,
+}
 
 const monitorTeamOptions = computed(() => (
-  teamOptions.value.length
-    ? teamOptions.value
-    : [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }]
+  [
+    { id: ALL_TEAMS_VALUE, name: '全部队伍' },
+    ...(monitoringData.value?.teams || []).map((team) => ({
+      id: team.team_id == null ? UNASSIGNED_TEAM_VALUE : String(team.team_id),
+      name: team.team_name,
+    })),
+  ]
 ))
 
-const monitorTeamLabel = computed(() => (teamOptions.value.length ? selectedTeamLabel.value : '全部队伍'))
+const monitorTeamLabel = computed(() => (
+  monitorTeamOptions.value.find((team) => team.id === selectedTeamFilter.value)?.name || '全部队伍'
+))
 const monitorDateLabel = computed(() => formatMonitorDate(monitorDate.value))
-const refreshHint = computed(() => (lastRefreshAt.value ? `占位刷新时间：${lastRefreshAt.value}` : '等待接入轮询与监控接口'))
+const displayedAthletes = computed<MonitoringAthleteCard[]>(() => {
+  const athletes = monitoringData.value?.athletes || []
+  if (selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE) {
+    return athletes.filter((athlete) => !athlete.team_id)
+  }
+  return athletes
+})
+const sortedAthletes = computed(() => [...displayedAthletes.value].sort(sortMonitoringAthletes))
+const refreshHint = computed(() => {
+  if (loading.value) return '正在刷新监控数据'
+  if (loadError.value) return loadError.value
+  if (monitorNotice.value) return monitorNotice.value
+  if (!lastRefreshAt.value) return '尚未完成刷新'
+  return `${lastRefreshAt.value} 刷新`
+})
+const refreshModeLabel = computed(() =>
+  autoRefreshEnabled.value ? `自动刷新 ${Math.round(refreshIntervalMs.value / 1000)} 秒` : '手动刷新',
+)
 
-const boardSections: MonitoringBoardSection[] = [
-  {
-    id: 'team-summary',
-    title: '队伍汇总区预留',
-    description: '后续放当天各队伍的未开始、进行中、已完成、未完全完成、缺席与同步异常数量。',
-  },
-  {
-    id: 'athlete-board',
-    title: '运动员状态看板预留',
-    description: '后续放运动员卡片列表，显示当前动作、完成动作数、完成组数和最近一组数据。',
-  },
-  {
-    id: 'sync-alerts',
-    title: '同步异常区预留',
-    description: '后续放待人工处理的同步异常、冲突提示和跳转入口。',
-  },
-]
-
-function handleDateInput(value: string) {
+async function handleDateInput(value: string) {
   monitorDate.value = value
+  await loadMonitoringData()
 }
 
-function handleTeamFilterInput(value: string) {
+async function handleTeamFilterInput(value: string) {
   selectedTeamFilter.value = value
+  await loadMonitoringData()
 }
 
-function refreshPlaceholder() {
-  lastRefreshAt.value = new Date().toLocaleString('zh-CN', { hour12: false })
+async function loadMonitoringData() {
+  loading.value = true
+  loadError.value = ''
+  monitorNotice.value = ''
+  try {
+    monitoringData.value = await fetchMonitoringToday({
+      session_date: monitorDate.value,
+      team_id: resolveSelectedTeamId(),
+      include_unassigned: selectedTeamFilter.value !== ALL_TEAMS_VALUE ? selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE : true,
+    })
+    lastRefreshAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  } catch {
+    loadError.value = '监控数据加载失败，请稍后手动刷新。'
+  } finally {
+    loading.value = false
+  }
+}
+
+function sortMonitoringAthletes(left: MonitoringAthleteCard, right: MonitoringAthleteCard) {
+  const priorityDiff = getAthleteSortPriority(left) - getAthleteSortPriority(right)
+  if (priorityDiff !== 0) return priorityDiff
+  return left.athlete_name.localeCompare(right.athlete_name, 'zh-CN')
+}
+
+function getAthleteSortPriority(athlete: MonitoringAthleteCard) {
+  if (athlete.sync_status === 'manual_retry_required') return 0
+  return athleteStatusSortPriority[athlete.session_status] ?? 99
+}
+
+function handleAthleteClick(athlete: MonitoringAthleteCard) {
+  monitorNotice.value = ''
+
+  if (athlete.session_id && athlete.session_status === 'in_progress') {
+    router.push({ name: 'training-session', params: { sessionId: athlete.session_id } })
+    return
+  }
+
+  if (['completed', 'partial_complete', 'absent'].includes(athlete.session_status)) {
+    router.push({
+      name: 'training-reports',
+      query: {
+        athleteId: String(athlete.athlete_id),
+        dateFrom: monitorDate.value,
+        dateTo: monitorDate.value,
+      },
+    })
+    return
+  }
+
+  if (athlete.session_status === 'not_started') {
+    router.push({
+      name: 'training-mode',
+      query: {
+        sessionDate: monitorDate.value,
+      },
+    })
+    return
+  }
+
+  monitorNotice.value = `${athlete.athlete_name} 当天没有有效训练计划。`
+}
+
+function resolveSelectedTeamId() {
+  if (selectedTeamFilter.value === ALL_TEAMS_VALUE || selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE) {
+    return null
+  }
+  const teamId = Number(selectedTeamFilter.value)
+  return Number.isNaN(teamId) ? null : teamId
 }
 
 function formatMonitorDate(value: string) {
@@ -72,6 +157,8 @@ function formatMonitorDate(value: string) {
 
   return `${year}年${monthNumber}月${dayNumber}日`
 }
+
+onMounted(loadMonitoringData)
 </script>
 
 <template>
@@ -91,27 +178,35 @@ function formatMonitorDate(value: string) {
     </template>
 
     <template #header-actions>
-      <button class="secondary-btn refresh-btn" type="button" @click="refreshPlaceholder">刷新占位</button>
+      <button class="secondary-btn refresh-btn" type="button" :disabled="loading" @click="loadMonitoringData">
+        {{ loading ? '刷新中...' : '刷新' }}
+      </button>
     </template>
 
     <div class="monitor-dashboard">
       <section class="panel overview-panel">
         <div class="overview-copy">
           <p class="section-label">监控端</p>
-          <h3>监控看板区域占位</h3>
+          <h3>今日训练状态看板</h3>
           <p>{{ refreshHint }}</p>
         </div>
         <div class="overview-meta">
           <span class="meta-pill">日期：{{ monitorDateLabel }}</span>
           <span class="meta-pill">队伍：{{ monitorTeamLabel }}</span>
+          <span class="meta-pill">{{ refreshModeLabel }}</span>
         </div>
       </section>
 
-      <section class="board-grid">
-        <article v-for="section in boardSections" :key="section.id" class="panel board-card">
-          <p class="section-label">{{ section.title }}</p>
-          <strong>{{ section.description }}</strong>
-        </article>
+      <MonitoringSummaryCards :athletes="sortedAthletes" :loading="loading" />
+
+      <section class="dashboard-grid">
+        <MonitoringAthleteBoard
+          class="board-main"
+          :athletes="sortedAthletes"
+          :loading="loading"
+          @select-athlete="handleAthleteClick"
+        />
+        <MonitoringAlertPanel class="board-side" :athletes="sortedAthletes" :loading="loading" />
       </section>
     </div>
   </MonitorShell>
@@ -163,20 +258,15 @@ function formatMonitorDate(value: string) {
   font-weight: 700;
 }
 
-.board-grid {
+.dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
 }
 
-.board-card {
-  display: grid;
-  gap: 10px;
-  min-height: 180px;
-  align-content: start;
-  padding: 18px;
-  border: 1px dashed rgba(14, 116, 144, 0.24);
-  background: rgba(255, 255, 255, 0.72);
+.board-main,
+.board-side {
+  min-width: 0;
 }
 
 .refresh-btn {
@@ -192,7 +282,13 @@ function formatMonitorDate(value: string) {
     justify-items: flex-start;
   }
 
-  .board-grid {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1180px) {
+  .dashboard-grid {
     grid-template-columns: 1fr;
   }
 }

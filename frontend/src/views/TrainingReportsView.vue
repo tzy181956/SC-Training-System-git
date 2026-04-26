@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import { fetchAthletes } from '@/api/athletes'
 import { retryTrainingSyncIssue } from '@/api/sessions'
@@ -11,6 +12,7 @@ import TrainingSessionCard from '@/components/report/TrainingSessionCard.vue'
 import { getTrainingStatusLabel } from '@/constants/trainingStatus'
 import { todayString } from '@/utils/date'
 
+const route = useRoute()
 const athletes = ref<any[]>([])
 const loading = ref(false)
 const report = ref<any | null>(null)
@@ -24,9 +26,9 @@ let completionChart: echarts.ECharts | null = null
 const completedStatusLabel = getTrainingStatusLabel('completed')
 
 const filters = reactive({
-  athleteId: 0,
-  dateFrom: getDateBefore(29),
-  dateTo: todayString(),
+  athleteId: parseNumberQuery(route.query.athleteId),
+  dateFrom: parseStringQuery(route.query.dateFrom) || getDateBefore(29),
+  dateTo: parseStringQuery(route.query.dateTo) || todayString(),
   onlyIncomplete: false,
   onlyMainLift: false,
 })
@@ -133,6 +135,16 @@ function getDateBefore(days: number) {
   const month = String(current.getMonth() + 1).padStart(2, '0')
   const day = String(current.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function parseNumberQuery(value: unknown) {
+  if (typeof value !== 'string') return 0
+  const parsed = Number(value)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function parseStringQuery(value: unknown) {
+  return typeof value === 'string' ? value : ''
 }
 </script>
 

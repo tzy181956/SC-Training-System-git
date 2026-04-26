@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import TrainingShell from '@/components/layout/TrainingShell.vue'
 import TrainingDraftRestoreModal from '@/components/training/TrainingDraftRestoreModal.vue'
@@ -12,6 +12,7 @@ import { useTrainingStore } from '@/stores/training'
 import { todayString } from '@/utils/date'
 
 const router = useRouter()
+const route = useRoute()
 const trainingStore = useTrainingStore()
 const loading = ref(false)
 const restoreDraft = ref<any | null>(null)
@@ -44,7 +45,10 @@ const {
 })
 
 async function hydrate() {
-  if (!trainingStore.sessionDate) {
+  const requestedSessionDate = typeof route.query.sessionDate === 'string' ? route.query.sessionDate : ''
+  if (requestedSessionDate) {
+    trainingStore.sessionDate = requestedSessionDate
+  } else if (!trainingStore.sessionDate) {
     trainingStore.sessionDate = todayString()
   }
   await trainingStore.hydrateAthletes(trainingStore.sessionDate)

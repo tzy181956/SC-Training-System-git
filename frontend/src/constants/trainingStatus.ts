@@ -23,6 +23,9 @@ export type TrainingStatusTone = (typeof TRAINING_STATUS_TONES)[TrainingStatus]
 
 const TRAINING_STATUS_SET = new Set(Object.keys(TRAINING_STATUS_LABELS) as TrainingStatus[])
 const FINAL_TRAINING_STATUS_SET = new Set<TrainingStatus>(['completed', 'partial_complete', 'absent'])
+export const MONITORING_STATUS_LABEL_OVERRIDES: Partial<Record<TrainingStatus, string>> = {
+  partial_complete: '已结束未完成',
+}
 
 export function normalizeTrainingStatus(status?: string | null): TrainingStatus {
   if (status && TRAINING_STATUS_SET.has(status as TrainingStatus)) {

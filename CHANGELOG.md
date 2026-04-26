@@ -9,6 +9,16 @@
   - `frontend/src/components/layout/MonitorShell.vue`
   - `frontend/src/types/monitoring.ts`
   - `docs/monitoring-dashboard-design.md`
+- 新增监控端第一版只读数据链路与组件骨架：
+  - `backend/app/api/endpoints/monitoring.py`
+  - `backend/app/schemas/monitoring.py`
+  - `backend/app/services/monitoring_service.py`
+  - `frontend/src/api/monitoring.ts`
+  - `frontend/src/mocks/monitoringTodayMock.ts`
+  - `frontend/src/components/monitoring/MonitoringSummaryCards.vue`
+  - `frontend/src/components/monitoring/MonitoringAthleteBoard.vue`
+  - `frontend/src/components/monitoring/MonitoringAthleteCard.vue`
+  - `frontend/src/components/monitoring/MonitoringAlertPanel.vue`
 - 新增训练端与监控端共用的公共基础：
   - `frontend/src/composables/useTeamFilter.ts`
   - `frontend/src/constants/trainingStatus.ts`
@@ -31,6 +41,10 @@
 ### Changed
 
 - `auth` store、前端路由和管理端导航已预留 `monitor` 独立模式与 `/monitor` 入口，不再把监控端混入现有管理页或训练页。
+- `/api/monitoring/today` 已注册为监控端第一版只读接口，按日期、队伍和未分队参数聚合运动员、计划分配、训练课、组记录与同步异常。
+- `/api/monitoring/today` 的状态判断已按真实训练数据收紧：有效计划无记录为 `not_started`，有记录未完成为 `in_progress`，组数全部完成为 `completed`，手动结束未完成为 `partial_complete`，跨日缺席为 `absent`，无有效计划为 `no_plan`。
+- `MonitorDashboardView` 已从占位页改为监控端取数容器，页面展示拆到 monitoring 组件目录，并预留手动刷新以外的自动刷新状态。
+- 监控端运动员卡片已按同步异常、进行中、未开始、已结束未完成、缺席、已完成、无计划排序，并支持跳转到训练录入或训练报告页。
 - `TrainingModeView` 与 `TrainingSessionView` 已复用 `useTeamFilter`，统一队伍筛选、筛选后队员列表和选中队员同步逻辑。
 - `TrainingModeSidebar`、`TrainingSessionView`、`TrainingReportsView` 与 `TrainingSessionCard` 已开始复用集中训练状态文案和 tone，为后续监控端接口与看板共用状态显示打底。
 

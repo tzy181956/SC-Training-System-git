@@ -8,6 +8,7 @@ from app.api.endpoints import (
     exercise_categories,
     exercises,
     logs,
+    monitoring,
     plans,
     sessions,
     tags,
@@ -24,6 +25,7 @@ api_router.include_router(tags.router)
 api_router.include_router(exercises.router)
 api_router.include_router(exercise_categories.router)
 api_router.include_router(logs.router)
+api_router.include_router(monitoring.router)
 api_router.include_router(plans.router)
 api_router.include_router(assignments.router)
 api_router.include_router(sessions.router)

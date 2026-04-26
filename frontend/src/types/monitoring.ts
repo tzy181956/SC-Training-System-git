@@ -47,14 +47,16 @@ export type MonitoringTeamSummaryItem = {
   manual_retry_required_count: number
 }
 
+export type MonitoringTeamOption = {
+  team_id: number | null
+  team_name: string
+  athlete_count: number
+}
+
 export type MonitoringTodayResponse = {
   session_date: string
   updated_at: string | null
-  teams: Array<{
-    team_id: number | null
-    team_name: string
-    athlete_count: number
-  }>
+  teams: MonitoringTeamOption[]
   athletes: MonitoringAthleteCard[]
 }
 

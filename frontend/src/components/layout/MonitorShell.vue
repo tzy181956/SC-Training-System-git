@@ -24,7 +24,7 @@ function switchMode(mode: AppMode) {
       <div class="monitor-copy">
         <p class="monitor-eyebrow">监控端</p>
         <h1>训练现场监控</h1>
-        <p class="monitor-hint">当前页面仅预留模式、布局和基础筛选结构，后续再接监控接口与看板数据。</p>
+        <p class="monitor-hint">今日训练状态看板，优先显示同步异常、进行中和未开始队员。</p>
       </div>
 
       <div class="monitor-filters">
@@ -139,7 +139,7 @@ function switchMode(mode: AppMode) {
   display: grid;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1180px) {
   .monitor-shell {
     padding: 14px;
     gap: 14px;
