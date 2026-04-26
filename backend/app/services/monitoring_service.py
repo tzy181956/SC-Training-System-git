@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -20,6 +20,15 @@ from app.services import session_service
 
 
 FINAL_SESSION_STATUSES = {"completed", "partial_complete", "absent"}
+MONITORING_SYNC_ISSUE_STATUSES = {"manual_retry_required", "pending"}
+NOT_STARTED_ALERT_AFTER = timedelta(minutes=30)
+IN_PROGRESS_STALE_AFTER = timedelta(minutes=20)
+ALERT_LEVEL_PRIORITY = {
+    "none": 0,
+    "info": 1,
+    "warning": 2,
+    "critical": 3,
+}
 
 
 def get_today_monitoring(
@@ -27,9 +36,11 @@ def get_today_monitoring(
     session_date: date,
     team_id: int | None = None,
     include_unassigned: bool = True,
+    reference_time: datetime | None = None,
 ) -> dict:
     """Build the first read-only monitoring board payload for one training date."""
-    session_service.close_due_sessions(db)
+    monitor_now = _resolve_monitor_now(reference_time)
+    session_service.close_due_sessions(db, reference_time=monitor_now)
 
     all_active_athletes = _list_active_athletes(db)
     visible_athletes = _filter_athletes(all_active_athletes, team_id, include_unassigned)
@@ -37,10 +48,11 @@ def get_today_monitoring(
     assignments_by_athlete = _get_active_assignments_by_athlete(db, athlete_ids, session_date)
     sessions_by_assignment = _get_sessions_by_assignment(db, assignments_by_athlete, session_date)
     sync_issues_by_athlete = _get_sync_issues_by_athlete(db, athlete_ids, session_date)
+    training_started_at = _find_earliest_record_time(list(sessions_by_assignment.values()))
 
     return {
         "session_date": session_date,
-        "updated_at": datetime.now(timezone.utc),
+        "updated_at": monitor_now,
         "teams": _build_team_options(all_active_athletes),
         "athletes": [
             _build_athlete_card(
@@ -48,6 +60,8 @@ def get_today_monitoring(
                 assignments=assignments_by_athlete.get(athlete.id, []),
                 sessions_by_assignment=sessions_by_assignment,
                 sync_issues=sync_issues_by_athlete.get(athlete.id, []),
+                monitor_now=monitor_now,
+                training_started_at=training_started_at,
             )
             for athlete in visible_athletes
         ],
@@ -58,9 +72,11 @@ def get_athlete_monitoring_detail(
     db: Session,
     session_date: date,
     athlete_id: int,
+    reference_time: datetime | None = None,
 ) -> dict:
     """Build a read-only training detail payload for one athlete on one date."""
-    session_service.close_due_sessions(db)
+    monitor_now = _resolve_monitor_now(reference_time)
+    session_service.close_due_sessions(db, reference_time=monitor_now)
 
     athlete = (
         db.query(Athlete)
@@ -75,22 +91,27 @@ def get_athlete_monitoring_detail(
     assignments = assignments_by_athlete.get(athlete_id, [])
     sessions_by_assignment = _get_sessions_by_assignment(db, assignments_by_athlete, session_date)
     sync_issues = _get_sync_issues_by_athlete(db, [athlete_id], session_date).get(athlete_id, [])
+    training_started_at = _get_team_training_started_at(db, session_date, athlete.team_id)
     athlete_card = _build_athlete_card(
         athlete=athlete,
         assignments=assignments,
         sessions_by_assignment=sessions_by_assignment,
         sync_issues=sync_issues,
+        monitor_now=monitor_now,
+        training_started_at=training_started_at,
     )
 
     return {
         "session_date": session_date,
-        "updated_at": datetime.now(timezone.utc),
+        "updated_at": monitor_now,
         "athlete_id": athlete.id,
         "athlete_name": athlete.full_name,
         "team_id": athlete.team_id,
         "team_name": athlete.team.name if athlete.team else None,
         "session_status": athlete_card["session_status"],
         "sync_status": athlete_card["sync_status"],
+        "alert_level": athlete_card["alert_level"],
+        "alert_reasons": athlete_card["alert_reasons"],
         "has_alert": athlete_card["has_alert"],
         "assignments": [
             _build_assignment_detail(assignment, sessions_by_assignment.get(assignment.id))
@@ -217,7 +238,7 @@ def _get_sync_issues_by_athlete(
         .filter(
             TrainingSyncIssue.athlete_id.in_(athlete_ids),
             TrainingSyncIssue.session_date == session_date,
-            TrainingSyncIssue.issue_status == "manual_retry_required",
+            TrainingSyncIssue.issue_status.in_(tuple(MONITORING_SYNC_ISSUE_STATUSES)),
         )
         .order_by(TrainingSyncIssue.updated_at.desc(), TrainingSyncIssue.id.desc())
         .all()
@@ -234,12 +255,25 @@ def _build_athlete_card(
     assignments: list[AthletePlanAssignment],
     sessions_by_assignment: dict[int, TrainingSession],
     sync_issues: list[TrainingSyncIssue],
+    monitor_now: datetime,
+    training_started_at: datetime | None,
 ) -> dict:
     sessions = [sessions_by_assignment[assignment.id] for assignment in assignments if assignment.id in sessions_by_assignment]
     latest_record = _find_latest_record(sessions)
+    latest_main_lift_record = _find_latest_main_lift_record(sessions)
     totals = _build_progress_totals(assignments, sessions_by_assignment)
     session_status = _resolve_athlete_status(assignments, sessions_by_assignment, totals)
     primary_session = _choose_primary_session(sessions)
+    sync_status = _resolve_sync_status(sync_issues)
+    alert_summary = _build_alert_summary(
+        sync_status=sync_status,
+        session_status=session_status,
+        totals=totals,
+        latest_record=latest_record,
+        latest_main_lift_record=latest_main_lift_record,
+        monitor_now=monitor_now,
+        training_started_at=training_started_at,
+    )
 
     return {
         "athlete_id": athlete.id,
@@ -248,7 +282,7 @@ def _build_athlete_card(
         "team_name": athlete.team.name if athlete.team else None,
         "session_id": primary_session.id if primary_session else None,
         "session_status": session_status,
-        "sync_status": "manual_retry_required" if sync_issues else "synced",
+        "sync_status": sync_status,
         "current_exercise_name": _resolve_current_exercise(
             assignments,
             sessions_by_assignment,
@@ -260,8 +294,84 @@ def _build_athlete_card(
         "completed_sets": totals["completed_sets"],
         "total_sets": totals["total_sets"],
         "latest_set": _serialize_latest_record(latest_record),
-        "has_alert": bool(sync_issues) or session_status in {"partial_complete", "absent"},
+        "alert_level": alert_summary["alert_level"],
+        "alert_reasons": alert_summary["alert_reasons"],
+        "has_alert": alert_summary["alert_level"] != "none",
     }
+
+
+def _resolve_sync_status(sync_issues: list[TrainingSyncIssue]) -> str:
+    statuses = {issue.issue_status for issue in sync_issues}
+    if "manual_retry_required" in statuses:
+        return "manual_retry_required"
+    if "pending" in statuses:
+        return "pending"
+    return "synced"
+
+
+def _build_alert_summary(
+    *,
+    sync_status: str,
+    session_status: str,
+    totals: dict[str, int],
+    latest_record: SetRecord | None,
+    latest_main_lift_record: SetRecord | None,
+    monitor_now: datetime,
+    training_started_at: datetime | None,
+) -> dict:
+    alerts: list[tuple[str, str]] = []
+
+    if sync_status == "manual_retry_required":
+        alerts.append(("critical", "同步异常待处理"))
+    elif sync_status == "pending":
+        alerts.append(("warning", "本地数据待同步"))
+
+    if session_status == "partial_complete":
+        alerts.append(("warning", "已结束未完成"))
+    elif session_status == "absent":
+        alerts.append(("warning", "缺席"))
+
+    if session_status == "not_started" and _is_not_started_timed_out(training_started_at, monitor_now):
+        alerts.append(("warning", "超过训练开始后 30 分钟仍未开始"))
+
+    if session_status == "in_progress" and _is_in_progress_stale(latest_record, monitor_now):
+        alerts.append(("warning", "最近一组距离当前时间超过 20 分钟"))
+
+    if latest_record and latest_record.actual_rir <= 0:
+        alerts.append(("warning", "最近一组 RIR <= 0"))
+
+    if latest_main_lift_record and latest_main_lift_record.actual_rir >= 4:
+        alerts.append(("info", "主项最近一组 RIR >= 4"))
+
+    if totals["completed_sets"] > totals["total_sets"]:
+        alerts.append(("warning", "完成组数 > 总组数"))
+
+    alert_level = "none"
+    alert_reasons: list[str] = []
+    seen_reasons: set[str] = set()
+    for level, reason in alerts:
+        if ALERT_LEVEL_PRIORITY[level] > ALERT_LEVEL_PRIORITY[alert_level]:
+            alert_level = level
+        if reason not in seen_reasons:
+            alert_reasons.append(reason)
+            seen_reasons.add(reason)
+
+    return {
+        "alert_level": alert_level,
+        "alert_reasons": alert_reasons,
+    }
+
+
+def _is_not_started_timed_out(training_started_at: datetime | None, monitor_now: datetime) -> bool:
+    if training_started_at is None:
+        return False
+    return monitor_now - _ensure_aware_utc(training_started_at) > NOT_STARTED_ALERT_AFTER
+
+
+def _is_in_progress_stale(latest_record: SetRecord | None, monitor_now: datetime) -> bool:
+    if latest_record is None:
+        return False
+    return monitor_now - _ensure_aware_utc(latest_record.completed_at) > IN_PROGRESS_STALE_AFTER
 
 
 def _resolve_athlete_status(
@@ -353,6 +463,30 @@ def _session_is_fully_completed(session: TrainingSession) -> bool:
     if sum(item.prescribed_sets for item in session.items) <= 0:
         return False
     return all(len(item.records) >= item.prescribed_sets for item in session.items)
+
+
+def _get_team_training_started_at(
+    db: Session,
+    session_date: date,
+    team_id: int | None,
+) -> datetime | None:
+    query = (
+        db.query(SetRecord.completed_at)
+        .join(TrainingSessionItem, SetRecord.session_item_id == TrainingSessionItem.id)
+        .join(TrainingSession, TrainingSessionItem.session_id == TrainingSession.id)
+        .join(Athlete, TrainingSession.athlete_id == Athlete.id)
+        .filter(
+            TrainingSession.session_date == session_date,
+            Athlete.is_active.is_(True),
+        )
+    )
+    if team_id is None:
+        query = query.filter(Athlete.team_id.is_(None))
+    else:
+        query = query.filter(Athlete.team_id == team_id)
+
+    first_record = query.order_by(SetRecord.completed_at.asc(), SetRecord.id.asc()).first()
+    return first_record[0] if first_record else None
 
 
 def _build_progress_totals(
@@ -475,7 +609,43 @@ def _find_latest_record(sessions: list[TrainingSession]) -> SetRecord | None:
     records = [record for session in sessions for item in session.items for record in item.records]
     if not records:
         return None
-    return max(records, key=lambda record: (record.completed_at, record.id))
+    return max(records, key=_record_sort_key)
+
+
+def _find_latest_main_lift_record(sessions: list[TrainingSession]) -> SetRecord | None:
+    records = [
+        record
+        for session in sessions
+        for item in session.items
+        if item.is_main_lift
+        for record in item.records
+    ]
+    if not records:
+        return None
+    return max(records, key=_record_sort_key)
+
+
+def _find_earliest_record_time(sessions: list[TrainingSession]) -> datetime | None:
+    records = [record for session in sessions for item in session.items for record in item.records]
+    if not records:
+        return None
+    return min(_ensure_aware_utc(record.completed_at) for record in records)
+
+
+def _record_sort_key(record: SetRecord) -> tuple[datetime, int]:
+    return (_ensure_aware_utc(record.completed_at), record.id)
+
+
+def _resolve_monitor_now(reference_time: datetime | None = None) -> datetime:
+    if reference_time is None:
+        return datetime.now(timezone.utc)
+    return _ensure_aware_utc(reference_time)
+
+
+def _ensure_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _resolve_current_exercise(

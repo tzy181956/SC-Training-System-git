@@ -23,6 +23,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 7,
       total_sets: 15,
       latest_set: { actual_weight: 110, actual_reps: 5, actual_rir: 2, completed_at: '2026-04-26T10:21:00+08:00' },
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
     {
@@ -39,6 +41,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 15,
       total_sets: 15,
       latest_set: { actual_weight: 80, actual_reps: 5, actual_rir: 1, completed_at: '2026-04-26T10:18:00+08:00' },
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
     {
@@ -55,6 +59,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 0,
       total_sets: 12,
       latest_set: null,
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
     {
@@ -71,6 +77,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 9,
       total_sets: 15,
       latest_set: { actual_weight: 45, actual_reps: 8, actual_rir: 3, completed_at: '2026-04-26T09:58:00+08:00' },
+      alert_level: 'warning',
+      alert_reasons: ['已结束未完成'],
       has_alert: true,
     },
     {
@@ -87,6 +95,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 0,
       total_sets: 15,
       latest_set: null,
+      alert_level: 'warning',
+      alert_reasons: ['缺席'],
       has_alert: true,
     },
     {
@@ -103,6 +113,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 4,
       total_sets: 15,
       latest_set: { actual_weight: 70, actual_reps: 3, actual_rir: 2, completed_at: '2026-04-26T10:25:00+08:00' },
+      alert_level: 'critical',
+      alert_reasons: ['同步异常待处理'],
       has_alert: true,
     },
     {
@@ -119,6 +131,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 0,
       total_sets: 0,
       latest_set: null,
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
     {
@@ -135,6 +149,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 0,
       total_sets: 12,
       latest_set: null,
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
     {
@@ -151,6 +167,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 12,
       total_sets: 12,
       latest_set: { actual_weight: 55, actual_reps: 6, actual_rir: 2, completed_at: '2026-04-26T10:05:00+08:00' },
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
     {
@@ -167,6 +185,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 6,
       total_sets: 12,
       latest_set: { actual_weight: 65, actual_reps: 8, actual_rir: 2, completed_at: '2026-04-26T10:16:00+08:00' },
+      alert_level: 'warning',
+      alert_reasons: ['本地数据待同步'],
       has_alert: true,
     },
     {
@@ -183,6 +203,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 0,
       total_sets: 9,
       latest_set: null,
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
     {
@@ -199,6 +221,8 @@ export const monitoringTodayMock: MonitoringTodayResponse = {
       completed_sets: 0,
       total_sets: 0,
       latest_set: null,
+      alert_level: 'none',
+      alert_reasons: [],
       has_alert: false,
     },
   ],

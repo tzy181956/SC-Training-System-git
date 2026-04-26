@@ -9,9 +9,16 @@ const ATHLETE_STATUS_SORT_PRIORITY: Record<string, number> = {
   no_plan: 6,
 }
 
+const ALERT_LEVEL_SORT_PRIORITY: Record<string, number> = {
+  critical: 0,
+  warning: 1,
+  info: 2,
+  none: 3,
+}
+
 function getAthleteSortPriority(athlete: MonitoringAthleteCard) {
-  if (athlete.sync_status === 'manual_retry_required') return 0
-  return ATHLETE_STATUS_SORT_PRIORITY[athlete.session_status] ?? 99
+  const alertPriority = ALERT_LEVEL_SORT_PRIORITY[athlete.alert_level] ?? ALERT_LEVEL_SORT_PRIORITY.none
+  return alertPriority * 10 + (ATHLETE_STATUS_SORT_PRIORITY[athlete.session_status] ?? 9)
 }
 
 export function sortMonitoringAthletes<T extends MonitoringAthleteCard>(athletes: readonly T[]) {

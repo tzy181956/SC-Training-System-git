@@ -1,11 +1,12 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 MonitoringSessionStatus = Literal["no_plan", "not_started", "in_progress", "completed", "partial_complete", "absent"]
 MonitoringSyncStatus = Literal["synced", "pending", "manual_retry_required"]
+MonitoringAlertLevel = Literal["none", "info", "warning", "critical"]
 
 
 class MonitoringLatestSetRead(BaseModel):
@@ -35,6 +36,8 @@ class MonitoringAthleteCardRead(BaseModel):
     completed_sets: int
     total_sets: int
     latest_set: MonitoringLatestSetRead | None = None
+    alert_level: MonitoringAlertLevel = "none"
+    alert_reasons: list[str] = Field(default_factory=list)
     has_alert: bool
 
 
@@ -94,5 +97,7 @@ class MonitoringAthleteDetailRead(BaseModel):
     team_name: str | None = None
     session_status: MonitoringSessionStatus
     sync_status: MonitoringSyncStatus
+    alert_level: MonitoringAlertLevel = "none"
+    alert_reasons: list[str] = Field(default_factory=list)
     has_alert: bool
     assignments: list[MonitoringAssignmentDetailRead]

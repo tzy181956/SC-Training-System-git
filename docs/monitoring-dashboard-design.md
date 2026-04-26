@@ -94,6 +94,10 @@
         "actual_rir": 2,
         "completed_at": "2026-04-26T10:20:02+08:00"
       },
+      "alert_level": "warning",
+      "alert_reasons": [
+        "本地数据待同步"
+      ],
       "has_alert": true
     }
   ]
@@ -110,6 +114,19 @@
 - 所有当天有效计划都已最终收口为 `absent`：`absent`
 - 同一运动员当天多份 active assignment 会合并计算 `completed_sets / total_sets` 和 `completed_items / total_items`
 - 没有 session 的 assignment 仍计入 `total_sets` 和 `total_items`，避免一份已完成计划掩盖另一份未开始计划
+
+异常提醒规则：
+
+- `manual_retry_required`：`critical`，同步异常待处理
+- `pending`：`warning`，本地数据待同步
+- `partial_complete`：`warning`，已结束未完成
+- `absent`：`warning`，缺席
+- `not_started` 且训练开始超过 30 分钟仍未开始：`warning`
+- `in_progress` 且最近一组距离当前时间超过 20 分钟：`warning`
+- 最新一组 `RIR <= 0`：`warning`
+- 主项最近一组 `RIR >= 4`：`info`
+- `completed_sets > total_sets`：`warning`
+- `has_alert` 兼容旧前端，当前等价于 `alert_level != "none"`
 
 ### GET `/api/monitoring/team-summary`
 
@@ -172,6 +189,8 @@
   "team_name": "一队",
   "session_status": "in_progress",
   "sync_status": "synced",
+  "alert_level": "none",
+  "alert_reasons": [],
   "has_alert": false,
   "assignments": [
     {
@@ -238,6 +257,8 @@
 - `latest_set.actual_reps`
 - `latest_set.actual_rir`
 - `latest_set.completed_at`
+- `alert_level`
+- `alert_reasons`
 - `has_alert`
 - `updated_at`
 
@@ -245,6 +266,7 @@
 
 - `session_status` 在后端 schema 中收紧为 `no_plan / not_started / in_progress / completed / partial_complete / absent`
 - `sync_status` 在后端 schema 中收紧为 `synced / pending / manual_retry_required`
+- `alert_level` 在后端 schema 中收紧为 `none / info / warning / critical`
 - API 返回字段结构保持不变，类型约束用于防止监控端状态字符串继续发散
 
 ## 6. 第一版明确不做
@@ -273,7 +295,7 @@
 - `MonitoringAthleteBoard.vue`：负责运动员看板容器
 - `MonitoringAthleteCard.vue`：负责单个运动员状态卡片
 - `MonitoringAthleteDetailOverlay.vue`：负责当前页居中大卡片详情覆盖层
-- `MonitoringAlertPanel.vue`：负责同步异常和未完成提醒
+- `MonitoringAlertPanel.vue`：负责同步异常、未完成和现场过程异常提醒
 
 刷新策略：
 
@@ -288,7 +310,9 @@
 
 运动员卡片排序：
 
-- 同步异常 `manual_retry_required`
+- `alert_level = critical`
+- `alert_level = warning`
+- `alert_level = info`
 - `in_progress`
 - `not_started`
 - `partial_complete`
@@ -339,6 +363,12 @@
 - `partial_complete`
 - `absent`
 - `manual_retry_required`
+- `pending`
+- `not_started` 超时
+- `in_progress` 长时间未更新
+- 最近一组 `RIR <= 0`
+- 主项最近一组 `RIR >= 4`
+- 实际组数超过计划组数
 - 同日多计划：一份计划已完成，另一份计划未开始，整体预期不能显示为 `completed`
 
 脚本验证：
@@ -348,6 +378,7 @@
 - `completed_sets / total_sets`
 - `completed_items / total_items`
 - `latest_set`
+- `alert_level / alert_reasons`
 - `MonitoringTodayRead` schema 结构
 
 统一验收：

@@ -1363,3 +1363,22 @@ API route 不要堆太多业务判断。
 - 建议下一步：
 
 不要假装已经修好。
+
+---
+
+## 40. Windows 环境搜索工具规则
+
+Windows environment note:
+`rg.exe` may be blocked by Windows security policy in this environment.
+If `rg` fails with `EPERM` / `Access denied` / `permission denied`, do not retry `rg` repeatedly.
+Immediately fall back to `git grep`, PowerShell `Get-ChildItem` + `Select-String`, or Python `pathlib` search.
+Never let `rg` failure block coding, review, testing, or documentation updates.
+
+当前仓库在 Windows 本地环境运行，项目路径可能位于 `Documents`、OneDrive 或用户目录下。
+代码搜索优先使用 `rg`；如果 `rg` 被系统拒绝执行，必须立即降级到以下可用方案：
+
+- `git grep "关键词"`
+- `Get-ChildItem -Recurse -File | Select-String -Pattern "关键词"`
+- Python `pathlib` 递归读取文本文件
+
+不要把 `rg.exe` 失败误判为前端、后端、数据库或业务代码问题。

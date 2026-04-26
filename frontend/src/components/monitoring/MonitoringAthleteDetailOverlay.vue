@@ -7,6 +7,7 @@ import {
   MONITORING_STATUS_LABEL_OVERRIDES,
 } from '@/constants/trainingStatus'
 import type {
+  MonitoringAlertLevel,
   MonitoringAssignmentDetail,
   MonitoringAthleteCard,
   MonitoringAthleteDetailResponse,
@@ -34,6 +35,7 @@ const shouldShow = computed(() => props.visible && props.athlete !== null)
 const displayAthlete = computed(() => props.detail || props.athlete)
 const sessionStatus = computed(() => displayAthlete.value?.session_status || 'no_plan')
 const syncStatus = computed(() => displayAthlete.value?.sync_status || 'synced')
+const alertLevel = computed<MonitoringAlertLevel>(() => props.detail?.alert_level ?? props.athlete?.alert_level ?? 'none')
 const statusTone = computed(() => getTrainingStatusTone(sessionStatus.value))
 const statusLabel = computed(() => getTrainingStatusLabel(sessionStatus.value, MONITORING_STATUS_LABEL_OVERRIDES))
 const syncLabel = computed(() => {
@@ -41,6 +43,12 @@ const syncLabel = computed(() => {
   if (syncStatus.value === 'pending') return '待同步'
   return '已同步'
 })
+const alertLevelLabels: Record<MonitoringAlertLevel, string> = {
+  none: '',
+  info: '提示',
+  warning: '警告',
+  critical: '关键',
+}
 const canOpenSession = computed(() => {
   if (props.detail) {
     return props.detail.assignments.some((assignment) => assignment.session_id !== null)
@@ -52,10 +60,12 @@ const totalItems = computed(() => props.detail?.assignments.reduce((sum, assignm
 const totalCompletedSets = computed(() => props.detail?.assignments.reduce((sum, assignment) => sum + assignment.completed_sets, 0) ?? props.athlete?.completed_sets ?? 0)
 const totalSets = computed(() => props.detail?.assignments.reduce((sum, assignment) => sum + assignment.total_sets, 0) ?? props.athlete?.total_sets ?? 0)
 const alertMessages = computed(() => {
+  const reasons = props.detail?.alert_reasons?.length ? props.detail.alert_reasons : props.athlete?.alert_reasons ?? []
+  if (reasons.length) return reasons
+
   const messages: string[] = []
-  if (sessionStatus.value === 'no_plan') messages.push('该队员当天无有效训练计划。')
-  if (sessionStatus.value === 'not_started') messages.push('该队员当天有训练计划，但尚未开始记录。')
   if (syncStatus.value === 'manual_retry_required') messages.push('同步异常待处理。')
+  if (syncStatus.value === 'pending') messages.push('本地数据待同步。')
   if (sessionStatus.value === 'partial_complete') messages.push('已结束未完成，需要课后确认。')
   if (sessionStatus.value === 'absent') messages.push('缺席。')
   return messages
@@ -155,6 +165,9 @@ onBeforeUnmount(() => {
           <span>{{ displayAthlete?.team_name || '未分队' }}</span>
         </div>
         <div class="status-stack">
+          <span v-if="alertLevel !== 'none'" class="alert-pill" :class="alertLevel">
+            {{ alertLevelLabels[alertLevel] }}
+          </span>
           <span class="status-pill" :class="statusTone">{{ statusLabel }}</span>
           <span class="sync-pill" :class="syncStatus">{{ syncLabel }}</span>
         </div>
@@ -357,6 +370,7 @@ onBeforeUnmount(() => {
 
 .status-pill,
 .sync-pill,
+.alert-pill,
 .alert-list span,
 .main-lift-pill {
   display: inline-flex;
@@ -399,6 +413,21 @@ onBeforeUnmount(() => {
 .sync-pill.pending {
   background: #fef3c7;
   color: #92400e;
+}
+
+.alert-pill.info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.alert-pill.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.alert-pill.critical {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .metric-grid {

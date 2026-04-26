@@ -4,7 +4,7 @@ import {
   getTrainingStatusTone,
   MONITORING_STATUS_LABEL_OVERRIDES,
 } from '@/constants/trainingStatus'
-import type { MonitoringAthleteCard } from '@/types/monitoring'
+import type { MonitoringAlertLevel, MonitoringAthleteCard } from '@/types/monitoring'
 
 const props = defineProps<{
   athlete: MonitoringAthleteCard
@@ -30,6 +30,13 @@ function syncLabel() {
   return '已同步'
 }
 
+const alertLevelLabels: Record<MonitoringAlertLevel, string> = {
+  none: '',
+  info: '提示',
+  warning: '警告',
+  critical: '关键',
+}
+
 function statusLabel() {
   return getTrainingStatusLabel(props.athlete.session_status, MONITORING_STATUS_LABEL_OVERRIDES)
 }
@@ -40,7 +47,7 @@ function statusTone() {
 </script>
 
 <template>
-  <button class="athlete-card" :class="[statusTone(), { alert: athlete.has_alert }]" type="button" @click="emit('select')">
+  <button class="athlete-card" :class="[statusTone(), athlete.alert_level, { alert: athlete.has_alert }]" type="button" @click="emit('select')">
     <div class="card-head">
       <div class="athlete-copy adaptive-card">
         <strong class="adaptive-card-title">{{ athlete.athlete_name }}</strong>
@@ -61,7 +68,12 @@ function statusTone() {
 
     <div class="card-foot">
       <span class="latest-set">{{ latestSetText() }}</span>
-      <span class="sync-pill" :class="athlete.sync_status">{{ syncLabel() }}</span>
+      <div class="pill-row">
+        <span v-if="athlete.alert_level !== 'none'" class="alert-pill" :class="athlete.alert_level">
+          {{ alertLevelLabels[athlete.alert_level] }}
+        </span>
+        <span class="sync-pill" :class="athlete.sync_status">{{ syncLabel() }}</span>
+      </div>
     </div>
   </button>
 </template>
@@ -95,6 +107,18 @@ function statusTone() {
   border-color: rgba(185, 28, 28, 0.32);
 }
 
+.athlete-card.alert.info {
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.athlete-card.alert.warning {
+  border-color: rgba(217, 119, 6, 0.34);
+}
+
+.athlete-card.alert.critical {
+  border-color: rgba(185, 28, 28, 0.42);
+}
+
 .card-head,
 .card-foot,
 .exercise-line {
@@ -112,7 +136,8 @@ function statusTone() {
 }
 
 .status-pill,
-.sync-pill {
+.sync-pill,
+.alert-pill {
   flex-shrink: 0;
   padding: 5px 9px;
   border-radius: 999px;
@@ -192,6 +217,28 @@ function statusTone() {
 }
 
 .sync-pill.manual_retry_required {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.pill-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.alert-pill.info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.alert-pill.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.alert-pill.critical {
   background: #fee2e2;
   color: #b91c1c;
 }

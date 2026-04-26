@@ -1,6 +1,7 @@
 import type { TrainingStatus } from '@/constants/trainingStatus'
 
 export type MonitoringSyncStatus = 'synced' | 'pending' | 'manual_retry_required'
+export type MonitoringAlertLevel = 'none' | 'info' | 'warning' | 'critical'
 
 export type MonitoringBoardSectionId = 'team-summary' | 'athlete-board' | 'sync-alerts'
 
@@ -71,6 +72,8 @@ export type MonitoringAthleteCard = {
   completed_sets: number
   total_sets: number
   latest_set: MonitoringLatestSetSnapshot | null
+  alert_level: MonitoringAlertLevel
+  alert_reasons: string[]
   has_alert: boolean
 }
 
@@ -109,6 +112,8 @@ export type MonitoringAthleteDetailResponse = {
   team_name: string | null
   session_status: TrainingStatus
   sync_status: MonitoringSyncStatus
+  alert_level: MonitoringAlertLevel
+  alert_reasons: string[]
   has_alert: boolean
   assignments: MonitoringAssignmentDetail[]
 }
