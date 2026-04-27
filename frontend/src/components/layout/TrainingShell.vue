@@ -1,17 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useSlots } from 'vue'
-import { useRouter } from 'vue-router'
 
 import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
+import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 import RuntimeAccessCard from '@/components/layout/RuntimeAccessCard.vue'
-import TrainingViewportDebug from '@/components/layout/TrainingViewportDebug.vue'
 import '@/components/training/trainingLayout.css'
-import { useAuthStore } from '@/stores/auth'
 
-const router = useRouter()
 const slots = useSlots()
-const authStore = useAuthStore()
-const isDev = import.meta.env.DEV
 const runtimeAccess = ref<RuntimeAccessInfo>({
   accessUrl: new URL('/', window.location.origin).toString(),
   host: window.location.hostname,
@@ -21,14 +16,6 @@ const runtimeAccess = ref<RuntimeAccessInfo>({
 })
 
 const hasHeaderFilters = computed(() => !!slots['header-filters'])
-const switchLabel = computed(() => (authStore.isTrainingMode ? '切到管理' : '切到训练'))
-const modeLabel = computed(() => (authStore.isTrainingMode ? '训练模式' : '管理模式'))
-
-function switchMode() {
-  const nextMode = authStore.isTrainingMode ? 'management' : 'training'
-  authStore.setMode(nextMode)
-  router.push(nextMode === 'management' ? { name: 'dashboard' } : { name: 'training-mode' })
-}
 
 onMounted(async () => {
   runtimeAccess.value = await fetchRuntimeAccessInfo()
@@ -52,8 +39,7 @@ onMounted(async () => {
 
       <div class="topbar-actions">
         <RuntimeAccessCard class="topbar-action secondary-action" :info="runtimeAccess" />
-        <span class="mode-pill secondary-action">{{ modeLabel }}</span>
-        <button class="primary-btn switch-btn topbar-primary-action" type="button" @click="switchMode">{{ switchLabel }}</button>
+        <AppModeSwitch class="mode-switcher" />
       </div>
     </header>
 
@@ -62,8 +48,6 @@ onMounted(async () => {
         <slot />
       </div>
     </main>
-
-    <TrainingViewportDebug v-if="isDev" />
   </div>
 </template>
 
@@ -143,7 +127,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
   min-width: 0;
   flex-wrap: nowrap;
@@ -151,26 +135,7 @@ onMounted(async () => {
   justify-self: end;
 }
 
-.mode-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--panel-soft);
-  color: var(--text);
-  font-size: 0.82rem;
-  font-weight: 700;
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-
-.switch-btn {
-  min-height: 34px;
-  padding: 0 10px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  white-space: nowrap;
+.topbar-actions :deep(.mode-switch) {
   flex: 0 0 auto;
 }
 
@@ -204,27 +169,6 @@ onMounted(async () => {
   .topbar-actions {
     gap: 6px;
   }
-
-  .mode-pill {
-    min-height: 32px;
-    max-width: 64px;
-    padding: 0 10px;
-    font-size: 0.78rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .switch-btn {
-    min-height: 32px;
-    padding: 0 8px;
-    font-size: 0.8rem;
-  }
-}
-
-@media (min-width: 768px) and (max-width: 1120px) {
-  .topbar-actions .mode-pill {
-    display: none;
-  }
 }
 
 @media (min-width: 768px) and (max-width: 1050px) {
@@ -242,13 +186,6 @@ onMounted(async () => {
     min-height: 32px;
     padding: 0 8px;
     font-size: 0.78rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .switch-btn {
-    max-width: 58px;
-    padding: 0 8px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -284,7 +221,7 @@ onMounted(async () => {
   }
 
   .topbar-actions {
-    justify-content: space-between;
+    justify-content: flex-start;
     flex-wrap: wrap;
   }
 
@@ -292,5 +229,4 @@ onMounted(async () => {
     overflow: visible;
   }
 }
-
 </style>

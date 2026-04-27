@@ -55,6 +55,10 @@
 
 ### Changed
 
+- Removed the training-mode bottom-right `Training Layout Debug` overlay from `frontend/src/components/layout/TrainingShell.vue`, and deleted the unused `TrainingViewportDebug` component.
+- Removed the redundant `监控端` entry from the management sidebar, keeping mode switching unified through the shared top-right three-segment switcher.
+- Unified the training, management, and monitoring mode entry switchers into the same three-segment top-right control, reusing the monitoring-style pill switch across all three shells.
+- Tightened the training `Session RPE` modal by collapsing the feedback textarea to a single-line visual footprint, enlarging the selected `RPE X/10` number display, and scaling the core controls up for easier iPad use.
 - Session RPE scale buttons in the training modal now use per-value color styling across 0-10, so the clickable row matches the slider and headline color feedback.
 - Session RPE copy/display is now centralized in `frontend/src/constants/sessionRpe.ts`, and the same 0-10 label/help mapping is reused by the training modal, training summary bar, monitoring views, and training report.
 - `AGENTS.md` 已补充前端视觉验收硬约束：凡涉及 UI、布局、响应式或样式修改，必须启动项目并用真实浏览器或 Playwright 做修改前后视觉检查，不能只靠读代码或 `npm run build` 判断效果。

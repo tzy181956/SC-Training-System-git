@@ -31,7 +31,7 @@ const sliderValue = computed(() => selectedRpe.value ?? 0)
 const selectedTheme = computed(() => getSessionRpeColorTheme(selectedRpe.value))
 const selectedLabel = computed(() => getSessionRpeLabel(selectedRpe.value, '请选择 RPE'))
 const selectedHelp = computed(() => getSessionRpeHelp(selectedRpe.value, '选择本次训练的整体主观用力程度'))
-const selectedScoreText = computed(() => (selectedRpe.value == null ? 'RPE --/10' : `RPE ${selectedRpe.value}/10`))
+const selectedScoreValue = computed(() => (selectedRpe.value == null ? '--' : String(selectedRpe.value)))
 const themeStyle = computed<CSSProperties>(() => ({
   '--session-rpe-accent': selectedTheme.value.accent,
   '--session-rpe-accent-soft': selectedTheme.value.softBackground,
@@ -126,7 +126,11 @@ function submitFeedback() {
       </header>
 
       <section class="rpe-display-panel">
-        <span class="rpe-score-chip" :class="{ empty: !hasSelectedRpe }">{{ selectedScoreText }}</span>
+        <div class="rpe-score-chip" :class="{ empty: !hasSelectedRpe }" aria-live="polite">
+          <span class="rpe-score-prefix">RPE</span>
+          <strong class="rpe-score-value">{{ selectedScoreValue }}</strong>
+          <span class="rpe-score-suffix">/10</span>
+        </div>
         <strong class="rpe-headline" :class="{ empty: !hasSelectedRpe }">{{ selectedLabel }}</strong>
         <p class="rpe-help" :class="{ empty: !hasSelectedRpe }">{{ selectedHelp }}</p>
         <button class="secondary-btn manual-trigger" type="button" @click="openManualInput">手动输入</button>
@@ -184,7 +188,7 @@ function submitFeedback() {
           <textarea
             v-model="feedbackText"
             class="text-input feedback-textarea"
-            rows="4"
+            rows="1"
             placeholder="例如：腿部疲劳明显、状态不错、膝盖不舒服"
           />
         </label>
@@ -225,13 +229,13 @@ function submitFeedback() {
   --session-rpe-accent-border: rgba(148, 163, 184, 0.28);
   --session-rpe-accent-surface: rgba(148, 163, 184, 0.06);
   --session-rpe-accent-shadow: rgba(148, 163, 184, 0.12);
-  width: min(760px, calc(100vw - 32px));
+  width: min(840px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
   display: grid;
-  gap: 18px;
-  padding: 24px;
-  border-radius: 24px;
+  gap: 22px;
+  padding: 28px;
+  border-radius: 28px;
   background: white;
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.32);
 }
@@ -242,7 +246,7 @@ function submitFeedback() {
 .slider-panel,
 .feedback-panel {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .modal-eyebrow,
@@ -255,14 +259,15 @@ function submitFeedback() {
 
 .modal-head h2 {
   margin: 0;
-  font-size: clamp(1.7rem, 2.4vw, 2.25rem);
+  font-size: clamp(1.9rem, 2.6vw, 2.5rem);
   line-height: 1.08;
 }
 
 .rpe-display-panel {
   justify-items: center;
-  padding: 18px;
-  border-radius: 18px;
+  gap: 14px;
+  padding: 24px 24px 22px;
+  border-radius: 22px;
   border: 1px solid var(--session-rpe-accent-border);
   background: linear-gradient(180deg, var(--session-rpe-accent-surface), rgba(248, 250, 252, 0.9));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
@@ -277,19 +282,33 @@ function submitFeedback() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  padding: 0 12px;
+  gap: 10px;
+  min-height: 76px;
+  padding: 10px 18px;
   border-radius: 999px;
   border: 1px solid var(--session-rpe-accent-border);
   background: var(--session-rpe-accent-soft);
   color: var(--session-rpe-accent);
-  font-size: 0.95rem;
-  line-height: 1.1;
+  line-height: 1;
   font-weight: 700;
   transition:
     color 0.2s ease,
     border-color 0.2s ease,
     background-color 0.2s ease;
+}
+
+.rpe-score-prefix,
+.rpe-score-suffix {
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.rpe-score-value {
+  min-width: 1.3ch;
+  font-size: clamp(3.9rem, 8vw, 5.4rem);
+  font-weight: 900;
+  letter-spacing: -0.04em;
 }
 
 .rpe-score-chip.empty {
@@ -300,7 +319,7 @@ function submitFeedback() {
 
 .rpe-headline {
   max-width: 100%;
-  font-size: clamp(2.25rem, 4.8vw, 3.4rem);
+  font-size: clamp(2.55rem, 5.2vw, 3.85rem);
   line-height: 1.08;
   font-weight: 900;
   color: var(--session-rpe-accent);
@@ -315,11 +334,11 @@ function submitFeedback() {
 }
 
 .rpe-help {
-  max-width: 520px;
+  max-width: 620px;
   margin: 0;
   color: var(--text-soft);
-  font-size: 1rem;
-  line-height: 1.45;
+  font-size: 1.12rem;
+  line-height: 1.5;
 }
 
 .rpe-help.empty {
@@ -327,19 +346,21 @@ function submitFeedback() {
 }
 
 .manual-trigger {
-  min-height: 44px;
+  min-height: 50px;
+  padding-inline: 18px;
+  font-size: 1rem;
 }
 
 .manual-input-panel {
-  padding: 14px;
+  padding: 18px;
   border: 1px solid rgba(14, 165, 233, 0.22);
-  border-radius: 16px;
+  border-radius: 18px;
   background: rgba(239, 246, 255, 0.7);
 }
 
 .manual-input {
-  min-height: 48px;
-  font-size: 18px;
+  min-height: 54px;
+  font-size: 20px;
 }
 
 .manual-input-actions,
@@ -352,7 +373,7 @@ function submitFeedback() {
 
 .rpe-slider {
   width: 100%;
-  min-height: 44px;
+  min-height: 54px;
   accent-color: var(--session-rpe-accent);
   transition: accent-color 0.2s ease;
 }
@@ -368,7 +389,7 @@ function submitFeedback() {
 .scale-row {
   display: grid;
   grid-template-columns: repeat(11, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
 .scale-button {
@@ -377,12 +398,12 @@ function submitFeedback() {
   --scale-accent-border: rgba(148, 163, 184, 0.24);
   --scale-accent-surface: rgba(148, 163, 184, 0.04);
   --scale-accent-shadow: rgba(148, 163, 184, 0.1);
-  min-height: 40px;
+  min-height: 50px;
   border: 1px solid var(--scale-accent-border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), var(--scale-accent-surface));
   color: var(--scale-accent);
-  font-size: 1rem;
+  font-size: 1.08rem;
   font-weight: 700;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.78);
   transition:
@@ -405,7 +426,7 @@ function submitFeedback() {
 .field-error,
 .submit-error {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .selection-hint {
@@ -420,13 +441,17 @@ function submitFeedback() {
 
 .field {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .feedback-textarea {
-  min-height: 116px;
-  font-size: 18px;
-  resize: vertical;
+  min-height: 56px;
+  max-height: 56px;
+  padding-block: 14px;
+  font-size: 19px;
+  line-height: 1.35;
+  resize: none;
+  overflow-y: auto;
 }
 
 .feedback-meta {
@@ -437,8 +462,9 @@ function submitFeedback() {
 }
 
 .modal-btn {
-  min-height: 48px;
-  min-width: 132px;
+  min-height: 54px;
+  min-width: 148px;
+  font-size: 1rem;
 }
 
 .submit-btn:disabled {
@@ -453,12 +479,44 @@ function submitFeedback() {
   .session-rpe-modal {
     width: calc(100vw - 24px);
     max-height: calc(100dvh - 24px);
-    padding: 18px;
-    border-radius: 20px;
+    gap: 18px;
+    padding: 20px;
+    border-radius: 22px;
+  }
+
+  .rpe-display-panel {
+    padding: 20px 16px 18px;
+  }
+
+  .rpe-score-chip {
+    min-height: 66px;
+    gap: 8px;
+    padding-inline: 14px;
+  }
+
+  .rpe-score-prefix,
+  .rpe-score-suffix {
+    font-size: 1rem;
+  }
+
+  .rpe-score-value {
+    font-size: clamp(3.2rem, 13vw, 4.2rem);
+  }
+
+  .rpe-headline {
+    font-size: clamp(2.2rem, 8vw, 3rem);
+  }
+
+  .rpe-help {
+    font-size: 1rem;
   }
 
   .scale-row {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .scale-button {
+    min-height: 46px;
   }
 
   .modal-actions,

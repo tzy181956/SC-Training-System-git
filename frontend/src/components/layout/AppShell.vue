@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
-import { useAuthStore } from '@/stores/auth'
+import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 
 const route = useRoute()
-const router = useRouter()
-const authStore = useAuthStore()
 
 const links = [
   { name: 'dashboard', label: '总览' },
-  { name: 'monitor-dashboard', label: '监控端' },
   { name: 'athletes', label: '运动员' },
   { name: 'exercises', label: '动作库' },
   { name: 'plans', label: '训练模板' },
@@ -22,13 +19,6 @@ const links = [
 ]
 
 const currentLabel = computed(() => links.find((link) => link.name === route.name)?.label || '管理模式')
-const switchLabel = computed(() => (authStore.isManagementMode ? '切换到训练模式' : '切换到管理模式'))
-
-function switchMode() {
-  const nextMode = authStore.isManagementMode ? 'training' : 'management'
-  authStore.setMode(nextMode)
-  router.push(nextMode === 'training' ? { name: 'training-mode' } : { name: 'dashboard' })
-}
 </script>
 
 <template>
@@ -52,18 +42,20 @@ function switchMode() {
       <div class="shell-user">
         <div>
           <strong>当前模式</strong>
-          <p>管理模式</p>
+          <p>管理端</p>
         </div>
-        <button class="ghost-btn" @click="switchMode">{{ switchLabel }}</button>
       </div>
     </aside>
     <main class="shell-main">
       <header class="shell-header">
         <div>
-          <p class="eyebrow">平板横屏优先</p>
+          <p class="eyebrow shell-header-eyebrow">平板横屏优先</p>
           <h2>{{ currentLabel }}</h2>
         </div>
-        <slot name="header-actions" />
+        <div class="shell-header-actions">
+          <slot name="header-actions" />
+          <AppModeSwitch />
+        </div>
       </header>
       <div class="shell-body">
         <slot />
@@ -124,6 +116,10 @@ function switchMode() {
   min-width: 0;
 }
 
+.shell-user strong {
+  display: block;
+}
+
 .shell-user p,
 .eyebrow {
   margin: 0;
@@ -154,16 +150,22 @@ function switchMode() {
   min-width: 0;
 }
 
+.shell-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.shell-header-eyebrow {
+  color: var(--text-soft);
+}
+
 .shell-header h2,
 .shell-nav h1 {
   margin: 4px 0 0;
-}
-
-.ghost-btn {
-  min-height: var(--touch);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.16);
-  color: white;
 }
 
 @media (max-width: 1100px) {
@@ -179,6 +181,17 @@ function switchMode() {
     position: static;
     max-height: none;
     overflow: visible;
+  }
+}
+
+@media (max-width: 767px) {
+  .shell-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shell-header-actions {
+    justify-content: flex-start;
   }
 }
 </style>

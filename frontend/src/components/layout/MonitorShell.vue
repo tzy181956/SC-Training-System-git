@@ -1,21 +1,5 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
-
-import { resolveRouteForMode, useAuthStore, type AppMode } from '@/stores/auth'
-
-const router = useRouter()
-const authStore = useAuthStore()
-
-const modeButtons: Array<{ mode: AppMode; label: string }> = [
-  { mode: 'training', label: '训练端' },
-  { mode: 'management', label: '管理端' },
-  { mode: 'monitor', label: '监控端' },
-]
-
-function switchMode(mode: AppMode) {
-  authStore.setMode(mode)
-  router.push(resolveRouteForMode(mode))
-}
+import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 </script>
 
 <template>
@@ -33,18 +17,7 @@ function switchMode(mode: AppMode) {
 
       <div class="monitor-actions">
         <slot name="header-actions" />
-        <div class="mode-switch">
-          <button
-            v-for="button in modeButtons"
-            :key="button.mode"
-            class="mode-btn"
-            :class="{ active: authStore.currentMode === button.mode }"
-            type="button"
-            @click="switchMode(button.mode)"
-          >
-            {{ button.label }}
-          </button>
-        </div>
+        <AppModeSwitch />
       </div>
     </header>
 
@@ -106,31 +79,6 @@ function switchMode(mode: AppMode) {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.mode-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px;
-  border-radius: 999px;
-  background: rgba(14, 116, 144, 0.08);
-}
-
-.mode-btn {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 0;
-  background: transparent;
-  color: var(--text-soft);
-  font-weight: 700;
-}
-
-.mode-btn.active {
-  background: white;
-  color: #0f766e;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
 .monitor-body {
