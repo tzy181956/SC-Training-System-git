@@ -1,0 +1,11 @@
+﻿Training Platform launcher failure summary
+Time: 2026-04-27 09:01:07
+Mode: start
+Failed step: Start backend
+Error type: Backend failed to start
+Error code: backend_start_failed
+Most likely cause: The backend process crashed during startup.
+Suggested fix: Check the backend window for the first traceback line.
+Failure detail: Backend window did not open a healthy service on port 8000.
+Detailed log: C:\Users\tzy\Documents\GitHub\SC-Training-System-git\logs\startup\last-launcher-detail.log
+Troubleshooting doc: C:\Users\tzy\Documents\GitHub\SC-Training-System-git\docs\phase1-launcher-failure-summary.md (see section/code: backend_start_failed)
