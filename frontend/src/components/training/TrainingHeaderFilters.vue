@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 type TeamOption = {
   id: string
   name: string
@@ -8,6 +10,11 @@ const props = withDefaults(
   defineProps<{
     sessionDate: string
     sessionDateLabel: string
+    selectedSportValue?: string
+    selectedSportLabel?: string
+    sportOptions?: TeamOption[]
+    sportFieldLabel?: string
+    sportAriaLabel?: string
     selectedTeamValue: string
     selectedTeamLabel: string
     teamOptions: TeamOption[]
@@ -15,6 +22,11 @@ const props = withDefaults(
     teamAriaLabel?: string
   }>(),
   {
+    selectedSportValue: undefined,
+    selectedSportLabel: '项目',
+    sportOptions: () => [],
+    sportFieldLabel: '项目',
+    sportAriaLabel: '项目筛选',
     teamFieldLabel: '队伍',
     teamAriaLabel: '队伍筛选',
   },
@@ -22,11 +34,18 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:sessionDate': [value: string]
+  'update:sportValue': [value: string]
   'update:teamValue': [value: string]
 }>()
 
+const hasSportFilter = computed(() => props.selectedSportValue !== undefined)
+
 function handleDateInput(event: Event) {
   emit('update:sessionDate', (event.target as HTMLInputElement).value)
+}
+
+function handleSportInput(event: Event) {
+  emit('update:sportValue', (event.target as HTMLSelectElement).value)
 }
 
 function handleTeamInput(event: Event) {
@@ -35,7 +54,7 @@ function handleTeamInput(event: Event) {
 </script>
 
 <template>
-  <div class="training-header-filters">
+  <div class="training-header-filters" :class="{ 'training-header-filters--triple': hasSportFilter }">
     <div class="training-header-filter">
       <span class="training-header-filter-label">训练日期</span>
       <div class="training-header-filter-shell">
@@ -50,6 +69,24 @@ function handleTeamInput(event: Event) {
           title="训练日期"
           @input="handleDateInput"
         />
+      </div>
+    </div>
+
+    <div v-if="hasSportFilter" class="training-header-filter">
+      <span class="training-header-filter-label">{{ sportFieldLabel }}</span>
+      <div class="training-header-filter-shell">
+        <button class="training-header-filter-pill" type="button" tabindex="-1" aria-hidden="true">
+          <span class="training-header-filter-pill-text">{{ selectedSportLabel }}</span>
+        </button>
+        <select
+          :value="selectedSportValue"
+          class="training-header-filter-control training-header-filter-native"
+          :aria-label="sportAriaLabel"
+          :title="sportAriaLabel"
+          @change="handleSportInput"
+        >
+          <option v-for="sport in props.sportOptions" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
+        </select>
       </div>
     </div>
 
@@ -75,6 +112,7 @@ function handleTeamInput(event: Event) {
 
 <style scoped>
 .training-header-filters {
+  --training-header-filter-current-width: var(--training-filter-width);
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -87,9 +125,13 @@ function handleTeamInput(event: Event) {
 .training-header-filter {
   display: block;
   flex: 0 0 auto;
-  width: var(--training-filter-width);
+  width: var(--training-header-filter-current-width);
   min-width: 0;
   max-width: 100%;
+}
+
+.training-header-filters--triple {
+  --training-header-filter-current-width: var(--training-filter-width-triple, 146px);
 }
 
 .training-header-filter-shell {

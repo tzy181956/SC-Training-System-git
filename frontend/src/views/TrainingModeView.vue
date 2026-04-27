@@ -33,10 +33,14 @@ const selectedAthlete = computed(
 const selectedAthleteName = computed(() => selectedAthlete.value?.full_name || '')
 const displaySessionDate = computed(() => formatSessionDate(trainingStore.sessionDate))
 const {
+  selectedSportFilter,
+  sportOptions,
+  selectedSportLabel,
   selectedTeamFilter,
   teamOptions,
   selectedTeamLabel,
   filteredAthletes,
+  syncSportFilter,
   syncTeamFilter,
   syncSelectedAthleteForFilter,
 } = useTeamFilter({
@@ -147,6 +151,10 @@ function handleDateInput(value: string) {
   trainingStore.sessionDate = value
 }
 
+function handleSportFilterInput(value: string) {
+  selectedSportFilter.value = value
+}
+
 function handleTeamFilterInput(value: string) {
   selectedTeamFilter.value = value
 }
@@ -177,6 +185,7 @@ watch(
 watch(
   () => trainingStore.athletes,
   () => {
+    syncSportFilter()
     syncTeamFilter()
     syncSelectedAthleteForFilter(() => {
       trainingStore.selectedAthleteId = 0
@@ -188,8 +197,9 @@ watch(
 )
 
 watch(
-  () => selectedTeamFilter.value,
+  () => [selectedSportFilter.value, selectedTeamFilter.value],
   () => {
+    syncTeamFilter()
     syncSelectedAthleteForFilter(() => {
       trainingStore.selectedAthleteId = 0
       trainingStore.assignments = []
@@ -215,10 +225,16 @@ onMounted(hydrate)
       <TrainingHeaderFilters
         :session-date="trainingStore.sessionDate"
         :session-date-label="displaySessionDate"
+        :selected-sport-value="selectedSportFilter"
+        :selected-sport-label="selectedSportLabel"
+        :sport-options="sportOptions"
         :selected-team-value="selectedTeamFilter"
         :selected-team-label="selectedTeamLabel"
         :team-options="teamOptions"
+        sport-field-label="训练项目"
+        sport-aria-label="训练项目筛选"
         @update:session-date="handleDateInput"
+        @update:sport-value="handleSportFilterInput"
         @update:team-value="handleTeamFilterInput"
       />
     </template>
@@ -246,7 +262,7 @@ onMounted(hydrate)
           </span>
         </template>
         <template v-else>
-          <strong>先选择日期、队伍和队员，再点击左侧计划开始录入。</strong>
+          <strong>先选择日期、项目、队伍和队员，再点击左侧计划开始录入。</strong>
           <span>列表里的颜色会直接提醒教练今天哪些人还没开始，哪些人做了一半，哪些人已经全部完成。</span>
         </template>
       </section>

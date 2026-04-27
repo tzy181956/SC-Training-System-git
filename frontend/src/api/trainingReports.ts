@@ -52,7 +52,10 @@ export type TrainingReportSession = {
   session_date: string
   template_name: string
   status: string
+  started_at: string | null
+  session_duration_minutes: number | null
   session_rpe: number | null
+  session_srpe_load: number | null
   session_feedback: string | null
   completed_at: string | null
   completed_items: number

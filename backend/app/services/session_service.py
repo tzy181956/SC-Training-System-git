@@ -211,6 +211,7 @@ def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
     _recompute_item_records(item)
     _recompute_session_status(item.session)
     item.session.started_at = item.session.started_at or record.completed_at
+    _refresh_training_loads(db, item.session)
     db.commit()
 
     refreshed_item = _get_session_item(db, item_id)
@@ -224,6 +225,7 @@ def update_set_record(db: Session, record_id: int, payload: SetRecordUpdate):
     _apply_set_record_update(record, payload)
     _recompute_item_records(record.session_item)
     _recompute_session_status(record.session_item.session)
+    _refresh_training_loads(db, record.session_item.session)
     db.commit()
 
     refreshed_item = _get_session_item(db, record.session_item_id)
@@ -258,6 +260,7 @@ def coach_add_set_record(db: Session, item_id: int, payload: CoachSetRecordCreat
         },
         summary=_build_add_set_log_summary(record, session_before_status, item.session.status),
     )
+    _refresh_training_loads(db, item.session)
     db.commit()
 
     refreshed_item = _get_session_item(db, item_id)
@@ -293,6 +296,7 @@ def coach_update_set_record(db: Session, record_id: int, payload: CoachSetRecord
         after_snapshot=after_snapshot,
         summary=_build_update_set_log_summary(before_snapshot, after_snapshot),
     )
+    _refresh_training_loads(db, record.session_item.session)
     db.commit()
 
     refreshed_item = _get_session_item(db, record.session_item_id)
@@ -360,6 +364,7 @@ def coach_delete_set_record(db: Session, record_id: int, *, actor_name: str | No
         },
         backup_path=backup_result.backup_path,
     )
+    _refresh_training_loads(db, session)
     db.commit()
 
     refreshed_item = _get_session_item(db, item.id)
@@ -414,14 +419,23 @@ def sync_session_operation(db: Session, payload: SessionSetSyncOperation):
 
     session = _resolve_session_for_completion(db, payload)
     _finalize_session(session, closure_reason="manual_end")
+    _refresh_training_loads(db, session)
     db.commit()
     return None, None, None, get_session(db, session.id)
 
 
 def sync_session_snapshot(db: Session, payload: SessionFullSyncPayload):
     session = _resolve_session_for_full_sync(db, payload)
+    previous_athlete_id = session.athlete_id
+    previous_session_date = session.session_date
     conflict_logged = _detect_full_sync_conflict(db, session, payload)
     _overwrite_session_from_snapshot(session, payload)
+    _refresh_training_loads(
+        db,
+        session,
+        previous_athlete_id=previous_athlete_id,
+        previous_session_date=previous_session_date,
+    )
     db.commit()
     return get_session(db, session.id), conflict_logged
 
@@ -430,6 +444,7 @@ def complete_session_item(db: Session, item_id: int) -> TrainingSessionItem:
     item = _get_session_item(db, item_id)
     item.status = "completed"
     _recompute_session_status(item.session)
+    _refresh_training_loads(db, item.session)
     db.commit()
     return _get_session_item(db, item_id)
 
@@ -439,6 +454,7 @@ def complete_session(db: Session, session_id: int) -> TrainingSession:
     if not session:
         raise not_found("Training session not found")
     _finalize_session(session, closure_reason="manual_end")
+    _refresh_training_loads(db, session)
     db.commit()
     return get_session(db, session_id)
 
@@ -463,9 +479,13 @@ def submit_session_finish_feedback(
     if session.status != "completed":
         raise bad_request("仅已完成的训练课可以提交整体 RPE 反馈")
 
+    is_first_finish_feedback = session.session_rpe is None
+
     session.session_rpe = payload.session_rpe
     session.session_feedback = payload.session_feedback
-    session.completed_at = datetime.now(timezone.utc)
+    if is_first_finish_feedback:
+        session.completed_at = datetime.now(timezone.utc)
+    _refresh_training_loads(db, session)
     db.commit()
     return get_session(db, session_id)
 
@@ -490,6 +510,7 @@ def close_due_sessions(db: Session, reference_time: datetime | None = None) -> i
 
     for session in due_sessions:
         _finalize_session(session, closure_reason="midnight_cutoff")
+        _refresh_training_loads(db, session)
 
     db.commit()
     return len(due_sessions)
@@ -986,6 +1007,23 @@ def _ensure_utc_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _refresh_training_loads(
+    db: Session,
+    session: TrainingSession,
+    *,
+    previous_athlete_id: int | None = None,
+    previous_session_date: date | None = None,
+) -> None:
+    from app.services import training_load_service
+
+    training_load_service.refresh_session_load_metrics(
+        db,
+        session,
+        previous_athlete_id=previous_athlete_id,
+        previous_load_date=previous_session_date,
+    )
 
 
 def _resolve_local_now(reference_time: datetime | None = None) -> datetime:

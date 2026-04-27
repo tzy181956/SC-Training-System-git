@@ -1,7 +1,17 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
-from app.models import Athlete, AthletePlanAssignment, Sport, Team, TestRecord, TrainingSession
+from app.models import (
+    Athlete,
+    AthletePlanAssignment,
+    Sport,
+    Team,
+    TestRecord,
+    TrainingPlanTemplate,
+    TrainingSession,
+    User,
+)
 from app.schemas.athlete import AthleteCreate, AthleteUpdate, SportCreate, TeamCreate
 from app.services import backup_service, dangerous_operation_service
 
@@ -11,9 +21,13 @@ def list_sports(db: Session) -> list[Sport]:
 
 
 def create_sport(db: Session, payload: SportCreate) -> Sport:
-    sport = Sport(**payload.model_dump())
+    sport = Sport(
+        name=_require_text(payload.name, field_label="项目名称"),
+        code=_require_text(payload.code, field_label="项目编码"),
+        notes=_normalize_optional_text(payload.notes),
+    )
     db.add(sport)
-    db.commit()
+    _commit_or_raise(db, conflict_message="项目编码已存在，请修改项目名称后重试。")
     db.refresh(sport)
     return sport
 
@@ -23,11 +37,24 @@ def list_teams(db: Session) -> list[Team]:
 
 
 def create_team(db: Session, payload: TeamCreate) -> Team:
-    team = Team(**payload.model_dump())
+    sport = db.query(Sport).filter(Sport.id == payload.sport_id).first()
+    if not sport:
+        raise bad_request("所属项目不存在，请先刷新后重试。")
+
+    team = Team(
+        sport_id=sport.id,
+        name=_require_text(payload.name, field_label="队伍名称"),
+        code=_require_text(payload.code, field_label="队伍编码"),
+        notes=_normalize_optional_text(payload.notes),
+    )
     db.add(team)
-    db.commit()
-    db.refresh(team)
-    return team
+    _commit_or_raise(db, conflict_message="该项目下已存在同编码的队伍，请修改队伍名称后重试。")
+    return (
+        db.query(Team)
+        .options(joinedload(Team.sport))
+        .filter(Team.id == team.id)
+        .first()
+    )
 
 
 def list_athletes(db: Session) -> list[Athlete]:
@@ -106,3 +133,101 @@ def delete_athlete(db: Session, athlete_id: int, *, actor_name: str | None = Non
         backup_path=backup_result.backup_path,
     )
     db.commit()
+
+
+def delete_sport(db: Session, sport_id: int, *, actor_name: str | None = None) -> None:
+    sport = db.query(Sport).filter(Sport.id == sport_id).first()
+    if not sport:
+        raise not_found("项目不存在")
+
+    athlete_refs = db.query(Athlete).filter(Athlete.sport_id == sport_id).count()
+    team_refs = db.query(Team).filter(Team.sport_id == sport_id).count()
+    template_refs = db.query(TrainingPlanTemplate).filter(TrainingPlanTemplate.sport_id == sport_id).count()
+    reference_summary = _build_reference_summary(
+        [
+            (athlete_refs, "名运动员"),
+            (team_refs, "支队伍"),
+            (template_refs, "个训练模板"),
+        ]
+    )
+    if reference_summary:
+        raise bad_request(f"该项目仍被{reference_summary}引用，请先处理关联数据后再删除。")
+
+    backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"delete_sport_{sport_id}")
+    db.delete(sport)
+    dangerous_operation_service.log_dangerous_operation(
+        db,
+        operation_key="delete_sport",
+        object_type="sport",
+        object_id=sport_id,
+        actor_name=actor_name,
+        summary=f"删除项目“{sport.name}”",
+        impact_scope={
+            "sport_name": sport.name,
+            "sport_code": sport.code,
+        },
+        backup_path=backup_result.backup_path,
+    )
+    db.commit()
+
+
+def delete_team(db: Session, team_id: int, *, actor_name: str | None = None) -> None:
+    team = db.query(Team).options(joinedload(Team.sport)).filter(Team.id == team_id).first()
+    if not team:
+        raise not_found("队伍不存在")
+
+    athlete_refs = db.query(Athlete).filter(Athlete.team_id == team_id).count()
+    template_refs = db.query(TrainingPlanTemplate).filter(TrainingPlanTemplate.team_id == team_id).count()
+    user_refs = db.query(User).filter(User.team_id == team_id).count()
+    reference_summary = _build_reference_summary(
+        [
+            (athlete_refs, "名运动员"),
+            (template_refs, "个训练模板"),
+            (user_refs, "个用户"),
+        ]
+    )
+    if reference_summary:
+        raise bad_request(f"该队伍仍被{reference_summary}引用，请先处理关联数据后再删除。")
+
+    backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"delete_team_{team_id}")
+    db.delete(team)
+    dangerous_operation_service.log_dangerous_operation(
+        db,
+        operation_key="delete_team",
+        object_type="team",
+        object_id=team_id,
+        actor_name=actor_name,
+        summary=f"删除队伍“{team.name}”",
+        impact_scope={
+            "team_name": team.name,
+            "team_code": team.code,
+            "sport_name": team.sport.name if team.sport else None,
+        },
+        backup_path=backup_result.backup_path,
+    )
+    db.commit()
+
+
+def _require_text(value: str | None, *, field_label: str) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise bad_request(f"{field_label}不能为空")
+    return normalized
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    return normalized or None
+
+
+def _commit_or_raise(db: Session, *, conflict_message: str) -> None:
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise bad_request(conflict_message) from exc
+
+
+def _build_reference_summary(reference_pairs: list[tuple[int, str]]) -> str:
+    parts = [f"{count}{label}" for count, label in reference_pairs if count]
+    return "、".join(parts)

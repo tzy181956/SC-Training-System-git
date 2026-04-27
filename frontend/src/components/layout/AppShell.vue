@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 
 const route = useRoute()
@@ -18,14 +19,15 @@ const links = [
   { name: 'tests', label: '测试数据' },
 ]
 
-const currentLabel = computed(() => links.find((link) => link.name === route.name)?.label || '管理模式')
+const currentLabel = computed(() => links.find((link) => link.name === route.name)?.label || getAppModeDisplayLabel('management'))
+const managementModeLabel = getAppModeDisplayLabel('management')
 </script>
 
 <template>
   <div class="shell">
     <aside class="shell-nav">
       <div>
-        <p class="eyebrow">管理模式</p>
+        <p class="eyebrow">{{ managementModeLabel }}</p>
         <h1>体能训练管理平台</h1>
       </div>
       <nav class="shell-links">
@@ -42,7 +44,7 @@ const currentLabel = computed(() => links.find((link) => link.name === route.nam
       <div class="shell-user">
         <div>
           <strong>当前模式</strong>
-          <p>管理端</p>
+          <p>{{ managementModeLabel }}</p>
         </div>
       </div>
     </aside>

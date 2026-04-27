@@ -55,7 +55,13 @@
 
 ### Changed
 
+- 训练模式中间“查看计划”动作卡片已改为横向单行布局：动作名称加粗放大置左，组次重量收口到中间，训练中的完成进度收口到最右侧，默认不再额外占行显示动作备注。
+- 训练模式头部筛选已补齐“训练项目”一档，并放在训练日期与训练队伍之间；项目与队伍筛选按当天可见队员联动收口，避免切换项目后仍保留无效队伍筛选。
+- 运动员模块已在原页面内补齐“管理项目 / 管理队伍”弹窗入口，支持项目与队伍的新增、删除，并在删除时按“有引用即拒绝”保护运动员、模板和用户关联数据。
 - Removed the training-mode bottom-right `Training Layout Debug` overlay from `frontend/src/components/layout/TrainingShell.vue`, and deleted the unused `TrainingViewportDebug` component.
+- Unified user-visible mode naming across the frontend to `训练模式 / 管理模式 / 实时模式`, and mapped legacy `训练端 / 管理端 / 监控端` values to the new labels at display time.
+- Froze session `completed_at` at the first Session RPE submission, and surfaced post-workout duration in management reports and realtime assignment details using existing session timing fields.
+- Added persisted session duration / `sRPE` load metrics plus daily per-athlete training load snapshots, exposed a read-only training-load API skeleton, and surfaced `训练用时 / Session RPE / sRPE` in management-mode training data cards.
 - Removed the redundant `监控端` entry from the management sidebar, keeping mode switching unified through the shared top-right three-segment switcher.
 - Unified the training, management, and monitoring mode entry switchers into the same three-segment top-right control, reusing the monitoring-style pill switch across all three shells.
 - Tightened the training `Session RPE` modal by collapsing the feedback textarea to a single-line visual footprint, enlarging the selected `RPE X/10` number display, and scaling the core controls up for easier iPad use.

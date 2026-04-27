@@ -9,6 +9,7 @@ from app.models.tag import Tag
 from app.models.test_record import TestRecord
 from app.models.training_plan import TrainingPlanTemplate, TrainingPlanTemplateItem
 from app.models.training_edit_log import TrainingSessionEditLog
+from app.models.training_load import AthleteDailyTrainingLoad
 from app.models.training_session import SetRecord, TrainingSession, TrainingSessionItem
 from app.models.training_sync import TrainingSyncConflict, TrainingSyncIssue
 from app.models.user import User
@@ -27,6 +28,7 @@ __all__ = [
     "Tag",
     "Team",
     "TestRecord",
+    "AthleteDailyTrainingLoad",
     "TrainingPlanTemplate",
     "TrainingPlanTemplateItem",
     "TrainingSessionEditLog",

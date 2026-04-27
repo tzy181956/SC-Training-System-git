@@ -11,6 +11,7 @@ from app.services import (
     plan_service,
     session_service,
     test_record_service,
+    training_load_service,
     training_report_service,
 )
 
@@ -27,5 +28,6 @@ __all__ = [
     "plan_service",
     "session_service",
     "test_record_service",
+    "training_load_service",
     "training_report_service",
 ]

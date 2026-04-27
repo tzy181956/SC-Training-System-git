@@ -90,10 +90,14 @@ const sessionRpeLabel = computed(() => getSessionRpeLabel(trainingStore.session?
 const sessionRpeHelp = computed(() => getSessionRpeHelp(trainingStore.session?.session_rpe))
 const sessionCompletedAtLabel = computed(() => formatDateTime(trainingStore.session?.completed_at))
 const {
+  selectedSportFilter,
+  sportOptions,
+  selectedSportLabel,
   selectedTeamFilter,
   teamOptions,
   selectedTeamLabel,
   filteredAthletes,
+  syncSportFilter,
   syncTeamFilter,
   syncSelectedAthleteForFilter,
 } = useTeamFilter({
@@ -540,6 +544,10 @@ function handleDateInput(value: string) {
   trainingStore.sessionDate = value
 }
 
+function handleSportFilterInput(value: string) {
+  selectedSportFilter.value = value
+}
+
 function handleTeamFilterInput(value: string) {
   selectedTeamFilter.value = value
 }
@@ -590,6 +598,7 @@ watch(
 watch(
   () => trainingStore.athletes,
   () => {
+    syncSportFilter()
     syncTeamFilter()
     syncSelectedAthleteForFilter()
   },
@@ -597,8 +606,9 @@ watch(
 )
 
 watch(
-  () => selectedTeamFilter.value,
+  () => [selectedSportFilter.value, selectedTeamFilter.value],
   () => {
+    syncTeamFilter()
     syncSelectedAthleteForFilter()
   },
 )
@@ -666,12 +676,18 @@ onMounted(hydrate)
       <TrainingHeaderFilters
         :session-date="trainingStore.sessionDate"
         :session-date-label="displaySessionDate"
+        :selected-sport-value="selectedSportFilter"
+        :selected-sport-label="selectedSportLabel"
+        :sport-options="sportOptions"
         :selected-team-value="selectedTeamFilter"
         :selected-team-label="selectedTeamLabel"
         :team-options="teamOptions"
+        sport-field-label="训练项目"
+        sport-aria-label="训练项目筛选"
         team-field-label="训练队伍"
         team-aria-label="训练队伍筛选"
         @update:session-date="handleDateInput"
+        @update:sport-value="handleSportFilterInput"
         @update:team-value="handleTeamFilterInput"
       />
     </template>

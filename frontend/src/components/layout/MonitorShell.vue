@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
+
+const monitorModeLabel = getAppModeDisplayLabel('monitor')
 </script>
 
 <template>
   <div class="monitor-shell">
     <header class="monitor-topbar">
       <div class="monitor-copy">
-        <p class="monitor-eyebrow">监控端</p>
+        <p class="monitor-eyebrow">{{ monitorModeLabel }}</p>
         <h1>训练现场监控</h1>
         <p class="monitor-hint">今日训练状态看板，优先显示同步异常、进行中和未开始队员。</p>
       </div>

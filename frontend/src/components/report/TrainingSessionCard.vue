@@ -6,9 +6,11 @@ import {
   coachDeleteTrainingReportSetRecord,
   coachUpdateTrainingReportSetRecord,
 } from '@/api/trainingReports'
+import { normalizeModeAliasForDisplay } from '@/constants/appModeLabels'
 import { getSessionRpeHelp, getSessionRpeLabel } from '@/constants/sessionRpe'
 import { getTrainingStatusLabel, getTrainingStatusTone } from '@/constants/trainingStatus'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
+import { formatDurationMinutes } from '@/utils/sessionDuration'
 
 const props = defineProps<{ session: any; onlyIncomplete?: boolean; onlyMainLift?: boolean }>()
 
@@ -183,6 +185,20 @@ function sessionRpeHelpText() {
 function sessionFeedbackText() {
   return props.session.session_feedback ? `队员备注：${props.session.session_feedback}` : '队员备注：未填写备注'
 }
+
+function formatActorName(value?: string | null) {
+  return normalizeModeAliasForDisplay(value)
+}
+
+function sessionDurationText() {
+  if (props.session.session_duration_minutes == null) return ''
+  return formatDurationMinutes(props.session.session_duration_minutes)
+}
+
+function sessionSrpeLoadText() {
+  if (props.session.session_srpe_load == null) return ''
+  return String(props.session.session_srpe_load)
+}
 </script>
 
 <template>
@@ -203,12 +219,17 @@ function sessionFeedbackText() {
       <section class="feedback-panel">
         <div class="feedback-head">
           <strong>本次训练反馈</strong>
+          <span v-if="sessionDurationText()">训练用时：{{ sessionDurationText() }}</span>
           <span v-if="session.completed_at">完成时间：{{ formatDateTime(session.completed_at) }}</span>
         </div>
         <div class="feedback-grid">
           <div class="feedback-metric">
             <span>整体 RPE</span>
             <strong>{{ sessionRpeText() }}</strong>
+          </div>
+          <div v-if="sessionSrpeLoadText()" class="feedback-metric">
+            <span>sRPE</span>
+            <strong>{{ sessionSrpeLoadText() }}</strong>
           </div>
           <div v-if="session.session_rpe != null" class="feedback-metric">
             <span>主观用力程度</span>
@@ -369,7 +390,7 @@ function sessionFeedbackText() {
         <div class="log-list">
           <article v-for="log in session.edit_logs" :key="log.id" class="log-item">
             <strong>{{ log.summary }}</strong>
-            <p>{{ log.actor_name }} · {{ formatDateTime(log.edited_at || log.created_at) }}</p>
+            <p>{{ formatActorName(log.actor_name) }} · {{ formatDateTime(log.edited_at || log.created_at) }}</p>
           </article>
         </div>
       </section>

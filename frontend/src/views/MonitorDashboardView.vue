@@ -323,7 +323,7 @@ onBeforeUnmount(() => {
     <div class="monitor-dashboard">
       <section class="panel overview-panel">
         <div class="overview-copy">
-          <p class="section-label">监控端</p>
+          <p class="section-label">实时模式</p>
           <h3>今日训练状态看板</h3>
           <p>{{ refreshHint }}</p>
         </div>

@@ -84,6 +84,7 @@ class MonitoringAssignmentDetailRead(BaseModel):
     template_name: str
     session_id: int | None = None
     session_status: MonitoringSessionStatus
+    session_started_at: datetime | None = None
     session_rpe: int | None = None
     session_feedback: str | None = None
     session_completed_at: datetime | None = None

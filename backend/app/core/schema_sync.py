@@ -25,6 +25,9 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE athletes ADD COLUMN standing_reach FLOAT",
         "ALTER TABLE training_sessions ADD COLUMN session_rpe INTEGER",
         "ALTER TABLE training_sessions ADD COLUMN session_feedback TEXT",
+        "ALTER TABLE training_sessions ADD COLUMN session_duration_minutes INTEGER",
+        "ALTER TABLE training_sessions ADD COLUMN session_srpe_load INTEGER",
+        "ALTER TABLE training_sessions ADD COLUMN load_metrics_updated_at DATETIME",
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]
@@ -69,6 +72,33 @@ def ensure_runtime_schema() -> None:
 
         connection.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ix_exercises_code_unique ON exercises(code)")
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS athlete_daily_training_loads (
+                    id INTEGER PRIMARY KEY,
+                    athlete_id INTEGER NOT NULL,
+                    load_date DATE NOT NULL,
+                    session_count INTEGER NOT NULL DEFAULT 0,
+                    total_duration_minutes INTEGER NOT NULL DEFAULT 0,
+                    total_srpe_load INTEGER NOT NULL DEFAULT 0,
+                    source_session_ids JSON,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(athlete_id) REFERENCES athletes(id)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_athlete_daily_training_loads_athlete_date_unique ON athlete_daily_training_loads(athlete_id, load_date)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_athlete_daily_training_loads_athlete_id ON athlete_daily_training_loads(athlete_id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_athlete_daily_training_loads_load_date ON athlete_daily_training_loads(load_date)")
         )
         connection.execute(
             text(

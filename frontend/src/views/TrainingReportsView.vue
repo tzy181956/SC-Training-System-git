@@ -67,7 +67,7 @@ async function retrySyncIssue(issueId: number) {
     reportNoticeTone.value = 'success'
     await loadReport()
   } catch {
-    reportNotice.value = '手动重试失败，请回到训练端设备继续处理。'
+    reportNotice.value = '手动重试失败，请回到训练模式所在设备继续处理。'
     reportNoticeTone.value = 'warning'
   } finally {
     retryingIssueId.value = null

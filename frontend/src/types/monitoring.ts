@@ -51,6 +51,7 @@ export type MonitoringAssignmentDetail = {
   template_name: string
   session_id: number | null
   session_status: TrainingStatus
+  session_started_at?: string | null
   session_rpe?: number | null
   session_feedback?: string | null
   session_completed_at?: string | null

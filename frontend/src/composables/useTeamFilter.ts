@@ -2,6 +2,10 @@ import { computed, ref, type Ref } from 'vue'
 
 export type TeamFilterAthlete = {
   id: number
+  sport?: {
+    id?: number | null
+    name?: string | null
+  } | null
   team?: {
     id?: number | null
     name?: string | null
@@ -13,6 +17,8 @@ export type TeamFilterOption = {
   name: string
 }
 
+export const ALL_SPORTS_VALUE = '__all_sports__'
+export const UNASSIGNED_SPORT_VALUE = '__unassigned_sport__'
 export const ALL_TEAMS_VALUE = '__all__'
 export const UNASSIGNED_TEAM_VALUE = '__unassigned__'
 
@@ -20,11 +26,52 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
   athletes: () => T[]
   selectedAthleteId?: Ref<number>
 }) {
+  const selectedSportFilter = ref(ALL_SPORTS_VALUE)
   const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
   const athleteList = computed(() => params.athletes() || [])
 
+  const sportOptions = computed<TeamFilterOption[]>(() => {
+    const sports = athleteList.value
+      .filter((athlete) => athlete.sport?.id)
+      .map((athlete) => ({
+        id: String(athlete.sport?.id),
+        name: athlete.sport?.name || '未命名项目',
+      }))
+
+    const uniqueSports = sports.filter((sport, index, source) => source.findIndex((current) => current.id === sport.id) === index)
+    const hasUnassignedSports = athleteList.value.some((athlete) => !athlete.sport?.id)
+    const options = [...uniqueSports]
+
+    if (hasUnassignedSports) {
+      options.push({ id: UNASSIGNED_SPORT_VALUE, name: '未分项目' })
+    }
+
+    if (options.length <= 1) {
+      return options
+    }
+
+    return [{ id: ALL_SPORTS_VALUE, name: '全部项目' }, ...options]
+  })
+
+  const selectedSportLabel = computed(() => {
+    const matched = sportOptions.value.find((sport) => sport.id === selectedSportFilter.value)
+    return matched?.name || '项目'
+  })
+
+  const sportFilteredAthletes = computed(() => {
+    if (selectedSportFilter.value === ALL_SPORTS_VALUE) {
+      return athleteList.value
+    }
+
+    if (selectedSportFilter.value === UNASSIGNED_SPORT_VALUE) {
+      return athleteList.value.filter((athlete) => !athlete.sport?.id)
+    }
+
+    return athleteList.value.filter((athlete) => String(athlete.sport?.id || '') === selectedSportFilter.value)
+  })
+
   const teamOptions = computed<TeamFilterOption[]>(() => {
-    const teams = athleteList.value
+    const teams = sportFilteredAthletes.value
       .filter((athlete) => athlete.team?.id)
       .map((athlete) => ({
         id: String(athlete.team?.id),
@@ -32,7 +79,7 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
       }))
 
     const uniqueTeams = teams.filter((team, index, source) => source.findIndex((current) => current.id === team.id) === index)
-    const hasUnassignedAthletes = athleteList.value.some((athlete) => !athlete.team?.id)
+    const hasUnassignedAthletes = sportFilteredAthletes.value.some((athlete) => !athlete.team?.id)
     const options = [...uniqueTeams]
 
     if (hasUnassignedAthletes) {
@@ -53,15 +100,28 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
 
   const filteredAthletes = computed(() => {
     if (selectedTeamFilter.value === ALL_TEAMS_VALUE) {
-      return athleteList.value
+      return sportFilteredAthletes.value
     }
 
     if (selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE) {
-      return athleteList.value.filter((athlete) => !athlete.team?.id)
+      return sportFilteredAthletes.value.filter((athlete) => !athlete.team?.id)
     }
 
-    return athleteList.value.filter((athlete) => String(athlete.team?.id || '') === selectedTeamFilter.value)
+    return sportFilteredAthletes.value.filter((athlete) => String(athlete.team?.id || '') === selectedTeamFilter.value)
   })
+
+  function syncSportFilter() {
+    const options = sportOptions.value
+    if (!options.length) {
+      selectedSportFilter.value = ALL_SPORTS_VALUE
+      return
+    }
+
+    const currentExists = options.some((option) => option.id === selectedSportFilter.value)
+    if (currentExists) return
+
+    selectedSportFilter.value = options.length === 1 ? options[0].id : ALL_SPORTS_VALUE
+  }
 
   function syncTeamFilter() {
     const options = teamOptions.value
@@ -92,10 +152,14 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
   }
 
   return {
+    selectedSportFilter,
+    sportOptions,
+    selectedSportLabel,
     selectedTeamFilter,
     teamOptions,
     selectedTeamLabel,
     filteredAthletes,
+    syncSportFilter,
     syncTeamFilter,
     syncSelectedAthleteForFilter,
   }

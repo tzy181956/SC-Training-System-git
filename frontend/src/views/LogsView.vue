@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 
 import { fetchLogs, type LogItem } from '@/api/logs'
+import { normalizeActorNameFilter, normalizeModeAliasForDisplay } from '@/constants/appModeLabels'
 import AppShell from '@/components/layout/AppShell.vue'
 import { todayString } from '@/utils/date'
 
@@ -25,7 +26,7 @@ async function loadLogs() {
     const response = await fetchLogs({
       date_from: filters.dateFrom || undefined,
       date_to: filters.dateTo || undefined,
-      actor_name: filters.actorName.trim() || undefined,
+      actor_name: normalizeActorNameFilter(filters.actorName) || undefined,
       object_type: filters.objectType || undefined,
       limit: filters.limit,
     })
@@ -87,6 +88,10 @@ function formatSourceType(value: string) {
       dangerous_operation: '危险操作',
     }[value] || value
   )
+}
+
+function formatActorName(value: string | null) {
+  return normalizeModeAliasForDisplay(value)
 }
 
 function snapshotEntries(snapshot: Record<string, unknown> | null): Array<{ key: string; value: string }> {
@@ -191,7 +196,7 @@ onMounted(() => {
             </div>
 
             <div class="meta-grid">
-              <div><span class="meta-label">操作人</span><span>{{ log.actor_name || '—' }}</span></div>
+              <div><span class="meta-label">操作人</span><span>{{ formatActorName(log.actor_name) || '—' }}</span></div>
               <div><span class="meta-label">影响对象</span><span>{{ log.object_label || '—' }}</span></div>
               <div><span class="meta-label">队伍</span><span>{{ log.team_name || '全局 / 未绑定' }}</span></div>
               <div><span class="meta-label">运动员</span><span>{{ log.athlete_name || '—' }}</span></div>

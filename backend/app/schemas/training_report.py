@@ -52,7 +52,10 @@ class TrainingReportSessionRead(BaseModel):
     session_date: date
     template_name: str
     status: str
+    started_at: datetime | None = None
+    session_duration_minutes: int | None = None
     session_rpe: int | None = None
+    session_srpe_load: int | None = None
     session_feedback: str | None = None
     completed_at: datetime | None = None
     completed_items: int

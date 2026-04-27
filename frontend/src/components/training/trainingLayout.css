@@ -7,6 +7,7 @@
   --training-sidebar-width: 320px;
   --training-panel-width: 320px;
   --training-filter-width: 160px;
+  --training-filter-width-triple: 146px;
   --training-filter-height: 34px;
   --training-filter-padding-inline: 12px;
   --training-filter-font-size: 14px;
@@ -44,6 +45,7 @@
     --training-sidebar-width: 240px;
     --training-panel-width: 260px;
     --training-filter-width: 155px;
+    --training-filter-width-triple: 138px;
     --training-filter-height: 32px;
     --training-filter-padding-inline: 10px;
   }
@@ -56,6 +58,7 @@
 @media (min-width: 768px) and (max-width: 1050px) {
   .training-shell {
     --training-filter-width: 150px;
+    --training-filter-width-triple: 132px;
   }
 }
 

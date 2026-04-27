@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, useSlots } from 'vue'
 
 import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 import RuntimeAccessCard from '@/components/layout/RuntimeAccessCard.vue'
 import '@/components/training/trainingLayout.css'
@@ -16,6 +17,7 @@ const runtimeAccess = ref<RuntimeAccessInfo>({
 })
 
 const hasHeaderFilters = computed(() => !!slots['header-filters'])
+const trainingModeLabel = getAppModeDisplayLabel('training')
 
 onMounted(async () => {
   runtimeAccess.value = await fetchRuntimeAccessInfo()
@@ -27,7 +29,7 @@ onMounted(async () => {
     <header class="training-topbar">
       <div class="topbar-title">
         <div class="header-copy">
-          <h1>训练模式</h1>
+          <h1>{{ trainingModeLabel }}</h1>
         </div>
       </div>
 

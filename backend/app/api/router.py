@@ -13,6 +13,7 @@ from app.api.endpoints import (
     sessions,
     tags,
     test_records,
+    training_loads,
     training_reports,
 )
 
@@ -31,3 +32,4 @@ api_router.include_router(assignments.router)
 api_router.include_router(sessions.router)
 api_router.include_router(test_records.router)
 api_router.include_router(training_reports.router)
+api_router.include_router(training_loads.router)

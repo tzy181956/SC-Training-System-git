@@ -21,6 +21,18 @@ def create_sport(payload: SportCreate, db: Session = Depends(get_db), _=Depends(
     return athlete_service.create_sport(db, payload)
 
 
+@router.delete("/sports/{sport_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sport(
+    sport_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="删除项目")
+    athlete_service.delete_sport(db, sport_id, actor_name=payload.actor_name)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/teams", response_model=list[TeamRead])
 def list_teams(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
     return athlete_service.list_teams(db)
@@ -29,6 +41,18 @@ def list_teams(db: Session = Depends(get_db), _=Depends(require_roles("coach")))
 @router.post("/teams", response_model=TeamRead)
 def create_team(payload: TeamCreate, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
     return athlete_service.create_team(db, payload)
+
+
+@router.delete("/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_team(
+    team_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="删除队伍")
+    athlete_service.delete_team(db, team_id, actor_name=payload.actor_name)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/athletes", response_model=list[AthleteRead])

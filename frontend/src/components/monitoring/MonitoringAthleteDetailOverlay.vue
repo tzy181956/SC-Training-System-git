@@ -12,6 +12,7 @@ import {
   isExtremeSessionRpe,
   isHighSessionRpe,
 } from '@/constants/sessionRpe'
+import { formatSessionDuration } from '@/utils/sessionDuration'
 import type {
   MonitoringAlertLevel,
   MonitoringAssignmentDetail,
@@ -147,6 +148,11 @@ function assignmentSessionRpeHint(assignment: MonitoringAssignmentDetail) {
   return ''
 }
 
+function assignmentSessionDuration(assignment: MonitoringAssignmentDetail) {
+  if (assignment.session_rpe == null) return ''
+  return formatSessionDuration(assignment.session_started_at, assignment.session_completed_at)
+}
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && shouldShow.value) {
     emit('close')
@@ -245,6 +251,7 @@ onBeforeUnmount(() => {
             <strong>{{ assignmentSessionRpeText(assignment) }}</strong>
             <span v-if="assignmentSessionRpeHelp(assignment)">{{ assignmentSessionRpeHelp(assignment) }}</span>
             <span v-if="assignmentSessionRpeHint(assignment)">{{ assignmentSessionRpeHint(assignment) }}</span>
+            <span v-if="assignmentSessionDuration(assignment)">训练用时：{{ assignmentSessionDuration(assignment) }}</span>
             <span v-if="assignment.session_completed_at">完成时间：{{ formatDateTime(assignment.session_completed_at) }}</span>
             <p v-if="assignment.session_feedback" class="assignment-feedback-note">{{ assignment.session_feedback }}</p>
           </div>

@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 import { resolveRouteForMode, useAuthStore, type AppMode } from '@/stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const modeButtons: Array<{ mode: AppMode; label: string }> = [
-  { mode: 'training', label: '训练端' },
-  { mode: 'management', label: '管理端' },
-  { mode: 'monitor', label: '监控端' },
+  { mode: 'training', label: getAppModeDisplayLabel('training') },
+  { mode: 'management', label: getAppModeDisplayLabel('management') },
+  { mode: 'monitor', label: getAppModeDisplayLabel('monitor') },
 ]
 
 async function switchMode(mode: AppMode) {
@@ -20,7 +21,7 @@ async function switchMode(mode: AppMode) {
 </script>
 
 <template>
-  <div class="mode-switch" role="tablist" aria-label="端入口切换">
+  <div class="mode-switch" role="tablist" aria-label="模式切换">
     <button
       v-for="button in modeButtons"
       :key="button.mode"
