@@ -9,9 +9,11 @@ import {
   fetchTrainingSyncIssues,
   reportTrainingSyncIssue,
   resolveTrainingSyncIssue,
+  submitTrainingSessionFinishFeedback,
   syncTrainingSessionSnapshot,
   syncTrainingSetOperation,
   startTrainingSession,
+  type SessionFinishFeedbackPayload,
 } from '@/api/sessions'
 import {
   deleteTrainingLocalDraft,
@@ -208,6 +210,25 @@ export const useTrainingStore = defineStore('training', () => {
     } catch {
       return _endSessionLocally(uiState)
     }
+  }
+
+  async function submitSessionFinishFeedback(payload: SessionFinishFeedbackPayload) {
+    if (!session.value?.id) throw new Error('No persisted session loaded')
+
+    const nextSession = await submitTrainingSessionFinishFeedback(session.value.id, payload)
+    _replaceSession(nextSession)
+    _persistLocalDraft({
+      ...draftUiState.value,
+      pendingSync: draftPendingSync.value,
+      syncStatus: syncStatus.value,
+      syncIssueId: syncIssueId.value,
+      lastServerUpdatedAt: nextSession.updated_at ?? null,
+      lastServerSignature: nextSession.server_signature ?? null,
+      incrementalFailureCount: 0,
+      lastSyncAttemptAt: new Date().toISOString(),
+    })
+    await hydrateAthletes(sessionDate.value)
+    return nextSession
   }
 
   function setPreviewAssignment(assignmentId: number) {
@@ -797,6 +818,7 @@ export const useTrainingStore = defineStore('training', () => {
     recordSet,
     reviseSetRecord,
     endSession,
+    submitSessionFinishFeedback,
     setPreviewAssignment,
     getDraftForSession,
     getDraftBySessionId,

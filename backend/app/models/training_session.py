@@ -19,6 +19,8 @@ class TrainingSession(BaseModel):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     coach_note: Mapped[str | None] = mapped_column(Text)
     athlete_note: Mapped[str | None] = mapped_column(Text)
+    session_rpe: Mapped[int | None] = mapped_column(Integer)
+    session_feedback: Mapped[str | None] = mapped_column(Text)
 
     athlete = relationship("Athlete")
     assignment = relationship("AthletePlanAssignment")

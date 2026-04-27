@@ -4,6 +4,13 @@
 
 ### Added
 
+- 新增训练完成后的 Session RPE 反馈闭环：
+  - 后端在 `training_sessions` 增加 `session_rpe`、`session_feedback` 字段，并复用 `completed_at`
+  - 新增 `POST /api/training/sessions/{session_id}/finish-feedback`，支持重复覆盖提交整体 RPE 与备注
+  - 训练端新增 `frontend/src/components/training/SessionRpeModal.vue`，支持自动弹窗、稍后填写、顶部提醒条、已提交摘要与再次修改
+  - 监控端卡片 / 详情和训练报告补充 Session RPE、备注、完成时间展示
+  - 整课覆盖同步快照补充 Session RPE / 备注字段，避免 full sync 时丢失训练完成反馈
+
 - 新增监控端第一轮结构预留：
   - `frontend/src/views/MonitorDashboardView.vue`
   - `frontend/src/components/layout/MonitorShell.vue`
@@ -47,6 +54,11 @@
   - `docs/phase1-local-draft-and-session.md`
 
 ### Changed
+
+- Session RPE copy/display is now centralized in `frontend/src/constants/sessionRpe.ts`, and the same 0-10 label/help mapping is reused by the training modal, training summary bar, monitoring views, and training report.
+- `AGENTS.md` 已补充前端视觉验收硬约束：凡涉及 UI、布局、响应式或样式修改，必须启动项目并用真实浏览器或 Playwright 做修改前后视觉检查，不能只靠读代码或 `npm run build` 判断效果。
+- 训练端 `Session RPE` 已填写后的展示已从大面积摘要卡片压缩为动作列表上方的紧凑横向 summary bar，修正中栏扩张挤压动作列表的问题，并保留轻量 `修改 RPE` 入口。
+- `Session RPE` 输入弹窗已补充 0-10 颜色分级：大号数字、刻度高亮、滑条进度/滑块和描述标签按同一色阶从绿色过渡到黄色、橙色和红色，未选择时保持中性灰色。
 
 - 启动器后端环境准备阶段已改为完整自修复流程：自动创建或复用 `backend/.venv`、升级 pip、按 `backend/requirements.txt` 安装依赖，并在数据库迁移前验证 `alembic.config`、`sqlalchemy`、`fastapi`；依赖缺失会归类为 `backend_dependency_missing`，不再误提示数据库被锁。
 - `auth` store、前端路由和管理端导航已预留 `monitor` 独立模式与 `/monitor` 入口，不再把监控端混入现有管理页或训练页。

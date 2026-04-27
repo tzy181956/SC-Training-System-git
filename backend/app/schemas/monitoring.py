@@ -30,6 +30,9 @@ class MonitoringAthleteCardRead(BaseModel):
     session_id: int | None = None
     session_status: MonitoringSessionStatus
     sync_status: MonitoringSyncStatus
+    session_rpe: int | None = None
+    session_feedback: str | None = None
+    session_completed_at: datetime | None = None
     current_exercise_name: str | None = None
     completed_items: int
     total_items: int
@@ -81,6 +84,9 @@ class MonitoringAssignmentDetailRead(BaseModel):
     template_name: str
     session_id: int | None = None
     session_status: MonitoringSessionStatus
+    session_rpe: int | None = None
+    session_feedback: str | None = None
+    session_completed_at: datetime | None = None
     completed_items: int
     total_items: int
     completed_sets: int
@@ -97,6 +103,9 @@ class MonitoringAthleteDetailRead(BaseModel):
     team_name: str | None = None
     session_status: MonitoringSessionStatus
     sync_status: MonitoringSyncStatus
+    session_rpe: int | None = None
+    session_feedback: str | None = None
+    session_completed_at: datetime | None = None
     alert_level: MonitoringAlertLevel = "none"
     alert_reasons: list[str] = Field(default_factory=list)
     has_alert: bool

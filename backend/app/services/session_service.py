@@ -15,6 +15,7 @@ from app.models import (
 from app.schemas.training_session import (
     CoachSetRecordCreate,
     CoachSetRecordUpdate,
+    SessionFinishFeedbackUpdate,
     SessionFullSyncPayload,
     SessionSetSyncOperation,
     SetRecordCreate,
@@ -141,6 +142,8 @@ def _build_session_preview(assignment, session_date: date) -> dict:
         "server_signature": None,
         "started_at": None,
         "completed_at": None,
+        "session_rpe": None,
+        "session_feedback": None,
         "coach_note": None,
         "athlete_note": None,
         "items": [
@@ -436,6 +439,33 @@ def complete_session(db: Session, session_id: int) -> TrainingSession:
     if not session:
         raise not_found("Training session not found")
     _finalize_session(session, closure_reason="manual_end")
+    db.commit()
+    return get_session(db, session_id)
+
+
+def submit_session_finish_feedback(
+    db: Session,
+    session_id: int,
+    payload: SessionFinishFeedbackUpdate,
+) -> TrainingSession:
+    session = (
+        db.query(TrainingSession)
+        .options(
+            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
+        )
+        .filter(TrainingSession.id == session_id)
+        .first()
+    )
+    if not session:
+        raise not_found("Training session not found")
+
+    _sync_session_state(session)
+    if session.status != "completed":
+        raise bad_request("仅已完成的训练课可以提交整体 RPE 反馈")
+
+    session.session_rpe = payload.session_rpe
+    session.session_feedback = payload.session_feedback
+    session.completed_at = datetime.now(timezone.utc)
     db.commit()
     return get_session(db, session_id)
 
@@ -859,6 +889,8 @@ def _overwrite_session_from_snapshot(session: TrainingSession, payload: SessionF
     session.athlete_id = payload.athlete_id
     session.template_id = payload.template_id or session.template_id
     session.session_date = payload.session_date
+    session.session_rpe = payload.session_rpe
+    session.session_feedback = payload.session_feedback
 
     session.items.clear()
 

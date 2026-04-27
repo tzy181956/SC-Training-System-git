@@ -51,6 +51,9 @@ export type MonitoringAssignmentDetail = {
   template_name: string
   session_id: number | null
   session_status: TrainingStatus
+  session_rpe?: number | null
+  session_feedback?: string | null
+  session_completed_at?: string | null
   completed_items: number
   total_items: number
   completed_sets: number
@@ -66,6 +69,9 @@ export type MonitoringAthleteCard = {
   session_id: number | null
   session_status: TrainingStatus
   sync_status: MonitoringSyncStatus
+  session_rpe?: number | null
+  session_feedback?: string | null
+  session_completed_at?: string | null
   current_exercise_name: string | null
   completed_items: number
   total_items: number
@@ -112,6 +118,9 @@ export type MonitoringAthleteDetailResponse = {
   team_name: string | null
   session_status: TrainingStatus
   sync_status: MonitoringSyncStatus
+  session_rpe?: number | null
+  session_feedback?: string | null
+  session_completed_at?: string | null
   alert_level: MonitoringAlertLevel
   alert_reasons: string[]
   has_alert: boolean

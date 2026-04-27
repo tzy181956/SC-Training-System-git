@@ -4,6 +4,7 @@ import {
   getTrainingStatusTone,
   MONITORING_STATUS_LABEL_OVERRIDES,
 } from '@/constants/trainingStatus'
+import { getSessionRpeLabel, isExtremeSessionRpe, isHighSessionRpe } from '@/constants/sessionRpe'
 import type { MonitoringAlertLevel, MonitoringAthleteCard } from '@/types/monitoring'
 
 const props = defineProps<{
@@ -28,6 +29,22 @@ function syncLabel() {
   if (props.athlete.sync_status === 'manual_retry_required') return '同步异常'
   if (props.athlete.sync_status === 'pending') return '待同步'
   return '已同步'
+}
+
+function shouldShowSessionRpe() {
+  return props.athlete.session_status === 'completed' || props.athlete.session_rpe != null
+}
+
+function sessionRpeText() {
+  if (props.athlete.session_rpe == null) return 'RPE 未填写'
+  return `RPE ${props.athlete.session_rpe}/10｜${getSessionRpeLabel(props.athlete.session_rpe)}`
+}
+
+function sessionRpeHint() {
+  if (isExtremeSessionRpe(props.athlete.session_rpe)) return '接近极限反馈'
+  if (isHighSessionRpe(props.athlete.session_rpe)) return '主观强度偏高'
+  if (props.athlete.session_rpe == null) return ''
+  return ''
 }
 
 const alertLevelLabels: Record<MonitoringAlertLevel, string> = {
@@ -64,6 +81,11 @@ function statusTone() {
     <div class="progress-grid">
       <span>{{ progressText(athlete.completed_items, athlete.total_items, '动作') }}</span>
       <span>{{ progressText(athlete.completed_sets, athlete.total_sets, '组') }}</span>
+    </div>
+
+    <div v-if="shouldShowSessionRpe()" class="session-rpe-line">
+      <strong>{{ sessionRpeText() }}</strong>
+      <span v-if="sessionRpeHint()">{{ sessionRpeHint() }}</span>
     </div>
 
     <div class="card-foot">
@@ -204,6 +226,23 @@ function statusTone() {
   background: rgba(15, 118, 110, 0.08);
   color: #115e59;
   font-weight: 700;
+}
+
+.session-rpe-line {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.session-rpe-line strong {
+  font-size: 14px;
+}
+
+.session-rpe-line span {
+  color: var(--text-soft);
+  font-size: 13px;
 }
 
 .sync-pill.synced {

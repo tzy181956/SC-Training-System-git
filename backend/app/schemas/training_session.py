@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt, field_validator
 from typing import Literal
 
 from app.schemas.assignment import AssignmentRead
@@ -110,10 +110,33 @@ class SessionFullSyncPayload(BaseModel):
     status: str
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    session_rpe: StrictInt | None = Field(default=None, ge=0, le=10)
+    session_feedback: str | None = Field(default=None, max_length=500)
     last_server_updated_at: datetime | None = None
     last_server_signature: str | None = None
     trigger_reason: Literal['manual', 'fallback'] = 'manual'
     items: list[SessionFullSyncItem] = []
+
+    @field_validator("session_feedback", mode="before")
+    @classmethod
+    def normalize_session_feedback(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
+class SessionFinishFeedbackUpdate(BaseModel):
+    session_rpe: StrictInt = Field(ge=0, le=10)
+    session_feedback: str | None = Field(default=None, max_length=500)
+
+    @field_validator("session_feedback", mode="before")
+    @classmethod
+    def normalize_session_feedback(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 class SetRecordRead(ORMModel):
@@ -158,6 +181,8 @@ class SessionSnapshotRead(ORMModel):
     server_signature: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    session_rpe: int | None = None
+    session_feedback: str | None = None
     coach_note: str | None = None
     athlete_note: str | None = None
     items: list[SessionItemSnapshotRead] = []

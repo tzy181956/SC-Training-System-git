@@ -23,6 +23,8 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE athletes ADD COLUMN body_fat_percentage FLOAT",
         "ALTER TABLE athletes ADD COLUMN wingspan FLOAT",
         "ALTER TABLE athletes ADD COLUMN standing_reach FLOAT",
+        "ALTER TABLE training_sessions ADD COLUMN session_rpe INTEGER",
+        "ALTER TABLE training_sessions ADD COLUMN session_feedback TEXT",
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.schemas.training_session import (
+    SessionFinishFeedbackUpdate,
     SessionFullSyncPayload,
     SessionFullSyncResponse,
     SessionRead,
@@ -211,3 +212,13 @@ def complete_item(item_id: int, db: Session = Depends(get_db), _=Depends(require
 @router.post("/sessions/{session_id}/complete", response_model=SessionRead)
 def complete_session(session_id: int, db: Session = Depends(get_db), _=Depends(require_roles("training", "coach"))):
     return session_service.complete_session(db, session_id)
+
+
+@router.post("/sessions/{session_id}/finish-feedback", response_model=SessionRead)
+def submit_session_finish_feedback(
+    session_id: int,
+    payload: SessionFinishFeedbackUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("training", "coach")),
+):
+    return session_service.submit_session_finish_feedback(db, session_id, payload)

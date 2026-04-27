@@ -6,6 +6,7 @@ import {
   coachDeleteTrainingReportSetRecord,
   coachUpdateTrainingReportSetRecord,
 } from '@/api/trainingReports'
+import { getSessionRpeHelp, getSessionRpeLabel } from '@/constants/sessionRpe'
 import { getTrainingStatusLabel, getTrainingStatusTone } from '@/constants/trainingStatus'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
 
@@ -163,6 +164,25 @@ function sessionStatusLabel(status?: string) {
 function sessionStatusTone(status?: string) {
   return getTrainingStatusTone(status)
 }
+
+function sessionRpeText() {
+  if (props.session.session_rpe == null) return '未填写'
+  return `${props.session.session_rpe} / 10`
+}
+
+function sessionRpeDescription() {
+  if (props.session.session_rpe == null) return ''
+  return getSessionRpeLabel(props.session.session_rpe)
+}
+
+function sessionRpeHelpText() {
+  if (props.session.session_rpe == null) return ''
+  return getSessionRpeHelp(props.session.session_rpe)
+}
+
+function sessionFeedbackText() {
+  return props.session.session_feedback ? `队员备注：${props.session.session_feedback}` : '队员备注：未填写备注'
+}
 </script>
 
 <template>
@@ -180,6 +200,25 @@ function sessionStatusTone(status?: string) {
     </summary>
 
     <div class="session-body">
+      <section class="feedback-panel">
+        <div class="feedback-head">
+          <strong>本次训练反馈</strong>
+          <span v-if="session.completed_at">完成时间：{{ formatDateTime(session.completed_at) }}</span>
+        </div>
+        <div class="feedback-grid">
+          <div class="feedback-metric">
+            <span>整体 RPE</span>
+            <strong>{{ sessionRpeText() }}</strong>
+          </div>
+          <div v-if="session.session_rpe != null" class="feedback-metric">
+            <span>主观用力程度</span>
+            <strong>{{ sessionRpeDescription() }}</strong>
+          </div>
+        </div>
+        <p v-if="session.session_rpe != null" class="feedback-note">解释：{{ sessionRpeHelpText() }}</p>
+        <p class="feedback-note">{{ sessionFeedbackText() }}</p>
+      </section>
+
       <article
         v-for="item in session.items"
         :key="item.id"
@@ -359,6 +398,12 @@ function sessionStatusTone(status?: string) {
 .decision-pill.guided{background:rgba(59,130,246,.14);color:#1d4ed8}
 .decision-pill.modified{background:rgba(239,68,68,.12);color:#b91c1c}
 .session-body{padding:0 20px 20px;display:grid;gap:14px}
+.feedback-panel{display:grid;gap:10px;padding:16px;border-radius:16px;background:rgba(15,118,110,.06);border:1px solid rgba(15,118,110,.12)}
+.feedback-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.feedback-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.feedback-metric{display:grid;gap:6px;padding:12px;border-radius:14px;background:white}
+.feedback-metric span,.feedback-note{margin:0;color:var(--text-soft)}
+.feedback-note{font-size:14px}
 .item-card{border-radius:18px;background:var(--panel-soft);padding:16px;display:grid;gap:12px}
 .item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .item-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
@@ -382,5 +427,6 @@ function sessionStatusTone(status?: string) {
 
 @media (max-width: 960px) {
   .editor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .feedback-grid{grid-template-columns:1fr}
 }
 </style>

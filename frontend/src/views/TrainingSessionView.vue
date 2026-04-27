@@ -5,9 +5,11 @@ import { useRoute, useRouter } from 'vue-router'
 import TrainingShell from '@/components/layout/TrainingShell.vue'
 import TrainingDraftRestoreModal from '@/components/training/TrainingDraftRestoreModal.vue'
 import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
+import SessionRpeModal from '@/components/training/SessionRpeModal.vue'
 import TrainingModeSidebar from '@/components/training/TrainingModeSidebar.vue'
 import TrainingSessionOverview from '@/components/training/TrainingSessionOverview.vue'
 import TrainingSetPanel from '@/components/training/TrainingSetPanel.vue'
+import { getSessionRpeHelp, getSessionRpeLabel } from '@/constants/sessionRpe'
 import { getTrainingStatusLabel, getTrainingStatusTone, isFinalTrainingStatus } from '@/constants/trainingStatus'
 import { useTeamFilter } from '@/composables/useTeamFilter'
 import { useTrainingStore } from '@/stores/training'
@@ -22,6 +24,10 @@ const closingSession = ref(false)
 const syncingFullSession = ref(false)
 const sessionNotice = ref('')
 const sessionNoticeTone = ref<'success' | 'warning' | 'error'>('success')
+const sessionRpeModalOpen = ref(false)
+const sessionRpeDeferred = ref(false)
+const sessionRpeSubmitting = ref(false)
+const sessionRpeError = ref('')
 const restorePromptDraft = ref<any | null>(null)
 const restorePromptResolver = ref<((accepted: boolean) => void) | null>(null)
 const restoreToActionList = ref(false)
@@ -65,6 +71,24 @@ const currentAthleteName = computed(() => {
   const athleteId = trainingStore.session?.athlete_id || trainingStore.selectedAthleteId
   return trainingStore.athletes.find((athlete) => athlete.id === athleteId)?.full_name || ''
 })
+const canCollectSessionRpe = computed(() => {
+  const currentSession = trainingStore.session
+  return (
+    Boolean(currentSession?.id)
+    && currentSession?.status === 'completed'
+    && currentSession?.session_date === todayString()
+    && trainingStore.syncStatus === 'synced'
+  )
+})
+const hasSubmittedSessionRpe = computed(
+  () => typeof trainingStore.session?.session_rpe === 'number' && Number.isInteger(trainingStore.session.session_rpe),
+)
+const shouldShowSessionRpeReminder = computed(
+  () => canCollectSessionRpe.value && !hasSubmittedSessionRpe.value && sessionRpeDeferred.value,
+)
+const sessionRpeLabel = computed(() => getSessionRpeLabel(trainingStore.session?.session_rpe))
+const sessionRpeHelp = computed(() => getSessionRpeHelp(trainingStore.session?.session_rpe))
+const sessionCompletedAtLabel = computed(() => formatDateTime(trainingStore.session?.completed_at))
 const {
   selectedTeamFilter,
   teamOptions,
@@ -167,6 +191,47 @@ function showSessionNotice(message: string, tone: 'success' | 'warning' | 'error
     sessionNotice.value = ''
     noticeTimer = null
   }, 2500)
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return ''
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+function openSessionRpeModal() {
+  if (!canCollectSessionRpe.value) return
+  sessionRpeError.value = ''
+  sessionRpeModalOpen.value = true
+}
+
+function closeSessionRpeForLater() {
+  sessionRpeModalOpen.value = false
+  sessionRpeDeferred.value = true
+  sessionRpeError.value = ''
+}
+
+async function submitSessionRpeFeedback(payload: { session_rpe: number; session_feedback: string | null }) {
+  if (!canCollectSessionRpe.value || !trainingStore.session?.id) return
+
+  sessionRpeSubmitting.value = true
+  sessionRpeError.value = ''
+  try {
+    await trainingStore.submitSessionFinishFeedback(payload)
+    sessionRpeModalOpen.value = false
+    sessionRpeDeferred.value = false
+    showSessionNotice('整体 RPE 已保存。', 'success')
+  } catch (error: any) {
+    sessionRpeError.value = error?.response?.data?.detail || '提交失败，请检查网络或稍后重试'
+  } finally {
+    sessionRpeSubmitting.value = false
+  }
 }
 
 async function maybeRestoreDraftForSession(nextSession: any) {
@@ -386,8 +451,9 @@ async function submitCurrentSet(payload: Record<string, unknown>) {
     await router.replace({ name: 'training-session', params: { sessionId: response.session.id } })
   }
   if (response.session_status === 'completed') {
+    const recordedLocally = 'local_only' in response && response.local_only
     showSessionNotice(
-      response.local_only ? '整堂训练已在本机标记为完成，待后续同步。' : '整堂训练已自动完成。',
+      recordedLocally ? '整堂训练已在本机标记为完成，待后续同步。' : '整堂训练已自动完成。',
       'success',
     )
   }
@@ -512,6 +578,16 @@ watch(
 )
 
 watch(
+  () => trainingStore.session?.id,
+  () => {
+    sessionRpeModalOpen.value = false
+    sessionRpeDeferred.value = false
+    sessionRpeSubmitting.value = false
+    sessionRpeError.value = ''
+  },
+)
+
+watch(
   () => trainingStore.athletes,
   () => {
     syncTeamFilter()
@@ -538,6 +614,27 @@ watch(
   { deep: true },
 )
 
+watch(
+  () => [
+    trainingStore.session?.id,
+    trainingStore.session?.status,
+    trainingStore.session?.session_rpe,
+    trainingStore.syncStatus,
+  ],
+  ([sessionId, sessionStatus, sessionRpe, syncStatus]) => {
+    if (typeof sessionRpe === 'number') {
+      sessionRpeModalOpen.value = false
+      sessionRpeDeferred.value = false
+      sessionRpeError.value = ''
+      return
+    }
+    if (!sessionId || sessionStatus !== 'completed' || syncStatus !== 'synced') return
+    if (sessionRpeDeferred.value || sessionRpeModalOpen.value) return
+    sessionRpeError.value = ''
+    sessionRpeModalOpen.value = true
+  },
+)
+
 onBeforeUnmount(() => {
   if (noticeTimer !== null) {
     window.clearTimeout(noticeTimer)
@@ -554,6 +651,15 @@ onMounted(hydrate)
       :draft="restorePromptDraft"
       @continue-restore="handleRestorePromptDecision(true)"
       @discard-restore="handleRestorePromptDecision(false)"
+    />
+    <SessionRpeModal
+      :open="sessionRpeModalOpen"
+      :initial-rpe="trainingStore.session?.session_rpe ?? null"
+      :initial-feedback="trainingStore.session?.session_feedback ?? null"
+      :submitting="sessionRpeSubmitting"
+      :error="sessionRpeError"
+      @close-later="closeSessionRpeForLater"
+      @submit="submitSessionRpeFeedback"
     />
 
     <template #header-filters>
@@ -613,7 +719,40 @@ onMounted(hydrate)
           </div>
         </div>
 
+        <div v-if="shouldShowSessionRpeReminder" class="panel session-rpe-reminder">
+          <div class="session-rpe-copy">
+            <strong>今日训练已完成，请补充整体 RPE</strong>
+            <span>训练完成反馈尚未提交。</span>
+          </div>
+          <button class="primary-btn session-rpe-action" type="button" @click="openSessionRpeModal">填写 RPE</button>
+        </div>
+
+        <div v-if="hasSubmittedSessionRpe" class="session-rpe-summary-bar">
+          <div class="session-rpe-summary-meta">
+            <span class="session-rpe-summary-label">
+              Session RPE：<strong class="session-rpe-summary-value">{{ trainingStore.session?.session_rpe }}/10</strong>
+            </span>
+            <span class="session-rpe-summary-separator" aria-hidden="true">｜</span>
+            <span class="session-rpe-summary-description">{{ sessionRpeLabel }}</span>
+            <span v-if="sessionRpeHelp" class="session-rpe-summary-separator" aria-hidden="true">｜</span>
+            <span v-if="sessionRpeHelp" class="session-rpe-summary-help">{{ sessionRpeHelp }}</span>
+            <template v-if="sessionCompletedAtLabel">
+              <span class="session-rpe-summary-separator" aria-hidden="true">｜</span>
+              <span class="session-rpe-summary-time">完成时间：{{ sessionCompletedAtLabel }}</span>
+            </template>
+          </div>
+          <button
+            v-if="canCollectSessionRpe"
+            class="secondary-btn session-rpe-summary-edit"
+            type="button"
+            @click="openSessionRpeModal"
+          >
+            修改 RPE
+          </button>
+        </div>
+
         <TrainingSessionOverview
+          class="session-overview-slot"
           :assignment="selectedAssignment"
           :session="trainingStore.session"
           :athlete-name="currentAthleteName"
@@ -655,9 +794,111 @@ onMounted(hydrate)
 }
 
 .center-column {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 18px;
+  min-height: 0;
+}
+
+.session-rpe-reminder,
+.session-rpe-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.session-rpe-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.session-rpe-copy strong,
+.session-rpe-copy span {
+  margin: 0;
+}
+
+.session-rpe-copy span {
+  color: var(--text-soft);
+}
+
+.session-rpe-reminder {
+  padding: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  background: rgba(254, 243, 199, 0.68);
+}
+
+.session-rpe-summary-bar {
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: rgba(236, 253, 245, 0.5);
+  min-width: 0;
+}
+
+.session-rpe-summary-meta {
+  display: flex;
+  align-items: center;
+  flex: 1 1 320px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.session-rpe-summary-label,
+.session-rpe-summary-description,
+.session-rpe-summary-help,
+.session-rpe-summary-time,
+.session-rpe-summary-separator {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.session-rpe-summary-label {
+  color: var(--text);
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.session-rpe-summary-value {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.session-rpe-summary-description,
+.session-rpe-summary-help,
+.session-rpe-summary-time {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
+.session-rpe-summary-description {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.session-rpe-summary-separator {
+  color: rgba(15, 23, 42, 0.28);
+}
+
+.session-rpe-summary-edit {
+  min-height: 36px;
+  min-width: auto;
+  padding: 0 14px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  font-size: 0.9rem;
+}
+
+.session-overview-slot {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.session-rpe-action {
+  min-height: 44px;
+  min-width: 120px;
 }
 
 .hero {
@@ -816,6 +1057,25 @@ onMounted(hydrate)
     gap: 12px;
   }
 
+  .session-rpe-reminder,
+  .session-rpe-summary-bar {
+    padding: 14px;
+  }
+
+  .session-rpe-summary-bar {
+    min-height: 48px;
+    padding: 9px 12px;
+  }
+
+  .session-rpe-summary-meta {
+    gap: 6px 8px;
+  }
+
+  .session-rpe-summary-edit {
+    min-height: 34px;
+    padding-inline: 12px;
+  }
+
   .hero {
     gap: 12px;
     padding: 12px 14px;
@@ -853,6 +1113,24 @@ onMounted(hydrate)
     flex-direction: column;
     align-items: flex-start;
     padding: 14px;
+  }
+
+  .session-rpe-reminder {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .session-rpe-summary-bar {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .session-rpe-summary-meta {
+    gap: 4px 8px;
+  }
+
+  .session-rpe-summary-edit {
+    min-height: 34px;
   }
 
   .hero-athlete-name {

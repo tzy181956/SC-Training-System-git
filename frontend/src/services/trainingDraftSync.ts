@@ -311,6 +311,8 @@ export function buildTrainingFullSessionSyncPayload(
     status: snapshot.status,
     started_at: snapshot.started_at ?? null,
     completed_at: snapshot.completed_at ?? null,
+    session_rpe: snapshot.session_rpe ?? null,
+    session_feedback: snapshot.session_feedback ?? null,
     last_server_updated_at: draft.last_server_updated_at,
     last_server_signature: draft.last_server_signature,
     trigger_reason: triggerReason,

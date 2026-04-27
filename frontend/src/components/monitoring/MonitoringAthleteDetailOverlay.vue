@@ -6,6 +6,12 @@ import {
   getTrainingStatusTone,
   MONITORING_STATUS_LABEL_OVERRIDES,
 } from '@/constants/trainingStatus'
+import {
+  getSessionRpeHelp,
+  getSessionRpeLabel,
+  isExtremeSessionRpe,
+  isHighSessionRpe,
+} from '@/constants/sessionRpe'
 import type {
   MonitoringAlertLevel,
   MonitoringAssignmentDetail,
@@ -121,6 +127,26 @@ function recordKey(record: MonitoringSetRecord) {
   return record.id ?? `pending-${record.set_number}`
 }
 
+function shouldShowAssignmentSessionRpe(assignment: MonitoringAssignmentDetail) {
+  return assignment.session_status === 'completed' || assignment.session_rpe != null
+}
+
+function assignmentSessionRpeText(assignment: MonitoringAssignmentDetail) {
+  if (assignment.session_rpe == null) return 'RPE 未填写'
+  return `RPE ${assignment.session_rpe}/10｜${getSessionRpeLabel(assignment.session_rpe)}`
+}
+
+function assignmentSessionRpeHelp(assignment: MonitoringAssignmentDetail) {
+  if (assignment.session_rpe == null) return ''
+  return getSessionRpeHelp(assignment.session_rpe)
+}
+
+function assignmentSessionRpeHint(assignment: MonitoringAssignmentDetail) {
+  if (isExtremeSessionRpe(assignment.session_rpe)) return '接近极限反馈'
+  if (isHighSessionRpe(assignment.session_rpe)) return '主观强度偏高'
+  return ''
+}
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && shouldShow.value) {
     emit('close')
@@ -214,6 +240,14 @@ onBeforeUnmount(() => {
               <span>{{ assignment.completed_sets }}/{{ assignment.total_sets }} 组</span>
             </div>
           </header>
+
+          <div v-if="shouldShowAssignmentSessionRpe(assignment)" class="assignment-feedback">
+            <strong>{{ assignmentSessionRpeText(assignment) }}</strong>
+            <span v-if="assignmentSessionRpeHelp(assignment)">{{ assignmentSessionRpeHelp(assignment) }}</span>
+            <span v-if="assignmentSessionRpeHint(assignment)">{{ assignmentSessionRpeHint(assignment) }}</span>
+            <span v-if="assignment.session_completed_at">完成时间：{{ formatDateTime(assignment.session_completed_at) }}</span>
+            <p v-if="assignment.session_feedback" class="assignment-feedback-note">{{ assignment.session_feedback }}</p>
+          </div>
 
           <div class="exercise-list">
             <article
@@ -485,6 +519,23 @@ onBeforeUnmount(() => {
 .exercise-list {
   display: grid;
   gap: 14px;
+}
+
+.assignment-feedback {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.assignment-feedback span,
+.assignment-feedback-note {
+  color: var(--text-soft);
+}
+
+.assignment-feedback-note {
+  margin: 0;
 }
 
 .assignment-card,

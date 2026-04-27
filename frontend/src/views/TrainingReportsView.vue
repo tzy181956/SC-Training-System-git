@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 
 import { fetchAthletes } from '@/api/athletes'
 import { retryTrainingSyncIssue } from '@/api/sessions'
-import { fetchTrainingReport } from '@/api/trainingReports'
+import { fetchTrainingReport, type TrainingReportResponse } from '@/api/trainingReports'
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import TrainingSessionCard from '@/components/report/TrainingSessionCard.vue'
@@ -15,7 +15,7 @@ import { todayString } from '@/utils/date'
 const route = useRoute()
 const athletes = ref<any[]>([])
 const loading = ref(false)
-const report = ref<any | null>(null)
+const report = ref<TrainingReportResponse | null>(null)
 const reportNotice = ref('')
 const reportNoticeTone = ref<'success' | 'warning' | 'error'>('success')
 const retryingIssueId = ref<number | null>(null)

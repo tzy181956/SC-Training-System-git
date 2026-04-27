@@ -51,6 +51,8 @@ def serialize_session_snapshot(session: Any) -> dict:
         "status": session.status,
         "started_at": session.started_at.isoformat() if session.started_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+        "session_rpe": getattr(session, "session_rpe", None),
+        "session_feedback": getattr(session, "session_feedback", None),
         "items": _serialize_session_items(session.items),
     }
 
@@ -64,6 +66,8 @@ def serialize_full_sync_payload(payload: Any) -> dict:
         "status": payload.status,
         "started_at": payload.started_at.isoformat() if payload.started_at else None,
         "completed_at": payload.completed_at.isoformat() if payload.completed_at else None,
+        "session_rpe": getattr(payload, "session_rpe", None),
+        "session_feedback": getattr(payload, "session_feedback", None),
         "items": _serialize_session_items(payload.items),
     }
 
