@@ -55,6 +55,7 @@
 
 ### Changed
 
+- Session RPE scale buttons in the training modal now use per-value color styling across 0-10, so the clickable row matches the slider and headline color feedback.
 - Session RPE copy/display is now centralized in `frontend/src/constants/sessionRpe.ts`, and the same 0-10 label/help mapping is reused by the training modal, training summary bar, monitoring views, and training report.
 - `AGENTS.md` 已补充前端视觉验收硬约束：凡涉及 UI、布局、响应式或样式修改，必须启动项目并用真实浏览器或 Playwright 做修改前后视觉检查，不能只靠读代码或 `npm run build` 判断效果。
 - 训练端 `Session RPE` 已填写后的展示已从大面积摘要卡片压缩为动作列表上方的紧凑横向 summary bar，修正中栏扩张挤压动作列表的问题，并保留轻量 `修改 RPE` 入口。

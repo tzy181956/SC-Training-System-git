@@ -87,6 +87,17 @@ function confirmManualInput() {
   manualInputOpen.value = false
 }
 
+function scaleButtonStyle(value: number): CSSProperties {
+  const theme = getSessionRpeColorTheme(value)
+  return {
+    '--scale-accent': theme.accent,
+    '--scale-accent-soft': theme.softBackground,
+    '--scale-accent-border': theme.border,
+    '--scale-accent-surface': theme.surface,
+    '--scale-accent-shadow': theme.shadow,
+  }
+}
+
 function submitFeedback() {
   if (!canSubmit.value || selectedRpe.value === null) return
   emit('submit', {
@@ -157,6 +168,7 @@ function submitFeedback() {
             :key="value"
             class="scale-button"
             :class="{ active: selectedRpe === value }"
+            :style="scaleButtonStyle(value)"
             type="button"
             @click="chooseRpe(value)"
           >
@@ -360,13 +372,19 @@ function submitFeedback() {
 }
 
 .scale-button {
+  --scale-accent: #94a3b8;
+  --scale-accent-soft: rgba(148, 163, 184, 0.12);
+  --scale-accent-border: rgba(148, 163, 184, 0.24);
+  --scale-accent-surface: rgba(148, 163, 184, 0.04);
+  --scale-accent-shadow: rgba(148, 163, 184, 0.1);
   min-height: 40px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--scale-accent-border);
   border-radius: 12px;
-  background: #f8fafc;
-  color: var(--text);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), var(--scale-accent-surface));
+  color: var(--scale-accent);
   font-size: 1rem;
   font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.78);
   transition:
     color 0.2s ease,
     border-color 0.2s ease,
@@ -375,12 +393,12 @@ function submitFeedback() {
 }
 
 .scale-button.active {
-  border-color: var(--session-rpe-accent-border);
-  background: var(--session-rpe-accent-soft);
-  color: var(--session-rpe-accent);
+  border-color: var(--scale-accent-border);
+  background: linear-gradient(180deg, var(--scale-accent-soft), rgba(255, 255, 255, 0.92));
+  color: var(--scale-accent);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.72),
-    0 6px 16px -10px var(--session-rpe-accent-shadow);
+    0 8px 18px -12px var(--scale-accent-shadow);
 }
 
 .selection-hint,
