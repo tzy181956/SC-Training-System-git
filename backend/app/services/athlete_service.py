@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -14,6 +16,9 @@ from app.models import (
 )
 from app.schemas.athlete import AthleteCreate, AthleteUpdate, SportCreate, TeamCreate
 from app.services import backup_service, dangerous_operation_service
+
+ATHLETE_CODE_PREFIX = "ATH"
+ATHLETE_CODE_WIDTH = 6
 
 
 def list_sports(db: Session) -> list[Sport]:
@@ -62,9 +67,17 @@ def list_athletes(db: Session) -> list[Athlete]:
 
 
 def create_athlete(db: Session, payload: AthleteCreate) -> Athlete:
-    athlete = Athlete(**payload.model_dump())
+    payload_data = payload.model_dump()
+    requested_code = _normalize_optional_code(payload_data.pop("code", None))
+    athlete = Athlete(
+        **payload_data,
+        code=requested_code or _build_temporary_athlete_code(),
+    )
     db.add(athlete)
-    db.commit()
+    db.flush()
+    if not requested_code:
+        athlete.code = build_athlete_code(athlete.id)
+    _commit_or_raise(db, conflict_message="运动员编码已存在，请修改后重试。")
     db.refresh(athlete)
     return get_athlete(db, athlete.id)
 
@@ -85,9 +98,17 @@ def update_athlete(db: Session, athlete_id: int, payload: AthleteUpdate) -> Athl
     athlete = db.query(Athlete).filter(Athlete.id == athlete_id).first()
     if not athlete:
         raise not_found("Athlete not found")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "code" in updates:
+        normalized_code = _normalize_optional_code(updates.pop("code"))
+        if not normalized_code:
+            raise bad_request("运动员编码不能为空")
+        athlete.code = normalized_code
+
+    for key, value in updates.items():
         setattr(athlete, key, value)
-    db.commit()
+    _commit_or_raise(db, conflict_message="运动员编码已存在，请修改后重试。")
     return get_athlete(db, athlete.id)
 
 
@@ -218,6 +239,19 @@ def _require_text(value: str | None, *, field_label: str) -> str:
 def _normalize_optional_text(value: str | None) -> str | None:
     normalized = (value or "").strip()
     return normalized or None
+
+
+def _normalize_optional_code(value: str | None) -> str | None:
+    normalized = (value or "").strip().upper()
+    return normalized or None
+
+
+def build_athlete_code(athlete_id: int) -> str:
+    return f"{ATHLETE_CODE_PREFIX}-{athlete_id:0{ATHLETE_CODE_WIDTH}d}"
+
+
+def _build_temporary_athlete_code() -> str:
+    return f"TMP-{ATHLETE_CODE_PREFIX}-{uuid4().hex[:12].upper()}"
 
 
 def _commit_or_raise(db: Session, *, conflict_message: str) -> None:

@@ -73,9 +73,10 @@ def main() -> None:
             return template
 
         def create_athlete(db, team: Team, name: str) -> Athlete:
-            athlete = Athlete(full_name=name, team_id=team.id, is_active=True)
+            athlete = Athlete(code=f"TMP-SMOKE-{abs(hash(name))}", full_name=name, team_id=team.id, is_active=True)
             db.add(athlete)
             db.flush()
+            athlete.code = f"ATH-SMOKE-{athlete.id:04d}"
             return athlete
 
         def create_assignment(db, athlete: Athlete, template: TrainingPlanTemplate) -> AthletePlanAssignment:

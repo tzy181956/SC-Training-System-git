@@ -201,10 +201,13 @@ def build_or_update_athlete(db, team: Team, row_map: dict[str, object]) -> Athle
     if athlete:
         for key, value in payload.items():
             setattr(athlete, key, value)
+        if not getattr(athlete, "code", None):
+            athlete.code = f"ATH-{athlete.id:06d}"
     else:
-        athlete = Athlete(**payload)
+        athlete = Athlete(code=f"TMP-IMPORT-{full_name}", **payload)
         db.add(athlete)
         db.flush()
+        athlete.code = f"ATH-{athlete.id:06d}"
     return athlete
 
 

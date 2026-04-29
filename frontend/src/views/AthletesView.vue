@@ -3,6 +3,9 @@ import axios from 'axios'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import {
+  type AthleteRead,
+  type SportRead,
+  type TeamRead,
   createAthlete,
   createSport,
   createTeam,
@@ -15,39 +18,9 @@ import AppShell from '@/components/layout/AppShell.vue'
 import { useAthletesStore } from '@/stores/athletes'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
 
-type SportItem = {
-  id: number
-  name: string
-  code: string
-  notes?: string | null
-}
-
-type TeamItem = {
-  id: number
-  sport_id: number
-  name: string
-  code: string
-  notes?: string | null
-  sport?: SportItem | null
-}
-
-type AthleteItem = {
-  id: number
-  full_name: string
-  sport_id: number | null
-  team_id: number | null
-  gender?: string | null
-  position?: string | null
-  height?: number | null
-  weight?: number | null
-  body_fat_percentage?: number | null
-  wingspan?: number | null
-  standing_reach?: number | null
-  notes?: string | null
-  is_active?: boolean
-  sport?: SportItem | null
-  team?: TeamItem | null
-}
+type SportItem = SportRead
+type TeamItem = TeamRead
+type AthleteItem = AthleteRead
 
 const store = useAthletesStore()
 const selectedId = ref<number | null>(null)
@@ -69,6 +42,7 @@ const filters = reactive({
 })
 
 const form = reactive({
+  code: '',
   full_name: '',
   sport_id: null as number | null,
   team_id: null as number | null,
@@ -115,7 +89,7 @@ const filteredAthletes = computed(() =>
   (store.athletes as AthleteItem[]).filter((athlete) => {
     const keyword = filters.keyword.trim().toLowerCase()
     if (keyword) {
-      const targets = [athlete.full_name, athlete.sport?.name, athlete.team?.name, athlete.gender]
+      const targets = [athlete.code, athlete.full_name, athlete.sport?.name, athlete.team?.name, athlete.gender]
       if (!targets.some((value) => String(value || '').toLowerCase().includes(keyword))) {
         return false
       }
@@ -134,6 +108,7 @@ const canSubmitTeam = computed(() => teamForm.name.trim().length > 0 && teamForm
 function selectAthlete(athlete: AthleteItem) {
   selectedId.value = athlete.id
   Object.assign(form, {
+    code: athlete.code || '',
     full_name: athlete.full_name || '',
     sport_id: athlete.sport_id ?? null,
     team_id: athlete.team_id ?? null,
@@ -200,6 +175,7 @@ async function removeAthlete() {
 function resetForm() {
   selectedId.value = null
   Object.assign(form, {
+    code: '',
     full_name: '',
     sport_id: null,
     team_id: null,
@@ -483,7 +459,7 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
               {{ athlete.sport?.name || '未分项目' }} / {{ athlete.team?.name || '未分队伍' }}
             </span>
             <small class="adaptive-card-meta adaptive-card-clamp-1">
-              {{ athlete.gender || '未填写性别' }}
+              {{ athlete.code }}{{ athlete.gender ? ` / ${athlete.gender}` : '' }}
             </small>
           </button>
           <div v-if="!filteredAthletes.length" class="empty-state">没有符合筛选条件的运动员。</div>
@@ -496,6 +472,15 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
         <label class="field">
           <span class="field-label">姓名 <strong class="required-mark">*</strong></span>
           <input v-model="form.full_name" class="text-input" placeholder="必填" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">运动员编码</span>
+          <input
+            v-model.trim="form.code"
+            class="text-input"
+            :placeholder="selectedAthlete ? '可手动修改，需全系统唯一' : '留空则保存后自动生成'"
+          />
         </label>
 
         <div class="two-col">

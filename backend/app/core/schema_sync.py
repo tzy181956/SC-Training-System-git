@@ -1,6 +1,8 @@
 from sqlalchemy import text
 
-from app.core.database import engine
+from app.core.database import SessionLocal, engine
+from app.core.test_definition_defaults import DEFAULT_LOWER_BETTER_TEST_METRIC_CODES
+from app.services import test_definition_service
 
 
 def ensure_runtime_schema() -> None:
@@ -23,6 +25,7 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE athletes ADD COLUMN body_fat_percentage FLOAT",
         "ALTER TABLE athletes ADD COLUMN wingspan FLOAT",
         "ALTER TABLE athletes ADD COLUMN standing_reach FLOAT",
+        "ALTER TABLE athletes ADD COLUMN code VARCHAR(64)",
         "ALTER TABLE training_sessions ADD COLUMN session_rpe INTEGER",
         "ALTER TABLE training_sessions ADD COLUMN session_feedback TEXT",
         "ALTER TABLE training_sessions ADD COLUMN session_duration_minutes INTEGER",
@@ -30,6 +33,7 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE training_sessions ADD COLUMN load_metrics_updated_at DATETIME",
         "ALTER TABLE athlete_plan_assignments ADD COLUMN repeat_weekdays JSON",
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
+        "ALTER TABLE test_metric_definitions ADD COLUMN is_lower_better BOOLEAN NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]
 
@@ -75,9 +79,18 @@ def ensure_runtime_schema() -> None:
                 "UPDATE athlete_plan_assignments SET repeat_weekdays = '[1,2,3,4,5,6,7]' WHERE repeat_weekdays IS NULL"
             )
         )
+        connection.execute(
+            text(
+                "UPDATE athletes SET code = printf('ATH-%06d', id) "
+                "WHERE code IS NULL OR TRIM(code) = ''"
+            )
+        )
 
         connection.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ix_exercises_code_unique ON exercises(code)")
+        )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_athletes_code_unique ON athletes(code)")
         )
         connection.execute(
             text(
@@ -215,3 +228,71 @@ def ensure_runtime_schema() -> None:
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_users_team_id ON users(team_id)")
         )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS test_type_definitions (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(80) NOT NULL,
+                    code VARCHAR(80) NOT NULL UNIQUE,
+                    notes TEXT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS test_metric_definitions (
+                    id INTEGER PRIMARY KEY,
+                    test_type_id INTEGER NOT NULL,
+                    name VARCHAR(80) NOT NULL,
+                    code VARCHAR(80) NOT NULL,
+                    default_unit VARCHAR(30),
+                    is_lower_better BOOLEAN NOT NULL DEFAULT 0,
+                    notes TEXT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(test_type_id) REFERENCES test_type_definitions(id)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_id ON test_type_definitions(id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_test_metric_definitions_id ON test_metric_definitions(id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_test_metric_definitions_test_type_id ON test_metric_definitions(test_type_id)")
+        )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_test_metric_definitions_type_name_unique ON test_metric_definitions(test_type_id, name)")
+        )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_test_metric_definitions_type_code_unique ON test_metric_definitions(test_type_id, code)")
+        )
+
+        if DEFAULT_LOWER_BETTER_TEST_METRIC_CODES:
+            metric_code_params = {
+                f"metric_code_{index}": code for index, code in enumerate(DEFAULT_LOWER_BETTER_TEST_METRIC_CODES)
+            }
+            metric_code_placeholders = ", ".join(f":metric_code_{index}" for index in range(len(DEFAULT_LOWER_BETTER_TEST_METRIC_CODES)))
+            connection.execute(
+                text(
+                    f"""
+                    UPDATE test_metric_definitions
+                    SET is_lower_better = 1
+                    WHERE code IN ({metric_code_placeholders})
+                    """
+                ),
+                metric_code_params,
+            )
+
+    with SessionLocal() as db:
+        test_definition_service.ensure_default_test_definition_catalog(db)
+        test_definition_service.backfill_test_definitions_from_records(db)
+        db.commit()
