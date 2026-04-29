@@ -28,6 +28,7 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE training_sessions ADD COLUMN session_duration_minutes INTEGER",
         "ALTER TABLE training_sessions ADD COLUMN session_srpe_load INTEGER",
         "ALTER TABLE training_sessions ADD COLUMN load_metrics_updated_at DATETIME",
+        "ALTER TABLE athlete_plan_assignments ADD COLUMN repeat_weekdays JSON",
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]
@@ -68,6 +69,11 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text("UPDATE exercises SET search_keywords = '[]' WHERE search_keywords IS NULL")
+        )
+        connection.execute(
+            text(
+                "UPDATE athlete_plan_assignments SET repeat_weekdays = '[1,2,3,4,5,6,7]' WHERE repeat_weekdays IS NULL"
+            )
         )
 
         connection.execute(

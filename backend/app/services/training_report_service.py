@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import Athlete, SetRecord, TrainingSession, TrainingSessionEditLog, TrainingSessionItem, TrainingSyncConflict
+from app.services.assignment_service import is_assignment_scheduled_for_date
 from app.services import training_sync_service
 
 
@@ -24,6 +25,7 @@ def get_training_report(
     sessions = (
         db.query(TrainingSession)
         .options(
+            joinedload(TrainingSession.assignment),
             joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
             joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
         )
@@ -35,6 +37,11 @@ def get_training_report(
         .order_by(TrainingSession.session_date.desc(), TrainingSession.id.desc())
         .all()
     )
+    sessions = [
+        session
+        for session in sessions
+        if session.assignment is None or is_assignment_scheduled_for_date(session.assignment, session.session_date)
+    ]
 
     edit_logs_by_session = _get_edit_logs_by_session(db, [session.id for session in sessions])
     session_payloads = [_build_session_payload(session, edit_logs_by_session.get(session.id, [])) for session in sessions]

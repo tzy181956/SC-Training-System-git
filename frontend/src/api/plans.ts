@@ -6,6 +6,17 @@ type DangerousActionPayload = {
   confirmation_text?: string | null
 }
 
+export type BatchAssignmentPayload = {
+  athlete_ids: number[]
+  template_id: number
+  assigned_date: string
+  start_date: string
+  end_date: string
+  repeat_weekdays: number[]
+  status: string
+  notes?: string | null
+}
+
 export async function fetchPlanTemplates() {
   const { data } = await client.get('/plan-templates')
   return data
@@ -46,12 +57,12 @@ export async function fetchAssignments() {
   return data
 }
 
-export async function previewBatchAssignments(payload: Record<string, unknown>) {
+export async function previewBatchAssignments(payload: BatchAssignmentPayload) {
   const { data } = await client.post('/assignments/preview', payload)
   return data
 }
 
-export async function createBatchAssignments(payload: Record<string, unknown>) {
+export async function createBatchAssignments(payload: BatchAssignmentPayload) {
   const { data } = await client.post('/assignments/batch', payload)
   return data
 }

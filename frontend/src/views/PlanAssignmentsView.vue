@@ -11,6 +11,7 @@ import {
 } from '@/api/plans'
 import AssignmentPreviewPanel from '@/components/assignment/AssignmentPreviewPanel.vue'
 import AppShell from '@/components/layout/AppShell.vue'
+import { DEFAULT_REPEAT_WEEKDAYS, REPEAT_WEEKDAY_OPTIONS, formatRepeatWeekdays } from '@/constants/repeatWeekdays'
 import { todayString } from '@/utils/date'
 
 const athletes = ref<any[]>([])
@@ -43,6 +44,7 @@ const form = reactive({
   assigned_date: todayString(),
   start_date: todayString(),
   end_date: todayString(),
+  repeat_weekdays: [...DEFAULT_REPEAT_WEEKDAYS] as number[],
   notes: '',
 })
 
@@ -106,6 +108,8 @@ const assignedEntriesByAthleteId = computed(() => {
 const previewHasMissingBasis = computed(() =>
   Boolean(preview.value?.rows.some((row: any) => row.items.some((item: any) => item.status === 'missing_basis'))),
 )
+const hasSelectedRepeatWeekdays = computed(() => form.repeat_weekdays.length > 0)
+const repeatWeekdaySummary = computed(() => formatRepeatWeekdays(form.repeat_weekdays))
 
 function getGroupKey(group: any) {
   return group.assignment_ids.join('-')
@@ -154,11 +158,26 @@ function toggleAthlete(id: number) {
 }
 
 function handleAthleteCardClick(athlete: any) {
-  const assignedEntries = assignedEntriesByAthleteId.value.get(athlete.id) ?? []
-  if (assignedEntries.length) {
+  toggleAthlete(athlete.id)
+}
+
+function toggleRepeatWeekday(weekday: number) {
+  if (form.repeat_weekdays.includes(weekday)) {
+    form.repeat_weekdays = form.repeat_weekdays.filter((current) => current !== weekday)
     return
   }
-  toggleAthlete(athlete.id)
+  form.repeat_weekdays = [...form.repeat_weekdays, weekday].sort((left, right) => left - right)
+}
+
+function getAssignedPlanHint(athleteId: number) {
+  const assignedCount = assignedEntriesByAthleteId.value.get(athleteId)?.length ?? 0
+  if (!assignedCount) {
+    return null
+  }
+  if (form.athlete_ids.includes(athleteId)) {
+    return `已有 ${assignedCount} 条当前/后续计划，已加入本次分配`
+  }
+  return `已有 ${assignedCount} 条当前/后续计划，仍可继续分配`
 }
 
 function toggleGroupAthlete(group: any, athleteId: number) {
@@ -207,7 +226,7 @@ function selectUnassignedAthletes() {
 }
 
 async function generatePreview() {
-  if (!form.athlete_ids.length || !form.template_id) {
+  if (!form.athlete_ids.length || !form.template_id || !hasSelectedRepeatWeekdays.value) {
     preview.value = null
     return
   }
@@ -219,6 +238,7 @@ async function generatePreview() {
       assigned_date: form.start_date,
       start_date: form.start_date,
       end_date: form.end_date,
+      repeat_weekdays: form.repeat_weekdays,
       notes: form.notes,
       status: 'active',
     })
@@ -228,7 +248,7 @@ async function generatePreview() {
 }
 
 async function submitAssignments() {
-  if (!preview.value || previewHasMissingBasis.value) return
+  if (!preview.value || previewHasMissingBasis.value || !hasSelectedRepeatWeekdays.value) return
   submitting.value = true
   try {
     await createBatchAssignments({
@@ -237,11 +257,13 @@ async function submitAssignments() {
       assigned_date: form.start_date,
       start_date: form.start_date,
       end_date: form.end_date,
+      repeat_weekdays: form.repeat_weekdays,
       notes: form.notes,
       status: 'active',
     })
     form.athlete_ids = []
     form.template_id = 0
+    form.repeat_weekdays = [...DEFAULT_REPEAT_WEEKDAYS]
     form.notes = ''
     preview.value = null
     await hydrate()
@@ -258,7 +280,7 @@ watch(
 )
 
 watch(
-  () => [form.start_date, form.end_date, form.template_id, form.athlete_ids.join(','), form.notes],
+  () => [form.start_date, form.end_date, form.template_id, form.athlete_ids.join(','), form.repeat_weekdays.join(','), form.notes],
   async () => {
     await generatePreview()
   },
@@ -305,12 +327,12 @@ onMounted(hydrate)
           <article class="summary-card">
             <span class="summary-label">已有计划人数</span>
             <strong>{{ overview.assigned_count }}</strong>
-            <small>在上方计划组中选择队员后删除分配</small>
+            <small>可在上方计划组中选择队员后取消分配</small>
           </article>
           <article class="summary-card">
             <span class="summary-label">当前与后续计划组</span>
             <strong>{{ overview.group_count }}</strong>
-            <small>按模板和时间段聚合展示</small>
+            <small>按模板、时间段和循环星期聚合展示</small>
           </article>
           <article class="summary-card summary-card--subtle">
             <span class="summary-label">未分配人数</span>
@@ -324,7 +346,7 @@ onMounted(hydrate)
             <div class="section-head">
               <div>
                 <p class="eyebrow">当前与后续计划</p>
-                <h4>按模板和时间段归并展示当前进行中和即将开始的计划</h4>
+                <h4>按模板、时间段和循环星期归并展示当前进行中和即将开始的计划</h4>
               </div>
               <span class="muted">共 {{ filteredAssignmentGroups.length }} 组</span>
             </div>
@@ -334,6 +356,7 @@ onMounted(hydrate)
                   <div>
                     <strong>{{ group.template.name }}</strong>
                     <p>{{ group.start_date }} 至 {{ group.end_date }}</p>
+                    <p>循环：{{ formatRepeatWeekdays(group.repeat_weekdays) }}</p>
                   </div>
                   <div class="group-badges">
                     <span class="status-badge" :class="group.group_status === 'active_now' ? 'status-badge--active' : 'status-badge--upcoming'">
@@ -359,10 +382,10 @@ onMounted(hydrate)
                 <p v-if="group.notes.length" class="group-notes">备注：{{ group.notes.join('；') }}</p>
                 <div class="group-delete-row">
                   <span v-if="getSelectedCount(group)" class="muted">已选 {{ getSelectedCount(group) }} 人</span>
-                  <span v-else class="muted">在组内选择队员后可删除分配</span>
+                  <span v-else class="muted">在组内选择队员后可取消分配</span>
                   <div class="group-delete-actions">
                     <template v-if="confirmDeleteGroupKey === getGroupKey(group)">
-                      <span class="warning-text">确认删除当前所选 {{ getSelectedCount(group) }} 人的计划？</span>
+                      <span class="warning-text">确认取消当前所选 {{ getSelectedCount(group) }} 人的计划？</span>
                       <button class="ghost-btn slim" type="button" :disabled="cancelling" @click="resetGroupDeleteFlow">取消</button>
                       <button
                         class="ghost-btn slim danger-btn"
@@ -370,7 +393,7 @@ onMounted(hydrate)
                         :disabled="cancelling"
                         @click="cancelSelectedGroupAssignments(group)"
                       >
-                        {{ cancelling ? '删除中...' : '确认删除' }}
+                        {{ cancelling ? '取消中...' : '确认取消' }}
                       </button>
                     </template>
                     <button
@@ -380,7 +403,7 @@ onMounted(hydrate)
                       :disabled="!getSelectedCount(group) || cancelling"
                       @click="requestDeleteGroupAssignments(group)"
                     >
-                      删除分配
+                      取消分配
                     </button>
                   </div>
                 </div>
@@ -450,8 +473,8 @@ onMounted(hydrate)
                 >
                   <strong>{{ athlete.full_name }}</strong>
                   <span>{{ athlete.team?.name || '未分队' }}</span>
-                  <small v-if="assignedEntriesByAthleteId.get(athlete.id)?.length">
-                    已安排 {{ assignedEntriesByAthleteId.get(athlete.id)?.length }} 条计划，请在上方概览中删除
+                  <small v-if="getAssignedPlanHint(athlete.id)">
+                    {{ getAssignedPlanHint(athlete.id) }}
                   </small>
                   <small v-else>{{ form.athlete_ids.includes(athlete.id) ? '已加入本次分配' : '点击加入本次分配' }}</small>
                 </button>
@@ -470,7 +493,7 @@ onMounted(hydrate)
 
             <div class="section-block">
               <p class="eyebrow">第三步</p>
-              <h4>设置计划时间段</h4>
+              <h4>设置计划时间段与循环星期</h4>
               <div class="grid three">
                 <label class="field">
                   <span>开始日期</span>
@@ -485,12 +508,34 @@ onMounted(hydrate)
                   <input v-model="form.notes" class="text-input" placeholder="例如：第一周主课、比赛周恢复" />
                 </label>
               </div>
+              <div class="field">
+                <span>循环星期</span>
+                <div class="weekday-picker">
+                  <button
+                    v-for="option in REPEAT_WEEKDAY_OPTIONS"
+                    :key="option.value"
+                    class="weekday-chip"
+                    :class="{ active: form.repeat_weekdays.includes(option.value) }"
+                    type="button"
+                    @click="toggleRepeatWeekday(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+                <small class="helper-text">当前选择：{{ repeatWeekdaySummary }}</small>
+              </div>
               <div class="submit-row">
-                <button class="primary-btn" type="button" :disabled="!preview || previewHasMissingBasis || submitting" @click="submitAssignments">
+                <button
+                  class="primary-btn"
+                  type="button"
+                  :disabled="!preview || previewHasMissingBasis || !hasSelectedRepeatWeekdays || submitting"
+                  @click="submitAssignments"
+                >
                   {{ submitting ? '正在提交...' : '确认分配计划' }}
                 </button>
               </div>
-              <p v-if="previewHasMissingBasis" class="warning-text">当前预览中存在缺少测试基准的动作，请先补全测试数据或改用固定重量。</p>
+              <p v-if="!hasSelectedRepeatWeekdays" class="warning-text">至少选择一个循环星期后才能预览和提交。</p>
+              <p v-else-if="previewHasMissingBasis" class="warning-text">当前预览中存在缺少测试基准的动作，请先补全测试数据或改用固定重量。</p>
               <p v-else-if="loadingPreview" class="muted">正在生成分配预览...</p>
             </div>
           </div>
@@ -617,7 +662,8 @@ onMounted(hydrate)
 
 .athlete-chip-list,
 .athlete-grid,
-.grid.three {
+.grid.three,
+.weekday-picker {
   display: grid;
   gap: 12px;
 }
@@ -632,6 +678,10 @@ onMounted(hydrate)
 
 .grid.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.weekday-picker {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
 .athlete-chip,
@@ -720,7 +770,6 @@ onMounted(hydrate)
 .athlete-card--assigned {
   background: rgba(239, 246, 255, 0.82);
   border-color: rgba(59, 130, 246, 0.2);
-  cursor: default;
 }
 
 .field {
@@ -738,6 +787,34 @@ onMounted(hydrate)
 
 .warning-text {
   color: var(--danger);
+}
+
+.helper-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.weekday-chip {
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.weekday-chip.active {
+  background: rgba(15, 118, 110, 0.12);
+  border-color: rgba(15, 118, 110, 0.26);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.08);
 }
 
 .checkbox-row {
@@ -822,7 +899,8 @@ onMounted(hydrate)
   .summary-grid,
   .athlete-grid,
   .athlete-chip-list,
-  .grid.three {
+  .grid.three,
+  .weekday-picker {
     grid-template-columns: 1fr;
   }
 }

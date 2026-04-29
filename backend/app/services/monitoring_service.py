@@ -17,6 +17,7 @@ from app.models import (
     TrainingSyncIssue,
 )
 from app.services import session_service
+from app.services.assignment_service import is_assignment_scheduled_for_date
 
 
 FINAL_SESSION_STATUSES = {"completed", "partial_complete", "absent"}
@@ -193,6 +194,7 @@ def _get_active_assignments_by_athlete(
         )
         .all()
     )
+    assignments = [assignment for assignment in assignments if is_assignment_scheduled_for_date(assignment, session_date)]
 
     grouped: dict[int, list[AthletePlanAssignment]] = defaultdict(list)
     for assignment in assignments:

@@ -22,7 +22,13 @@ from app.schemas.training_session import (
     SetRecordUpdate,
 )
 from app.services import athlete_service, backup_service, dangerous_operation_service
-from app.services.assignment_service import get_active_assignment_for_date, get_assignment, list_active_assignments_for_date
+from app.services.assignment_service import (
+    ensure_assignment_scheduled_for_date,
+    get_active_assignment_for_date,
+    get_assignment,
+    is_assignment_scheduled_for_date,
+    list_active_assignments_for_date,
+)
 from app.services.progression_service import compute_next_weight
 from app.services.session_state_utils import (
     FINAL_SESSION_STATUSES,
@@ -74,6 +80,7 @@ def list_training_plans(db: Session, athlete_id: int, session_date: date):
 
 def open_session_for_assignment(db: Session, assignment_id: int, session_date: date):
     assignment = get_assignment(db, assignment_id)
+    ensure_assignment_scheduled_for_date(assignment, session_date)
     existing = _find_session_by_assignment_and_date(db, assignment.id, session_date)
     if existing:
         _sync_session_state(existing)
@@ -100,6 +107,7 @@ def _find_session_by_assignment_and_date(db: Session, assignment_id: int, sessio
 
 
 def _ensure_session_for_assignment(db: Session, assignment, session_date: date) -> TrainingSession:
+    ensure_assignment_scheduled_for_date(assignment, session_date)
     existing = _find_session_by_assignment_and_date(db, assignment.id, session_date)
     if existing:
         _sync_session_state(existing)
@@ -112,6 +120,7 @@ def _ensure_session_for_assignment(db: Session, assignment, session_date: date) 
 
 
 def _prepare_session_for_assignment(db: Session, assignment, session_date: date) -> TrainingSession:
+    ensure_assignment_scheduled_for_date(assignment, session_date)
     session = TrainingSession(
         athlete_id=assignment.athlete_id,
         assignment_id=assignment.id,
@@ -537,6 +546,7 @@ def _resolve_session_for_create_set(db: Session, payload: SessionSetSyncOperatio
         raise bad_request("assignment_id and session_date are required when session_id is missing")
 
     assignment = get_assignment(db, payload.assignment_id)
+    ensure_assignment_scheduled_for_date(assignment, payload.session_date)
     existing = _find_session_by_assignment_and_date(db, assignment.id, payload.session_date)
     if existing:
         return existing
@@ -570,6 +580,7 @@ def _resolve_session_for_completion(db: Session, payload: SessionSetSyncOperatio
         raise bad_request("assignment_id and session_date are required when session_id is missing")
 
     assignment = get_assignment(db, payload.assignment_id)
+    ensure_assignment_scheduled_for_date(assignment, payload.session_date)
     existing = _find_session_by_assignment_and_date(db, assignment.id, payload.session_date)
     if existing:
         return existing
@@ -593,6 +604,7 @@ def _resolve_session_for_full_sync(db: Session, payload: SessionFullSyncPayload)
     assignment = get_assignment(db, payload.assignment_id)
     if assignment.athlete_id != payload.athlete_id:
         raise bad_request("Training assignment does not belong to this athlete")
+    ensure_assignment_scheduled_for_date(assignment, payload.session_date)
 
     existing = _find_session_by_assignment_and_date(db, assignment.id, payload.session_date)
     if existing:
@@ -1098,6 +1110,7 @@ def _get_active_assignments_by_athlete(db: Session, athlete_ids: list[int], sess
         .order_by(AthletePlanAssignment.athlete_id.asc(), AthletePlanAssignment.assigned_date.desc(), AthletePlanAssignment.id.desc())
         .all()
     )
+    assignments = [assignment for assignment in assignments if is_assignment_scheduled_for_date(assignment, session_date)]
 
     assignment_status_map = _get_assignment_training_status_map(db, [assignment.id for assignment in assignments], session_date)
     assignments_by_athlete: dict[int, list[AthletePlanAssignment]] = {athlete_id: [] for athlete_id in athlete_ids}
@@ -1121,6 +1134,7 @@ def _get_athlete_training_status_map(db: Session, athlete_ids: list[int], sessio
         )
         .all()
     )
+    assignments = [assignment for assignment in assignments if is_assignment_scheduled_for_date(assignment, session_date)]
     assignments_by_athlete: dict[int, list[int]] = {athlete_id: [] for athlete_id in athlete_ids}
     for assignment in assignments:
         assignments_by_athlete.setdefault(assignment.athlete_id, []).append(assignment.id)

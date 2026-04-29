@@ -1,10 +1,37 @@
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.athlete import AthleteRead
 from app.schemas.common import ORMModel
 from app.schemas.training_plan import PlanTemplateRead
+
+
+DEFAULT_REPEAT_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
+
+
+def _normalize_repeat_weekdays(value: object) -> list[int]:
+    if value is None:
+        return DEFAULT_REPEAT_WEEKDAYS.copy()
+    if not isinstance(value, (list, tuple, set)):
+        raise ValueError("循环星期格式不正确")
+
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for raw in value:
+        try:
+            weekday = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("循环星期只能使用 1-7") from exc
+        if weekday < 1 or weekday > 7:
+            raise ValueError("循环星期只能使用 1-7")
+        if weekday not in seen:
+            normalized.append(weekday)
+            seen.add(weekday)
+
+    if not normalized:
+        raise ValueError("至少选择一个循环星期")
+    return sorted(normalized)
 
 
 class AssignmentOverrideBase(BaseModel):
@@ -30,8 +57,14 @@ class AssignmentBase(BaseModel):
     assigned_date: date
     start_date: date
     end_date: date
+    repeat_weekdays: list[int] = Field(default_factory=lambda: DEFAULT_REPEAT_WEEKDAYS.copy())
     status: str = "active"
     notes: str | None = None
+
+    @field_validator("repeat_weekdays", mode="before")
+    @classmethod
+    def normalize_repeat_weekdays(cls, value: object) -> list[int]:
+        return _normalize_repeat_weekdays(value)
 
 
 class AssignmentCreate(AssignmentBase):
@@ -43,8 +76,16 @@ class AssignmentUpdate(BaseModel):
     assigned_date: date | None = None
     start_date: date | None = None
     end_date: date | None = None
+    repeat_weekdays: list[int] | None = None
     status: str | None = None
     notes: str | None = None
+
+    @field_validator("repeat_weekdays", mode="before")
+    @classmethod
+    def normalize_repeat_weekdays(cls, value: object) -> list[int] | None:
+        if value is None:
+            return None
+        return _normalize_repeat_weekdays(value)
 
 
 class AssignmentRead(ORMModel, AssignmentBase):
@@ -60,8 +101,14 @@ class BatchAssignmentCreate(BaseModel):
     assigned_date: date
     start_date: date
     end_date: date
+    repeat_weekdays: list[int] = Field(default_factory=lambda: DEFAULT_REPEAT_WEEKDAYS.copy())
     status: str = "active"
     notes: str | None = None
+
+    @field_validator("repeat_weekdays", mode="before")
+    @classmethod
+    def normalize_repeat_weekdays(cls, value: object) -> list[int]:
+        return _normalize_repeat_weekdays(value)
 
 
 class AssignmentPreviewItemRead(BaseModel):
@@ -82,6 +129,7 @@ class BatchAssignmentPreviewRead(BaseModel):
     template: PlanTemplateRead
     start_date: date
     end_date: date
+    repeat_weekdays: list[int] = Field(default_factory=lambda: DEFAULT_REPEAT_WEEKDAYS.copy())
     rows: list[AssignmentPreviewRowRead]
 
 
@@ -99,6 +147,7 @@ class AssignmentOverviewGroupRead(BaseModel):
     template: PlanTemplateRead
     start_date: date
     end_date: date
+    repeat_weekdays: list[int] = Field(default_factory=lambda: DEFAULT_REPEAT_WEEKDAYS.copy())
     group_status: str
     entries: list[AssignmentOverviewEntryRead]
     athletes: list[AthleteRead]
