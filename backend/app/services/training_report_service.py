@@ -6,7 +6,9 @@ from datetime import date, timedelta
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Athlete, SetRecord, TrainingSession, TrainingSessionItem
+from app.models import Athlete, SetRecord, TrainingSession, TrainingSessionEditLog, TrainingSessionItem, TrainingSyncConflict
+from app.services.assignment_service import is_assignment_scheduled_for_date
+from app.services import training_sync_service
 
 
 def get_training_report(
@@ -23,6 +25,7 @@ def get_training_report(
     sessions = (
         db.query(TrainingSession)
         .options(
+            joinedload(TrainingSession.assignment),
             joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
             joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
         )
@@ -34,11 +37,27 @@ def get_training_report(
         .order_by(TrainingSession.session_date.desc(), TrainingSession.id.desc())
         .all()
     )
+    sessions = [
+        session
+        for session in sessions
+        if session.assignment is None or is_assignment_scheduled_for_date(session.assignment, session.session_date)
+    ]
 
-    session_payloads = [_build_session_payload(session) for session in sessions]
+    edit_logs_by_session = _get_edit_logs_by_session(db, [session.id for session in sessions])
+    session_payloads = [_build_session_payload(session, edit_logs_by_session.get(session.id, [])) for session in sessions]
     summary = _build_summary(sessions)
     trend = _build_trends(sessions)
     flags = _build_flags(sessions, athlete.full_name)
+    flags.extend(_build_sync_conflict_flags(db, athlete_id, date_from, date_to))
+    sync_issues = training_sync_service.list_sync_issues(
+        db,
+        athlete_id=athlete_id,
+        date_from=date_from,
+        date_to=date_to,
+        issue_status="manual_retry_required",
+        limit=6,
+    )
+    flags.extend(_build_sync_issue_flags(sync_issues))
 
     return {
         "athlete": athlete,
@@ -47,10 +66,11 @@ def get_training_report(
         "sessions": session_payloads,
         "trend": trend,
         "flags": flags,
+        "sync_issues": sync_issues,
     }
 
 
-def _build_session_payload(session: TrainingSession) -> dict:
+def _build_session_payload(session: TrainingSession, edit_logs: list[dict]) -> dict:
     total_items = len(session.items)
     completed_items = sum(1 for item in session.items if item.status == "completed")
     total_sets = sum(item.prescribed_sets for item in session.items)
@@ -60,7 +80,6 @@ def _build_session_payload(session: TrainingSession) -> dict:
     for item in session.items:
         records = []
         for record in item.records:
-            adjustment_type = _resolve_adjustment_type(record)
             records.append(
                 {
                     "id": record.id,
@@ -76,7 +95,7 @@ def _build_session_payload(session: TrainingSession) -> dict:
                     "final_weight": record.final_weight,
                     "completed_at": record.completed_at,
                     "notes": record.notes,
-                    "adjustment_type": adjustment_type,
+                    "adjustment_type": _resolve_adjustment_type(record),
                 }
             )
 
@@ -99,13 +118,48 @@ def _build_session_payload(session: TrainingSession) -> dict:
         "id": session.id,
         "session_date": session.session_date,
         "template_name": getattr(getattr(session, "template", None), "name", None) or f"计划 {session.template_id}",
-        "status": _format_session_status(session.status),
+        "status": _format_training_session_status(session.status),
+        "started_at": session.started_at,
+        "session_duration_minutes": session.session_duration_minutes,
+        "session_rpe": session.session_rpe,
+        "session_srpe_load": session.session_srpe_load,
+        "session_feedback": session.session_feedback,
+        "completed_at": session.completed_at,
         "completed_items": completed_items,
         "total_items": total_items,
         "completed_sets": completed_sets,
         "total_sets": total_sets,
         "items": items,
+        "edit_logs": edit_logs,
     }
+
+
+def _get_edit_logs_by_session(db: Session, session_ids: list[int]) -> dict[int, list[dict]]:
+    if not session_ids:
+        return {}
+
+    logs = (
+        db.query(TrainingSessionEditLog)
+        .filter(TrainingSessionEditLog.session_id.in_(session_ids))
+        .order_by(TrainingSessionEditLog.created_at.desc(), TrainingSessionEditLog.id.desc())
+        .all()
+    )
+
+    grouped: dict[int, list[dict]] = defaultdict(list)
+    for log in logs:
+        grouped[log.session_id].append(
+            {
+                "id": log.id,
+                "action_type": log.action_type,
+                "actor_name": log.actor_name,
+                "object_type": log.object_type,
+                "object_id": log.object_id,
+                "summary": log.summary,
+                "created_at": log.created_at,
+                "edited_at": log.edited_at,
+            }
+        )
+    return grouped
 
 
 def _build_summary(sessions: list[TrainingSession]) -> dict:
@@ -199,7 +253,7 @@ def _build_flags(sessions: list[TrainingSession], athlete_name: str) -> list[dic
                         {
                             "level": "注意",
                             "title": f"{session.session_date} {exercise_name} 连续低 RIR",
-                            "description": "同一动作连续两组以上 RIR 小于等于 1，建议关注疲劳与技术表现。",
+                            "description": "同一动作连续两组及以上 RIR 小于等于 1，建议关注疲劳与技术表现。",
                         }
                     )
                     break
@@ -225,6 +279,39 @@ def _build_flags(sessions: list[TrainingSession], athlete_name: str) -> list[dic
     return flags
 
 
+def _build_sync_conflict_flags(db: Session, athlete_id: int, date_from: date, date_to: date) -> list[dict]:
+    conflicts = (
+        db.query(TrainingSyncConflict)
+        .filter(
+            TrainingSyncConflict.athlete_id == athlete_id,
+            TrainingSyncConflict.session_date >= date_from,
+            TrainingSyncConflict.session_date <= date_to,
+        )
+        .order_by(TrainingSyncConflict.created_at.desc(), TrainingSyncConflict.id.desc())
+        .limit(6)
+        .all()
+    )
+    return [
+        {
+            "level": "注意",
+            "title": f"{conflict.session_date} 检测到同步冲突",
+            "description": "整堂课兜底同步已按本地草稿覆盖后端，请教练或管理员复核这堂课记录。",
+        }
+        for conflict in conflicts
+    ]
+
+
+def _build_sync_issue_flags(sync_issues: list[dict]) -> list[dict]:
+    return [
+        {
+            "level": "注意",
+            "title": f"{issue['session_date']} 同步异常待处理",
+            "description": "该堂训练仍有本地草稿未完成同步，自动重试已停止，需要教练或管理员手动重试。",
+        }
+        for issue in sync_issues
+    ]
+
+
 def _resolve_adjustment_type(record: SetRecord) -> str:
     if record.user_decision == "accepted":
         return "按建议执行"
@@ -233,10 +320,15 @@ def _resolve_adjustment_type(record: SetRecord) -> str:
     return "偏离建议调整"
 
 
-def _format_session_status(status: str) -> str:
-    mapping = {
-        "completed": "已完成",
-        "in_progress": "进行中",
-        "pending": "未开始",
-    }
-    return mapping.get(status, "未知状态")
+def _format_training_session_status(status: str) -> str:
+    if status in {"not_started", "pending"}:
+        return "未开始"
+    if status == "completed":
+        return "已完成"
+    if status == "in_progress":
+        return "进行中"
+    if status == "absent":
+        return "缺席"
+    if status == "partial_complete":
+        return "未完全完成"
+    return "未知状态"

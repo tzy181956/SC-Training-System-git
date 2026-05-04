@@ -19,6 +19,9 @@ class TrainingPlanTemplate(BaseModel, ActiveMixin):
         order_by="TrainingPlanTemplateItem.sort_order",
         cascade="all, delete-orphan",
     )
+    sport = relationship("Sport")
+    team = relationship("Team")
+    creator = relationship("User")
 
 
 class TrainingPlanTemplateItem(BaseModel):

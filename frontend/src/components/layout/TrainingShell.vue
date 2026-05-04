@@ -1,29 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, useSlots } from 'vue'
 
 import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
+import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 import RuntimeAccessCard from '@/components/layout/RuntimeAccessCard.vue'
-import { useAuthStore } from '@/stores/auth'
+import '@/components/training/trainingLayout.css'
 
-const router = useRouter()
-const authStore = useAuthStore()
+const slots = useSlots()
 const runtimeAccess = ref<RuntimeAccessInfo>({
-  accessUrl: window.location.origin,
+  accessUrl: new URL('/', window.location.origin).toString(),
   host: window.location.hostname,
   port: Number(window.location.port || (window.location.protocol === 'https:' ? 443 : 80)),
   generatedAt: '',
   source: 'fallback',
 })
 
-const switchLabel = computed(() => (authStore.isTrainingMode ? '切换到管理模式' : '切换到训练模式'))
-const modeLabel = computed(() => (authStore.isTrainingMode ? '训练模式' : '管理模式'))
-
-function switchMode() {
-  const nextMode = authStore.isTrainingMode ? 'management' : 'training'
-  authStore.setMode(nextMode)
-  router.push(nextMode === 'management' ? { name: 'dashboard' } : { name: 'training-mode' })
-}
+const hasHeaderFilters = computed(() => !!slots['header-filters'])
+const trainingModeLabel = getAppModeDisplayLabel('training')
 
 onMounted(async () => {
   runtimeAccess.value = await fetchRuntimeAccessInfo()
@@ -32,29 +26,25 @@ onMounted(async () => {
 
 <template>
   <div class="training-shell">
-    <header class="training-header">
-      <div class="header-copy">
-        <p class="eyebrow">训练系统</p>
-        <h1>训练模式</h1>
+    <header class="training-topbar">
+      <div class="topbar-title">
+        <div class="header-copy">
+          <h1>{{ trainingModeLabel }}</h1>
+        </div>
       </div>
 
-      <div class="header-middle">
-        <div v-if="$slots['header-filters']" class="header-filters">
+      <div class="topbar-filters" :class="{ 'topbar-filters--empty': !hasHeaderFilters }">
+        <div v-if="hasHeaderFilters" class="header-filters-slot">
           <slot name="header-filters" />
         </div>
-        <div class="header-access">
-          <RuntimeAccessCard :info="runtimeAccess" />
-        </div>
       </div>
 
-      <div class="actions">
-        <div class="user-pill">
-          <strong>当前模式</strong>
-          <span>{{ modeLabel }}</span>
-        </div>
-        <button class="primary-btn switch-btn" type="button" @click="switchMode">{{ switchLabel }}</button>
+      <div class="topbar-actions">
+        <RuntimeAccessCard class="topbar-action secondary-action" :info="runtimeAccess" />
+        <AppModeSwitch class="mode-switcher" />
       </div>
     </header>
+
     <main class="training-content">
       <div class="training-body">
         <slot />
@@ -69,101 +59,86 @@ onMounted(async () => {
   height: 100dvh;
   min-height: 100vh;
   background: linear-gradient(180deg, #f8fafc, #eefbf7);
-  padding: 18px;
+  padding: var(--training-shell-padding);
   display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 18px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--training-shell-gap);
   overflow: hidden;
 }
 
-.training-header {
-  background: white;
-  border-radius: 24px;
-  box-shadow: var(--shadow);
-  padding: 14px 18px;
+.training-topbar {
+  width: 100%;
+  max-width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(380px, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 18px;
+  column-gap: 12px;
   min-width: 0;
+  min-height: var(--training-topbar-height);
+  height: var(--training-topbar-height);
+  padding: 8px 12px;
+  border-radius: var(--training-topbar-radius);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.topbar-title,
+.topbar-filters,
+.topbar-actions,
+.header-copy,
+.header-filters-slot {
+  min-width: 0;
+}
+
+.topbar-title {
+  display: flex;
+  align-items: center;
+  flex: none;
 }
 
 .header-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.header-middle {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.header-filters {
-  min-width: 0;
-}
-
-.header-access {
-  width: min(100%, 420px);
-  min-width: 320px;
-}
-
-.eyebrow,
-.user-pill span {
-  margin: 0;
-  color: var(--muted);
-}
-
-.eyebrow {
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.training-header h1 {
-  margin: 0;
-  font-size: 2rem;
-  line-height: 1.05;
-}
-
-.actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  justify-content: flex-end;
-  justify-self: end;
-  min-width: max-content;
-  flex-wrap: nowrap;
+  min-height: 100%;
 }
 
-.user-pill {
-  background: var(--panel-soft);
-  border-radius: 16px;
-  padding: 10px 14px;
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.user-pill strong {
-  font-size: 1rem;
-  line-height: 1.1;
-}
-
-.user-pill span {
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.switch-btn {
-  min-height: 48px;
-  padding: 0 20px;
-  font-size: 1rem;
-  font-weight: 700;
+.header-copy h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.topbar-filters {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.topbar-filters--empty {
+  display: block;
+}
+
+.header-filters-slot {
+  width: 100%;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: visible;
+  justify-self: end;
+}
+
+.topbar-actions :deep(.mode-switch) {
+  flex: 0 0 auto;
 }
 
 .training-content {
@@ -182,65 +157,78 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-@media (max-width: 1440px) {
-  .training-header {
+@media (min-width: 768px) and (max-width: 1199px) {
+  .training-topbar {
     grid-template-columns: auto minmax(320px, 1fr) auto;
+    column-gap: 10px;
+    padding: 8px 10px;
   }
 
-  .header-middle {
-    grid-template-columns: minmax(0, 1fr) auto;
+  .header-copy h1 {
+    font-size: 1.31rem;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1050px) {
+  .training-topbar {
+    grid-template-columns: auto minmax(308px, 1fr) auto;
+    column-gap: 8px;
+  }
+
+  .topbar-actions {
+    gap: 4px;
+  }
+
+  .topbar-actions :deep(.access-trigger) {
+    max-width: 56px;
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1080px) {
+  .topbar-actions .secondary-action {
+    display: none;
+  }
+
+  .training-topbar {
+    grid-template-columns: auto minmax(308px, 1fr) auto;
+  }
+}
+
+@media (max-width: 767px) {
+  .training-shell {
+    padding: 12px;
     gap: 12px;
   }
 
-  .header-filters {
-    min-width: 0;
-  }
-
-  .header-access {
-    width: min(100%, 380px);
-    min-width: 280px;
-  }
-}
-
-@media (max-width: 1180px) {
-  .training-header {
+  .training-topbar {
+    height: auto;
+    min-height: auto;
     grid-template-columns: 1fr;
     align-items: stretch;
+    gap: 10px;
+    padding: 12px 14px;
   }
 
-  .header-middle,
-  .actions {
-    justify-self: stretch;
+  .header-copy h1 {
+    font-size: 1.6rem;
   }
 
-  .header-middle {
-    grid-template-columns: 1fr;
-  }
-
-  .header-filters,
-  .header-access {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .actions {
-    justify-content: space-between;
+  .topbar-actions {
+    justify-content: flex-start;
     flex-wrap: wrap;
   }
-}
 
-@media (max-width: 720px) {
-  .training-header {
-    padding: 14px;
-  }
-
-  .training-header h1 {
-    font-size: 1.7rem;
-  }
-
-  .header-middle,
-  .actions {
-    gap: 10px;
+  .topbar-filters {
+    overflow: visible;
   }
 }
 </style>

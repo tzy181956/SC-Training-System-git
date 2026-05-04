@@ -1,0 +1,70 @@
+.training-shell {
+  --training-topbar-height: 64px;
+  --training-topbar-radius: 20px;
+  --training-shell-padding: 14px;
+  --training-shell-gap: 12px;
+  --training-layout-gap: 18px;
+  --training-sidebar-width: 320px;
+  --training-panel-width: 320px;
+  --training-filter-width: 160px;
+  --training-filter-width-triple: 146px;
+  --training-filter-height: 34px;
+  --training-filter-padding-inline: 12px;
+  --training-filter-font-size: 14px;
+  --training-filter-gap: 8px;
+}
+
+.training-three-column-layout {
+  display: grid;
+  grid-template-columns:
+    minmax(var(--training-sidebar-min-width, 280px), var(--training-sidebar-width))
+    minmax(0, var(--training-center-column-fr, 1.15fr))
+    minmax(var(--training-panel-min-width, 280px), var(--training-panel-width));
+  gap: var(--training-layout-gap);
+  height: 100%;
+  min-height: 0;
+}
+
+.training-three-column-layout > * {
+  min-width: 0;
+}
+
+.training-scroll-column {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .training-shell {
+    --training-topbar-height: 56px;
+    --training-topbar-radius: 18px;
+    --training-shell-padding: 12px;
+    --training-shell-gap: 10px;
+    --training-layout-gap: 12px;
+    --training-sidebar-width: 240px;
+    --training-panel-width: 260px;
+    --training-filter-width: 155px;
+    --training-filter-width-triple: 138px;
+    --training-filter-height: 32px;
+    --training-filter-padding-inline: 10px;
+  }
+
+  .training-three-column-layout {
+    grid-template-columns: var(--training-sidebar-width) minmax(0, 1fr) var(--training-panel-width);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1050px) {
+  .training-shell {
+    --training-filter-width: 150px;
+    --training-filter-width-triple: 132px;
+  }
+}
+
+@media (max-width: 767px) {
+  .training-three-column-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}

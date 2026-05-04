@@ -13,6 +13,6 @@ if not exist "%FRONTEND_DIR%\node_modules" (
 )
 
 pushd "%FRONTEND_DIR%"
-echo [FRONTEND] Starting Vue dev server at http://127.0.0.1:5173
+echo [FRONTEND] Starting Vue dev server...
 call npm run dev -- --host 0.0.0.0 --port 5173
 popd

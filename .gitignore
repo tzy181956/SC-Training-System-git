@@ -7,6 +7,9 @@ backend/**/*.pyd
 
 # Database
 backend/*.sqlite3
+backend/tmp*.db
+backend/*tmp*.db
+backend/backups/
 
 # Frontend
 frontend/node_modules/
@@ -14,6 +17,8 @@ frontend/dist/
 
 # Logs
 *.log
+logs/startup/*.txt
+!logs/startup/.gitkeep
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

@@ -4,6 +4,9 @@
 
 当前系统以“真实使用可落地、记录优先”为目标，已经具备以下主链路：
 
+> 说明：训练端本地草稿当前使用浏览器 `localStorage` 做本地优先保底，适合断网继续录入、页面异常关闭后在同一浏览器 / 同一设备内恢复；它不是跨浏览器、跨设备或清缓存后仍可恢复的强持久化方案。
+
+
 - 运动员管理
 - 动作库维护
 - 训练模板管理
@@ -12,6 +15,11 @@
 - 测试数据记录与查看
 - Windows 一键初始化与一键启动
 - 同局域网访问训练模式
+- 训练端浏览器本地草稿（同一浏览器 / 同一设备优先）保存与恢复
+- 训练端单组增量补传与后台静默重试（最小闭环）
+- 增量补传长期失败后的整课覆盖同步兜底
+- 明显同步冲突的最小日志记录与训练回看提示
+- 后端启动时自动跨日收口昨日及更早未结束训练课，训练入口保留兜底收口
 
 ## 当前使用方式
 
@@ -59,6 +67,25 @@
 - 安装后端依赖
 - 创建或补齐数据库结构
 - 安装前端依赖
+
+## 数据库迁移
+
+项目现在已经接入正式迁移脚手架（Alembic 基线 + 迁移入口脚本）。
+
+推荐命令：
+
+```powershell
+cd backend
+set PYTHONPATH=.
+.\.venv\Scripts\python.exe scripts\migrate_db.py bootstrap
+```
+
+说明：
+
+- 对当前已有业务库：先自动备份，再将现库标记到基线 revision
+- 对新库：先自动备份（如存在），再执行 `upgrade head`
+- 迁移规划与第一阶段新增表/字段说明见：
+  - `docs/phase1-database-migrations.md`
 
 ## 训练模式访问
 
@@ -144,6 +171,8 @@ docs/       专项说明文档
   - 当前项目状态摘要
 - `NEXT_STEPS.md`
   - 下一步建议工作项
+- `docs/phase1-final-acceptance.md`
+  - 第一阶段总验收清单，按 `1 台电脑 + 2 台 iPad` 场景逐项验收
 - `EXERCISE_LIBRARY_SPEC.md`
   - 动作库字段来源与结构说明
 - `docs/text-encoding.md`
@@ -190,6 +219,7 @@ python scripts/check_text_encoding.py
 - `README.md`、`PROJECT_CONTEXT.md` 等协作文档无乱码
 - 启动链路不会覆盖真实业务数据
 - `CHANGELOG.md` 已同步记录本轮改动
+- 第一阶段收尾或交付前，至少跑一轮 `docs/phase1-final-acceptance.md` 和 `scripts/phase1_acceptance_check.ps1`
 
 ## Git 与数据库协作
 

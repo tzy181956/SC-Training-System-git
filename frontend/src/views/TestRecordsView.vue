@@ -5,20 +5,35 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
 import { fetchAthletes } from '@/api/athletes'
 import {
+  createTestMetricDefinition,
   createTestRecord,
+  createTestTypeDefinition,
+  deleteTestMetricDefinition,
+  deleteTestRecordsBatch,
+  deleteTestTypeDefinition,
   downloadTestRecordTemplate,
   exportTestRecordLibrary,
+  fetchTestDefinitions,
   fetchTestRecords,
   importTestRecords,
+  updateTestMetricDefinition,
+  updateTestTypeDefinition,
+  type TestMetricDefinitionRead,
+  type TestTypeDefinitionRead,
 } from '@/api/testRecords'
 import AppShell from '@/components/layout/AppShell.vue'
 import { todayString } from '@/utils/date'
+import { confirmDangerousAction } from '@/utils/dangerousAction'
+import { getTestMetricDirectionMeta } from '@/utils/testMetricDirection'
 
 type Athlete = {
   id: number
   full_name: string
+  sport_id?: number | null
+  team_id?: number | null
   weight?: number | null
-  team?: { name?: string | null } | null
+  sport?: { id?: number | null; name?: string | null } | null
+  team?: { id?: number | null; sport_id?: number | null; name?: string | null } | null
 }
 
 type TestRecord = {
@@ -41,8 +56,13 @@ type MetricRangePoint = {
   max_value: number
 }
 
+type ManagedMetricDefinition = TestMetricDefinitionRead & {
+  test_type_name: string
+}
+
 const athletes = ref<Athlete[]>([])
 const records = ref<TestRecord[]>([])
+const definitions = ref<TestTypeDefinitionRead[]>([])
 const chartRef = ref<HTMLDivElement | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
 const loading = ref(false)
@@ -51,34 +71,36 @@ const exportBusy = ref(false)
 const templateBusy = ref(false)
 const actionMessage = ref('')
 
+const typeManagerOpen = ref(false)
+const metricManagerOpen = ref(false)
+const typeSubmitting = ref(false)
+const metricSubmitting = ref(false)
+const deletingTypeId = ref<number | null>(null)
+const deletingMetricId = ref<number | null>(null)
+const editingTypeId = ref<number | null>(null)
+const editingMetricId = ref<number | null>(null)
+const typeManagerError = ref('')
+const metricManagerError = ref('')
+
 let chart: echarts.ECharts | null = null
 
-const testTypeOptions = ['基础身体', '力量测试', '体能测试', '速度测试', '耐力测试']
-const metricOptions = ['卧推', '卧拉', '深蹲', '挺举', '引体向上', '反向跳', '静蹲跳', '直腿跳', '助跑摸高', '原地摸高', '3000m', '17折返']
-const unitMap: Record<string, string> = {
-  卧推: 'kg',
-  卧拉: 'kg',
-  深蹲: 'kg',
-  挺举: 'kg',
-  引体向上: '次',
-  反向跳: 'cm',
-  静蹲跳: 'cm',
-  直腿跳: 'RSI',
-  助跑摸高: 'cm',
-  原地摸高: 'cm',
-  '3000m': 's',
-  '17折返': 's',
-}
 const ratioMetrics = new Set(['卧推', '卧拉', '深蹲', '挺举'])
 
-const form = reactive({
-  athlete_id: 0,
-  test_date: todayString(),
-  test_type: '力量测试',
-  metric_name: '卧推',
-  result_value: 0,
-  result_text: '',
-  unit: 'kg',
+const trendFilters = reactive({
+  sportId: 0,
+  teamId: 0,
+  athleteId: 0,
+  testType: '',
+  metricName: '',
+  dateFrom: '',
+  dateTo: '',
+})
+
+const entryForm = reactive({
+  testDate: todayString(),
+  resultValue: 0,
+  resultText: '',
+  unit: '',
   notes: '',
 })
 
@@ -88,22 +110,94 @@ const libraryFilters = reactive({
   testType: '',
 })
 
-const selectedAthlete = computed(() => athletes.value.find((item) => item.id === form.athlete_id) || null)
+const entryPanelOpen = ref(false)
 
-const selectedAthleteRecords = computed(() =>
-  records.value.filter((item) => !form.athlete_id || item.athlete_id === form.athlete_id),
+const typeForm = reactive({
+  name: '',
+  notes: '',
+})
+
+const metricForm = reactive({
+  test_type_id: null as number | null,
+  name: '',
+  default_unit: '',
+  is_lower_better: false,
+  notes: '',
+})
+
+const selectedAthlete = computed(() => athletes.value.find((item) => item.id === trendFilters.athleteId) || null)
+
+const selectedTypeDefinition = computed(() => definitions.value.find((item) => item.name === trendFilters.testType) || null)
+
+const trendSportOptions = computed(() => collectTrendSportOptions())
+
+const trendTeamOptions = computed(() => collectTrendTeamOptions(trendFilters.sportId))
+
+const availableTrendAthletes = computed(() => collectTrendAthletes(trendFilters.sportId, trendFilters.teamId))
+
+const metricDefinitions = computed<ManagedMetricDefinition[]>(() =>
+  definitions.value.flatMap((definition) =>
+    definition.metrics.map((metric) => ({
+      ...metric,
+      test_type_name: definition.name,
+    })),
+  ),
 )
 
-const selectedMetricRecords = computed(() =>
-  selectedAthleteRecords.value
-    .filter((item) => item.metric_name === form.metric_name)
+const availableMetricDefinitions = computed(() => selectedTypeDefinition.value?.metrics || [])
+
+const selectedMetricDefinition = computed(
+  () =>
+    metricDefinitions.value.find(
+      (item) => item.test_type_name === trendFilters.testType && item.name === trendFilters.metricName,
+    ) || null,
+)
+
+const selectedMetricDirectionMeta = computed(() => getTestMetricDirectionMeta(selectedMetricDefinition.value))
+
+const chartMetricUnit = computed(
+  () => selectedMetricDefinition.value?.default_unit || filteredTrendRecords.value[0]?.unit || '',
+)
+
+const athleteLookup = computed(() => new Map(athletes.value.map((item) => [item.id, item])))
+
+const filteredTrendRecords = computed(() =>
+  records.value
+    .filter((item) => {
+      if (!recordMatchesTrendScope(item)) return false
+      if (trendFilters.athleteId && item.athlete_id !== trendFilters.athleteId) return false
+      if (trendFilters.testType && item.test_type !== trendFilters.testType) return false
+      if (trendFilters.metricName && item.metric_name !== trendFilters.metricName) return false
+      return true
+    })
     .slice()
-    .sort((left, right) => left.test_date.localeCompare(right.test_date)),
+    .sort((left, right) => {
+      const dateCompare = left.test_date.localeCompare(right.test_date)
+      if (dateCompare !== 0) return dateCompare
+      return left.id - right.id
+    }),
+)
+
+const filteredTrendResultCards = computed(() =>
+  filteredTrendRecords.value
+    .slice()
+    .sort((left, right) => {
+      const dateCompare = right.test_date.localeCompare(left.test_date)
+      if (dateCompare !== 0) return dateCompare
+      return right.id - left.id
+    }),
 )
 
 const teamRangeMetricRecords = computed<MetricRangePoint[]>(() => {
+  if (!trendFilters.testType || !trendFilters.metricName) return []
+
   const grouped = records.value
-    .filter((item) => item.metric_name === form.metric_name)
+    .filter((item) => {
+      if (!recordMatchesTrendScope(item, { includeAthlete: false })) return false
+      if (item.test_type !== trendFilters.testType) return false
+      if (item.metric_name !== trendFilters.metricName) return false
+      return true
+    })
     .reduce(
       (accumulator: Map<string, { total: number; count: number; min: number; max: number }>, item) => {
         const value = Number(item.result_value || 0)
@@ -131,7 +225,7 @@ const teamRangeMetricRecords = computed<MetricRangePoint[]>(() => {
 const chartDates = computed<string[]>(() =>
   Array.from(
     new Set([
-      ...selectedMetricRecords.value.map((item) => item.test_date),
+      ...filteredTrendRecords.value.map((item) => item.test_date),
       ...teamRangeMetricRecords.value.map((item) => item.test_date),
     ]),
   ).sort((left, right) => left.localeCompare(right)),
@@ -139,7 +233,7 @@ const chartDates = computed<string[]>(() =>
 
 const chartTitle = computed(() => {
   const athleteName = selectedAthlete.value?.full_name || '当前运动员'
-  return `${athleteName} - ${form.metric_name} 趋势`
+  return `${athleteName} - ${trendFilters.metricName || '测试项目'} 趋势`
 })
 
 const totalLibraryRecords = computed(() =>
@@ -159,6 +253,10 @@ const totalLibraryRecords = computed(() =>
     }),
 )
 
+const hasLibraryFilters = computed(
+  () => Boolean(libraryFilters.athleteKeyword.trim() || libraryFilters.metricKeyword.trim() || libraryFilters.testType),
+)
+
 const libraryAthleteOptions = computed(() =>
   Array.from(new Set(records.value.map((record) => record.athlete?.full_name || '').filter(Boolean))).sort((left, right) =>
     left.localeCompare(right, 'zh-CN'),
@@ -166,26 +264,158 @@ const libraryAthleteOptions = computed(() =>
 )
 
 const libraryMetricOptions = computed(() =>
-  Array.from(new Set(records.value.map((record) => record.metric_name).filter(Boolean))).sort((left, right) =>
-    left.localeCompare(right, 'zh-CN'),
-  ),
+  Array.from(
+    new Set([
+      ...metricDefinitions.value.map((definition) => definition.name),
+      ...records.value.map((record) => record.metric_name),
+    ].filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right, 'zh-CN')),
 )
+
+const libraryTestTypeOptions = computed(() =>
+  Array.from(
+    new Set([
+      ...definitions.value.map((definition) => definition.name),
+      ...records.value.map((record) => record.test_type),
+    ].filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right, 'zh-CN')),
+)
+
+const canSubmitType = computed(() => Boolean(typeForm.name.trim()))
+const canSubmitMetric = computed(() => metricForm.test_type_id !== null && Boolean(metricForm.name.trim()))
+const canSubmitEntryRecord = computed(
+  () =>
+    Boolean(
+      trendFilters.athleteId &&
+      trendFilters.testType.trim() &&
+      trendFilters.metricName.trim() &&
+      entryActiveUnit.value.trim(),
+    ),
+)
+
+const entryActiveUnit = computed(() => entryForm.unit || selectedMetricDefinition.value?.default_unit || '')
 
 async function hydrate() {
   loading.value = true
-  ;[athletes.value, records.value] = await Promise.all([fetchAthletes(), fetchTestRecords()])
-  if (!form.athlete_id && athletes.value[0]) {
-    form.athlete_id = athletes.value[0].id
+  try {
+    const [athleteData, recordData, catalog] = await Promise.all([
+      fetchAthletes(),
+      fetchTestRecords(),
+      fetchTestDefinitions(),
+    ])
+    athletes.value = athleteData
+    records.value = recordData
+    definitions.value = catalog.types || []
+    syncTrendFilterSelection({
+      preferredAthleteId: trendFilters.athleteId,
+      preferredTypeName: trendFilters.testType,
+      preferredMetricName: trendFilters.metricName,
+    })
+  } finally {
+    loading.value = false
+    await nextTick()
+    renderChart()
   }
-  loading.value = false
+}
+
+async function refreshDefinitions(options?: {
+  preferredTypeName?: string
+  preferredMetricName?: string
+}) {
+  const catalog = await fetchTestDefinitions()
+  definitions.value = catalog.types || []
+  syncTrendFilterSelection({
+    preferredAthleteId: trendFilters.athleteId,
+    preferredTypeName: options?.preferredTypeName ?? trendFilters.testType,
+    preferredMetricName: options?.preferredMetricName ?? trendFilters.metricName,
+  })
   await nextTick()
   renderChart()
 }
 
-async function submit() {
-  await createTestRecord({ ...form, result_text: form.result_text || null })
-  actionMessage.value = '测试记录已保存。'
-  await hydrate()
+function syncTrendFilterSelection(options?: {
+  preferredSportId?: number
+  preferredTeamId?: number
+  preferredAthleteId?: number
+  preferredTypeName?: string
+  preferredMetricName?: string
+}) {
+  const preferredSportId = options?.preferredSportId ?? trendFilters.sportId
+  const resolvedSports = collectTrendSportOptions()
+  trendFilters.sportId = preferredSportId && resolvedSports.some((item) => item.id === preferredSportId) ? preferredSportId : 0
+
+  const preferredTeamId = options?.preferredTeamId ?? trendFilters.teamId
+  const resolvedTeams = collectTrendTeamOptions(trendFilters.sportId)
+  trendFilters.teamId = preferredTeamId && resolvedTeams.some((item) => item.id === preferredTeamId) ? preferredTeamId : 0
+
+  const preferredAthleteId = options?.preferredAthleteId ?? 0
+  const resolvedAthletes = collectTrendAthletes(trendFilters.sportId, trendFilters.teamId)
+  if (preferredAthleteId && resolvedAthletes.some((item) => item.id === preferredAthleteId)) {
+    trendFilters.athleteId = preferredAthleteId
+  } else {
+    trendFilters.athleteId = resolvedAthletes[0]?.id ?? 0
+  }
+
+  const defaultType =
+    definitions.value.find((item) => item.metrics.length > 0) ||
+    definitions.value[0] ||
+    null
+  const resolvedType =
+    definitions.value.find((item) => item.name === options?.preferredTypeName) || defaultType
+
+  trendFilters.testType = resolvedType?.name || ''
+
+  const resolvedMetric =
+    resolvedType?.metrics.find((item) => item.name === options?.preferredMetricName) ||
+    resolvedType?.metrics[0] ||
+    null
+
+  trendFilters.metricName = resolvedMetric?.name || ''
+  syncEntryFormContext({ resetValues: false, resetUnit: true })
+}
+
+function syncEntryFormContext(options?: { resetValues?: boolean; resetUnit?: boolean }) {
+  if (options?.resetValues) {
+    entryForm.testDate = todayString()
+    entryForm.resultValue = 0
+    entryForm.resultText = ''
+    entryForm.notes = ''
+  }
+  if (options?.resetUnit) {
+    entryForm.unit = selectedMetricDefinition.value?.default_unit || ''
+  }
+}
+
+function toggleEntryPanel() {
+  entryPanelOpen.value = !entryPanelOpen.value
+  if (entryPanelOpen.value) {
+    syncEntryFormContext({ resetValues: false, resetUnit: true })
+  }
+}
+
+async function submitEntryRecord() {
+  if (!canSubmitEntryRecord.value) {
+    actionMessage.value = '请先选择测试类型、测试项目和单位。'
+    return
+  }
+
+  try {
+    await createTestRecord({
+      athlete_id: trendFilters.athleteId,
+      test_date: entryForm.testDate,
+      test_type: trendFilters.testType,
+      metric_name: trendFilters.metricName,
+      result_value: entryForm.resultValue,
+      unit: entryActiveUnit.value,
+      result_text: entryForm.resultText || null,
+      notes: entryForm.notes || null,
+    })
+    actionMessage.value = '测试记录已保存。'
+    await hydrate()
+    syncEntryFormContext({ resetValues: true, resetUnit: true })
+  } catch (error) {
+    actionMessage.value = extractErrorMessage(error, '保存测试记录失败，请稍后重试。')
+  }
 }
 
 async function handleTemplateDownload() {
@@ -235,16 +465,374 @@ function triggerImport() {
   importInputRef.value?.click()
 }
 
+async function handleDeleteFilteredBatch() {
+  if (!hasLibraryFilters.value) {
+    actionMessage.value = '请先筛选出要删除的测试批次，再执行删除。'
+    return
+  }
+  if (!totalLibraryRecords.value.length) {
+    actionMessage.value = '当前筛选条件下没有可删除的测试数据。'
+    return
+  }
+
+  const dateValues = totalLibraryRecords.value
+    .map((record) => record.test_date)
+    .sort((left, right) => left.localeCompare(right))
+
+  const confirmed = confirmDangerousAction({
+    title: '批量删除测试数据',
+    impactLines: [
+      `将删除当前筛选结果 ${totalLibraryRecords.value.length} 条`,
+      `日期范围：${dateValues[0]} ~ ${dateValues[dateValues.length - 1]}`,
+      `筛选条件：${libraryFilters.athleteKeyword || '全部运动员'} / ${libraryFilters.metricKeyword || '全部项目'} / ${libraryFilters.testType || '全部类型'}`,
+    ],
+  })
+  if (!confirmed) return
+
+  try {
+    const result = await deleteTestRecordsBatch(
+      totalLibraryRecords.value.map((record) => record.id),
+      { confirmed: true, actor_name: '管理模式' },
+    )
+    actionMessage.value = `已删除 ${result.deleted_count} 条测试数据。`
+    await hydrate()
+  } catch (error) {
+    actionMessage.value = extractErrorMessage(error)
+  }
+}
+
+function handleTrendTestTypeChange() {
+  const nextMetric =
+    selectedTypeDefinition.value?.metrics.find((item) => item.name === trendFilters.metricName) ||
+    selectedTypeDefinition.value?.metrics[0] ||
+    null
+  trendFilters.metricName = nextMetric?.name || ''
+  syncEntryFormContext({ resetValues: false, resetUnit: true })
+}
+
+function handleTrendSportChange() {
+  const availableTeams = collectTrendTeamOptions(trendFilters.sportId)
+  if (trendFilters.teamId && !availableTeams.some((item) => item.id === trendFilters.teamId)) {
+    trendFilters.teamId = 0
+  }
+
+  const nextAthletes = collectTrendAthletes(trendFilters.sportId, trendFilters.teamId)
+  if (trendFilters.athleteId && !nextAthletes.some((item) => item.id === trendFilters.athleteId)) {
+    trendFilters.athleteId = nextAthletes[0]?.id ?? 0
+  } else if (!trendFilters.athleteId) {
+    trendFilters.athleteId = nextAthletes[0]?.id ?? 0
+  }
+}
+
+function handleTrendTeamChange() {
+  const nextAthletes = collectTrendAthletes(trendFilters.sportId, trendFilters.teamId)
+  if (trendFilters.athleteId && !nextAthletes.some((item) => item.id === trendFilters.athleteId)) {
+    trendFilters.athleteId = nextAthletes[0]?.id ?? 0
+  } else if (!trendFilters.athleteId) {
+    trendFilters.athleteId = nextAthletes[0]?.id ?? 0
+  }
+}
+
+function handleTrendMetricChange() {
+  const scopedMetric = availableMetricDefinitions.value.find((item) => item.name === trendFilters.metricName)
+  if (scopedMetric) {
+    trendFilters.metricName = scopedMetric.name
+    syncEntryFormContext({ resetValues: false, resetUnit: true })
+    return
+  }
+
+  const metric = metricDefinitions.value.find((item) => item.name === trendFilters.metricName)
+  if (!metric) return
+
+  trendFilters.testType = metric.test_type_name
+  trendFilters.metricName = metric.name
+  syncEntryFormContext({ resetValues: false, resetUnit: true })
+}
+
+function openTypeManager() {
+  typeManagerError.value = ''
+  typeManagerOpen.value = true
+}
+
+function closeTypeManager() {
+  typeManagerOpen.value = false
+  typeManagerError.value = ''
+  resetTypeForm()
+}
+
+function openMetricManager() {
+  metricManagerError.value = ''
+  metricManagerOpen.value = true
+  metricForm.test_type_id = resolvePreferredTypeId()
+}
+
+function closeMetricManager() {
+  metricManagerOpen.value = false
+  metricManagerError.value = ''
+  resetMetricForm()
+}
+
+function startEditType(definition: TestTypeDefinitionRead) {
+  editingTypeId.value = definition.id
+  typeForm.name = definition.name
+  typeForm.notes = definition.notes || ''
+  typeManagerError.value = ''
+}
+
+function startEditMetric(definition: ManagedMetricDefinition) {
+  editingMetricId.value = definition.id
+  metricForm.test_type_id = definition.test_type_id
+  metricForm.name = definition.name
+  metricForm.default_unit = definition.default_unit || ''
+  metricForm.is_lower_better = definition.is_lower_better
+  metricForm.notes = definition.notes || ''
+  metricManagerError.value = ''
+}
+
+async function submitType() {
+  typeManagerError.value = ''
+  if (!canSubmitType.value) {
+    typeManagerError.value = '测试类型名称不能为空'
+    return
+  }
+
+  typeSubmitting.value = true
+  try {
+    const payload = {
+      name: typeForm.name.trim(),
+      code: resolveTypeCode(),
+      notes: normalizeOptionalText(typeForm.notes),
+    }
+    const saved = editingTypeId.value
+      ? await updateTestTypeDefinition(editingTypeId.value, payload)
+      : await createTestTypeDefinition(payload)
+    await refreshDefinitions({ preferredTypeName: saved.name })
+    resetTypeForm()
+  } catch (error) {
+    typeManagerError.value = extractErrorMessage(error, '保存测试类型失败，请稍后重试。')
+  } finally {
+    typeSubmitting.value = false
+  }
+}
+
+async function submitMetric() {
+  metricManagerError.value = ''
+  if (metricForm.test_type_id === null) {
+    metricManagerError.value = '请先选择所属测试类型'
+    return
+  }
+  if (!metricForm.name.trim()) {
+    metricManagerError.value = '测试项目名称不能为空'
+    return
+  }
+
+  metricSubmitting.value = true
+  try {
+    const payload = {
+      test_type_id: metricForm.test_type_id,
+      name: metricForm.name.trim(),
+      code: resolveMetricCode(),
+      default_unit: normalizeOptionalText(metricForm.default_unit),
+      is_lower_better: metricForm.is_lower_better,
+      notes: normalizeOptionalText(metricForm.notes),
+    }
+    const saved = editingMetricId.value
+      ? await updateTestMetricDefinition(editingMetricId.value, payload)
+      : await createTestMetricDefinition(payload)
+    await refreshDefinitions({
+      preferredTypeName: saved.test_type?.name || trendFilters.testType,
+      preferredMetricName: saved.name,
+    })
+    resetMetricForm()
+    metricForm.test_type_id = resolvePreferredTypeId()
+  } catch (error) {
+    metricManagerError.value = extractErrorMessage(error, '保存测试项目失败，请稍后重试。')
+  } finally {
+    metricSubmitting.value = false
+  }
+}
+
+async function removeType(definition: TestTypeDefinitionRead) {
+  const confirmed = confirmDangerousAction({
+    title: '删除测试类型',
+    impactLines: [
+      `测试类型：${definition.name}`,
+      `当前挂接测试项目：${definition.metrics.length} 个`,
+      '删除定义不会删除历史测试记录，但会移除后续录入可选项。',
+    ],
+    recommendation: '如果该类型下仍有测试项目，请先调整或删除这些测试项目，再删除测试类型。',
+  })
+  if (!confirmed) return
+
+  deletingTypeId.value = definition.id
+  typeManagerError.value = ''
+  try {
+    await deleteTestTypeDefinition(definition.id, { confirmed: true, actor_name: '管理模式' })
+    await refreshDefinitions()
+    if (editingTypeId.value === definition.id) {
+      resetTypeForm()
+    }
+  } catch (error) {
+    typeManagerError.value = extractErrorMessage(error, '删除测试类型失败，请稍后重试。')
+  } finally {
+    deletingTypeId.value = null
+  }
+}
+
+async function removeMetric(definition: ManagedMetricDefinition) {
+  const confirmed = confirmDangerousAction({
+    title: '删除测试项目',
+    impactLines: [
+      `测试项目：${definition.name}`,
+      `所属测试类型：${definition.test_type_name}`,
+      '删除定义不会删除历史测试记录，但会移除后续录入可选项。',
+    ],
+  })
+  if (!confirmed) return
+
+  deletingMetricId.value = definition.id
+  metricManagerError.value = ''
+  try {
+    await deleteTestMetricDefinition(definition.id, { confirmed: true, actor_name: '管理模式' })
+    await refreshDefinitions()
+    if (editingMetricId.value === definition.id) {
+      resetMetricForm()
+      metricForm.test_type_id = resolvePreferredTypeId()
+    }
+  } catch (error) {
+    metricManagerError.value = extractErrorMessage(error, '删除测试项目失败，请稍后重试。')
+  } finally {
+    deletingMetricId.value = null
+  }
+}
+
+function resetTypeForm() {
+  editingTypeId.value = null
+  typeForm.name = ''
+  typeForm.notes = ''
+}
+
+function resetMetricForm() {
+  editingMetricId.value = null
+  metricForm.test_type_id = null
+  metricForm.name = ''
+  metricForm.default_unit = ''
+  metricForm.is_lower_better = false
+  metricForm.notes = ''
+}
+
+function resolvePreferredTypeId() {
+  return (
+    selectedTypeDefinition.value?.id ||
+    definitions.value.find((item) => item.metrics.length > 0)?.id ||
+    definitions.value[0]?.id ||
+    null
+  )
+}
+
+function resolveTypeCode() {
+  const current = definitions.value.find((item) => item.id === editingTypeId.value)
+  if (current && current.name.trim() === typeForm.name.trim()) {
+    return current.code
+  }
+  return buildDefinitionCode(typeForm.name, 'test-type')
+}
+
+function resolveMetricCode() {
+  const current = metricDefinitions.value.find((item) => item.id === editingMetricId.value)
+  if (current && current.name.trim() === metricForm.name.trim()) {
+    return current.code
+  }
+  return buildDefinitionCode(metricForm.name, 'test-metric')
+}
+
+function buildDefinitionCode(name: string, prefix: 'test-type' | 'test-metric') {
+  const asciiSlug = name
+    .trim()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+
+  if (asciiSlug) return asciiSlug
+  return `${prefix}-${Date.now()}`
+}
+
+function normalizeOptionalText(value: string) {
+  const normalized = value.trim()
+  return normalized || null
+}
+
 function computeRelativeStrength(record: TestRecord) {
   const athleteWeight = record.athlete?.weight
   if (!ratioMetrics.has(record.metric_name) || !athleteWeight) return null
   return Number(record.result_value / athleteWeight).toFixed(2)
 }
 
+function resolveAthleteSportId(athlete: Athlete | null | undefined) {
+  return athlete?.sport_id ?? athlete?.sport?.id ?? null
+}
+
+function resolveAthleteTeamId(athlete: Athlete | null | undefined) {
+  return athlete?.team_id ?? athlete?.team?.id ?? null
+}
+
+function resolveRecordAthlete(record: TestRecord) {
+  return record.athlete || athleteLookup.value.get(record.athlete_id) || null
+}
+
+function collectTrendSportOptions() {
+  return Array.from(
+    athletes.value.reduce((accumulator, athlete) => {
+      const sportId = resolveAthleteSportId(athlete)
+      const sportName = athlete.sport?.name?.trim()
+      if (!sportId || !sportName || accumulator.has(sportId)) return accumulator
+      accumulator.set(sportId, { id: sportId, name: sportName })
+      return accumulator
+    }, new Map<number, { id: number; name: string }>()),
+  )
+    .map(([, value]) => value)
+    .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+}
+
+function collectTrendTeamOptions(sportId = 0) {
+  return Array.from(
+    athletes.value.reduce((accumulator, athlete) => {
+      const resolvedSportId = resolveAthleteSportId(athlete)
+      const teamId = resolveAthleteTeamId(athlete)
+      const teamName = athlete.team?.name?.trim()
+      if (sportId && resolvedSportId !== sportId) return accumulator
+      if (!teamId || !teamName || accumulator.has(teamId)) return accumulator
+      accumulator.set(teamId, { id: teamId, sport_id: resolvedSportId ?? 0, name: teamName })
+      return accumulator
+    }, new Map<number, { id: number; sport_id: number; name: string }>()),
+  )
+    .map(([, value]) => value)
+    .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+}
+
+function collectTrendAthletes(sportId = 0, teamId = 0) {
+  return athletes.value.filter((athlete) => {
+    if (sportId && resolveAthleteSportId(athlete) !== sportId) return false
+    if (teamId && resolveAthleteTeamId(athlete) !== teamId) return false
+    return true
+  })
+}
+
+function recordMatchesTrendScope(record: TestRecord, options?: { includeAthlete?: boolean }) {
+  const athlete = resolveRecordAthlete(record)
+  if (trendFilters.sportId && resolveAthleteSportId(athlete) !== trendFilters.sportId) return false
+  if (trendFilters.teamId && resolveAthleteTeamId(athlete) !== trendFilters.teamId) return false
+  if (options?.includeAthlete !== false && trendFilters.athleteId && record.athlete_id !== trendFilters.athleteId) return false
+  if (trendFilters.dateFrom && record.test_date < trendFilters.dateFrom) return false
+  if (trendFilters.dateTo && record.test_date > trendFilters.dateTo) return false
+  return true
+}
+
 function displayResult(record: TestRecord) {
-  if (record.result_text) {
-    return record.result_text
-  }
+  if (record.result_text) return record.result_text
   return `${record.result_value} ${record.unit}`
 }
 
@@ -252,17 +840,20 @@ function renderChart() {
   if (!chartRef.value) return
   chart ||= echarts.init(chartRef.value)
 
-  const athleteData = new Map<string, number>(selectedMetricRecords.value.map((item) => [item.test_date, Number(item.result_value)]))
+  const isLowerBetterMetric = selectedMetricDirectionMeta.value.isLowerBetter
+  const athleteData = new Map<string, number>(filteredTrendRecords.value.map((item) => [item.test_date, Number(item.result_value)]))
   const averageData = new Map<string, number>(teamRangeMetricRecords.value.map((item) => [item.test_date, item.average_value]))
   const minData = new Map<string, number>(teamRangeMetricRecords.value.map((item) => [item.test_date, item.min_value]))
   const maxData = new Map<string, number>(teamRangeMetricRecords.value.map((item) => [item.test_date, item.max_value]))
+  const bandUpperData = isLowerBetterMetric ? minData : maxData
+  const bandLowerData = isLowerBetterMetric ? maxData : minData
 
   chart.setOption({
     tooltip: {
       trigger: 'axis',
       formatter: (params: Array<{ axisValueLabel: string }>) => {
         const axisLabel = params?.[0]?.axisValueLabel || ''
-        const unit = form.unit || unitMap[form.metric_name] || ''
+        const unit = chartMetricUnit.value
         return [
           axisLabel,
           `个人成绩：${formatTooltipValue(athleteData.get(axisLabel))} ${unit}`.trim(),
@@ -275,7 +866,12 @@ function renderChart() {
     legend: { data: ['个人成绩', '全队平均', '全队区间'] },
     grid: { left: 56, right: 24, top: 48, bottom: 32 },
     xAxis: { type: 'category', data: chartDates.value },
-    yAxis: { type: 'value', name: form.unit || unitMap[form.metric_name] || '' },
+    yAxis: {
+      type: 'value',
+      name: chartMetricUnit.value,
+      inverse: isLowerBetterMetric,
+      ...(isLowerBetterMetric ? { min: 0 } : {}),
+    },
     series: [
       {
         type: 'custom',
@@ -286,7 +882,7 @@ function renderChart() {
         renderItem: (_params: unknown, api: any) => {
           const upperPoints = chartDates.value
             .map((dateLabel, index) => {
-              const value = maxData.get(dateLabel)
+              const value = bandUpperData.get(dateLabel)
               return value == null ? null : api.coord([index, value])
             })
             .filter(Boolean)
@@ -294,7 +890,7 @@ function renderChart() {
             .slice()
             .reverse()
             .map((dateLabel) => {
-              const value = minData.get(dateLabel)
+              const value = bandLowerData.get(dateLabel)
               if (value == null) return null
               const index = chartDates.value.indexOf(dateLabel)
               return api.coord([index, value])
@@ -310,9 +906,9 @@ function renderChart() {
               type: 'rect',
               shape: {
                 x: upperX - bandHalfWidth,
-                y: upperY,
+                y: Math.min(upperY, lowerY),
                 width: bandHalfWidth * 2,
-                height: Math.max(lowerY - upperY, 2),
+                height: Math.max(Math.abs(lowerY - upperY), 2),
               },
               style: { fill: 'rgba(245,158,11,0.34)' },
             }
@@ -378,14 +974,14 @@ function renderChart() {
   })
 }
 
-function extractErrorMessage(error: unknown) {
+function extractErrorMessage(error: unknown, fallback = '操作失败，请稍后重试。') {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail
     if (Array.isArray(detail)) return detail.join('；')
     if (typeof detail === 'string') return detail
     if (error.message) return error.message
   }
-  return '操作失败，请检查导入文件格式。'
+  return fallback
 }
 
 function formatTooltipValue(value: unknown) {
@@ -404,15 +1000,7 @@ function downloadBlob(blob: Blob, filename: string) {
   window.URL.revokeObjectURL(url)
 }
 
-watch(
-  () => form.metric_name,
-  (metricName) => {
-    form.unit = unitMap[metricName] || 'kg'
-  },
-  { immediate: true },
-)
-
-watch([selectedMetricRecords, teamRangeMetricRecords], async () => {
+watch([filteredTrendRecords, teamRangeMetricRecords, chartMetricUnit, selectedMetricDirectionMeta], async () => {
   await nextTick()
   renderChart()
 })
@@ -426,32 +1014,58 @@ onMounted(hydrate)
       <div class="split-view">
         <div class="panel form-panel">
           <div class="section-head">
-            <div>
-              <p class="eyebrow">测试录入</p>
-              <h3>测试数据录入与导入</h3>
+            <div class="section-head-copy">
+              <p class="eyebrow">趋势筛选</p>
+              <h3>测试趋势筛选与补录</h3>
             </div>
             <div class="action-stack">
-              <button class="ghost-btn" :disabled="templateBusy" @click="handleTemplateDownload">
-                {{ templateBusy ? '下载中...' : '下载导入模板' }}
-              </button>
-              <button class="ghost-btn" :disabled="importBusy" @click="triggerImport">
-                {{ importBusy ? '导入中...' : '导入测试数据 Excel' }}
-              </button>
+              <div class="action-row">
+                <button class="ghost-btn slim" type="button" @click="openTypeManager">管理测试类型</button>
+                <button class="ghost-btn slim" type="button" @click="openMetricManager">管理测试项目</button>
+              </div>
+              <div class="action-row">
+                <button class="ghost-btn" :disabled="templateBusy" @click="handleTemplateDownload">
+                  {{ templateBusy ? '下载中...' : '下载导入模板' }}
+                </button>
+                <button class="ghost-btn" :disabled="importBusy" @click="triggerImport">
+                  {{ importBusy ? '导入中...' : '导入测试数据 Excel' }}
+                </button>
+              </div>
             </div>
           </div>
 
           <input ref="importInputRef" class="hidden-input" type="file" accept=".xlsx" @change="handleImport" />
 
           <p class="hint-text">
-            先下载 Excel 模板，按模板填写后导入。导入会校验运动员姓名和字段格式；重复数据会自动跳过。
+            左侧先用来筛选趋势；手动补录保留在下方折叠区。开始日期和结束日期留空时，表示查看全部日期。
           </p>
 
           <p v-if="actionMessage" class="status-banner">{{ actionMessage }}</p>
 
+          <div class="two-col">
+            <label class="field">
+              <span>项目</span>
+              <select v-model.number="trendFilters.sportId" class="text-input" @change="handleTrendSportChange">
+                <option :value="0">全部项目</option>
+                <option v-for="sport in trendSportOptions" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>队伍</span>
+              <select v-model.number="trendFilters.teamId" class="text-input" @change="handleTrendTeamChange">
+                <option :value="0">全部队伍</option>
+                <option v-for="team in trendTeamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
+              </select>
+            </label>
+          </div>
+
           <label class="field">
             <span>运动员</span>
-            <select v-model.number="form.athlete_id" class="text-input">
-              <option v-for="athlete in athletes" :key="athlete.id" :value="athlete.id">{{ athlete.full_name }}</option>
+            <select v-model.number="trendFilters.athleteId" class="text-input" :disabled="!availableTrendAthletes.length">
+              <option v-if="!availableTrendAthletes.length" :value="0">当前筛选条件下无运动员</option>
+              <option v-for="athlete in availableTrendAthletes" :key="athlete.id" :value="athlete.id">
+                {{ athlete.full_name }}
+              </option>
             </select>
           </label>
 
@@ -460,64 +1074,119 @@ onMounted(hydrate)
             <span>体重：{{ selectedAthlete.weight ?? '--' }} kg</span>
           </div>
 
-          <label class="field">
-            <span>测试日期</span>
-            <input v-model="form.test_date" type="date" class="text-input" />
-          </label>
+          <div class="two-col">
+            <label class="field">
+              <span>开始日期</span>
+              <input v-model="trendFilters.dateFrom" type="date" class="text-input" />
+            </label>
+            <label class="field">
+              <span>结束日期</span>
+              <input v-model="trendFilters.dateTo" type="date" class="text-input" />
+            </label>
+          </div>
+          <p class="field-note">开始日期和结束日期留空时，默认查看全部日期。</p>
 
           <div class="two-col">
             <label class="field">
               <span>测试类型</span>
-              <select v-model="form.test_type" class="text-input">
-                <option v-for="option in testTypeOptions" :key="option" :value="option">{{ option }}</option>
+              <select v-model="trendFilters.testType" class="text-input" @change="handleTrendTestTypeChange">
+                <option v-for="definition in definitions" :key="definition.id" :value="definition.name">
+                  {{ definition.name }}
+                </option>
               </select>
             </label>
 
             <label class="field">
               <span>测试项目</span>
-              <select v-model="form.metric_name" class="text-input">
-                <option v-for="option in metricOptions" :key="option" :value="option">{{ option }}</option>
+              <select
+                v-model="trendFilters.metricName"
+                class="text-input"
+                :disabled="!availableMetricDefinitions.length"
+                @change="handleTrendMetricChange"
+              >
+                <option v-if="!availableMetricDefinitions.length" value="">请先在该类型下添加测试项目</option>
+                <option v-for="definition in availableMetricDefinitions" :key="definition.id" :value="definition.name">
+                  {{ definition.name }}
+                </option>
               </select>
             </label>
           </div>
 
-          <div class="two-col">
-            <label class="field">
-              <span>数值结果</span>
-              <input v-model.number="form.result_value" type="number" step="0.01" class="text-input" placeholder="用于计算和统计" />
-            </label>
-            <label class="field">
-              <span>显示文本</span>
-              <input v-model="form.result_text" class="text-input" placeholder="如 13′32″3，可留空" />
-            </label>
-          </div>
+          <p v-if="trendFilters.testType && !availableMetricDefinitions.length" class="field-note">
+            当前测试类型下还没有测试项目，请先点击“管理测试项目”添加二级分类。
+          </p>
+          <p v-else-if="selectedMetricDefinition" class="field-note">
+            当前项目方向：<strong>{{ selectedMetricDirectionMeta.label }}</strong>（{{ selectedMetricDirectionMeta.hint }}）
+          </p>
 
-          <div class="two-col">
-            <label class="field">
-              <span>单位</span>
-              <input v-model="form.unit" class="text-input" />
-            </label>
-            <label class="field">
-              <span>备注</span>
-              <input v-model="form.notes" class="text-input" placeholder="可选" />
-            </label>
-          </div>
+          <div class="entry-panel">
+            <button class="ghost-btn entry-toggle" type="button" @click="toggleEntryPanel">
+              {{ entryPanelOpen ? '收起手动添加测试记录' : '展开手动添加测试记录' }}
+            </button>
 
-          <button class="primary-btn" @click="submit">保存测试记录</button>
+            <div v-if="entryPanelOpen" class="entry-panel-body">
+              <p class="field-note">
+                当前补录对象：{{ selectedAthlete?.full_name || '未选择运动员' }} / {{ trendFilters.testType || '未选择测试类型' }} /
+                {{ trendFilters.metricName || '未选择测试项目' }}
+              </p>
+
+              <label class="field">
+                <span>测试日期</span>
+                <input v-model="entryForm.testDate" type="date" class="text-input" />
+              </label>
+
+              <div class="two-col">
+                <label class="field">
+                  <span>数值结果</span>
+                  <input
+                    v-model.number="entryForm.resultValue"
+                    type="number"
+                    step="0.01"
+                    class="text-input"
+                    placeholder="用于计算和统计"
+                  />
+                </label>
+                <label class="field">
+                  <span>显示文本</span>
+                  <input v-model="entryForm.resultText" class="text-input" placeholder="如 13′32″3，可留空" />
+                </label>
+              </div>
+
+              <div class="two-col">
+                <label class="field">
+                  <span>单位</span>
+                  <input
+                    v-model="entryForm.unit"
+                    class="text-input"
+                    :placeholder="selectedMetricDefinition?.default_unit || '手动填写单位'"
+                  />
+                </label>
+                <label class="field">
+                  <span>备注</span>
+                  <input v-model="entryForm.notes" class="text-input" placeholder="可选" />
+                </label>
+              </div>
+
+              <button class="primary-btn" :disabled="!canSubmitEntryRecord" @click="submitEntryRecord">保存测试记录</button>
+            </div>
+          </div>
         </div>
 
         <div class="panel chart-panel">
           <div class="section-head">
-            <div>
+            <div class="section-head-copy">
               <p class="eyebrow">趋势图</p>
               <h3>{{ chartTitle }}</h3>
+              <p v-if="selectedMetricDefinition" class="direction-note">
+                {{ selectedMetricDirectionMeta.label }}：{{ selectedMetricDirectionMeta.hint }}
+              </p>
             </div>
           </div>
 
           <div ref="chartRef" class="chart"></div>
 
           <div class="list-grid">
-            <div v-for="record in selectedAthleteRecords" :key="record.id" class="row-card adaptive-card">
+            <div v-for="record in filteredTrendResultCards" :key="record.id" class="row-card adaptive-card">
               <strong class="adaptive-card-title">{{ record.metric_name }}：{{ displayResult(record) }}</strong>
               <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ record.test_date }} / {{ record.test_type }}</span>
               <small v-if="computeRelativeStrength(record)" class="adaptive-card-meta adaptive-card-clamp-1">
@@ -526,18 +1195,28 @@ onMounted(hydrate)
               <small v-else class="adaptive-card-meta adaptive-card-clamp-1">{{ record.notes || '无备注' }}</small>
             </div>
           </div>
+          <p v-if="!filteredTrendResultCards.length" class="hint-text">当前趋势筛选条件下没有测试数据。</p>
         </div>
       </div>
 
       <div class="panel library-panel">
         <div class="section-head">
-          <div>
+          <div class="section-head-copy">
             <p class="eyebrow">数据总库</p>
             <h3>测试数据总库</h3>
           </div>
-          <button class="ghost-btn" :disabled="exportBusy" @click="handleLibraryExport">
-            {{ exportBusy ? '导出中...' : '导出总库 Excel' }}
-          </button>
+          <div class="action-row">
+            <button
+              class="ghost-btn danger-btn"
+              :disabled="!hasLibraryFilters || !totalLibraryRecords.length"
+              @click="handleDeleteFilteredBatch"
+            >
+              删除当前筛选批次
+            </button>
+            <button class="ghost-btn" :disabled="exportBusy" @click="handleLibraryExport">
+              {{ exportBusy ? '导出中...' : '导出总库 Excel' }}
+            </button>
+          </div>
         </div>
 
         <div class="filter-grid">
@@ -561,7 +1240,7 @@ onMounted(hydrate)
           </datalist>
           <select v-model="libraryFilters.testType" class="text-input">
             <option value="">全部测试类型</option>
-            <option v-for="option in testTypeOptions" :key="option" :value="option">{{ option }}</option>
+            <option v-for="option in libraryTestTypeOptions" :key="option" :value="option">{{ option }}</option>
           </select>
         </div>
 
@@ -606,6 +1285,171 @@ onMounted(hydrate)
       </div>
     </div>
   </AppShell>
+
+  <teleport to="body">
+    <div v-if="typeManagerOpen" class="manager-overlay" @click="closeTypeManager">
+      <section class="manager-dialog panel" role="dialog" aria-modal="true" aria-labelledby="test-type-manager-title" @click.stop>
+        <div class="manager-dialog-head">
+          <div>
+            <p class="eyebrow">测试数据模块</p>
+            <h3 id="test-type-manager-title">管理测试类型</h3>
+          </div>
+          <button class="ghost-btn slim" type="button" @click="closeTypeManager">关闭</button>
+        </div>
+
+        <div class="manager-dialog-body">
+          <div class="manager-list-block">
+            <div class="manager-block-head">
+              <strong>已有测试类型</strong>
+              <span>{{ definitions.length }} 个</span>
+            </div>
+            <p v-if="typeManagerError" class="manager-error">{{ typeManagerError }}</p>
+            <div v-if="!definitions.length" class="empty-state manager-empty">当前还没有测试类型，请先新增一级分类。</div>
+            <div v-else class="manager-list">
+              <div v-for="definition in definitions" :key="definition.id" class="manager-row">
+                <div class="manager-row-copy">
+                  <strong>{{ definition.name }}</strong>
+                  <span class="manager-row-meta">编码：{{ definition.code }}</span>
+                  <span class="manager-row-meta">测试项目：{{ definition.metrics.length }} 个</span>
+                  <p v-if="definition.notes" class="manager-row-notes">{{ definition.notes }}</p>
+                </div>
+                <div class="manager-row-actions">
+                  <button class="ghost-btn slim" type="button" @click="startEditType(definition)">编辑</button>
+                  <button
+                    class="ghost-btn slim danger-btn"
+                    type="button"
+                    :disabled="deletingTypeId === definition.id"
+                    @click="removeType(definition)"
+                  >
+                    {{ deletingTypeId === definition.id ? '删除中...' : '删除' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <form class="manager-form-block" @submit.prevent="submitType">
+            <div class="manager-block-head">
+              <strong>{{ editingTypeId ? '编辑测试类型' : '新增测试类型' }}</strong>
+              <button v-if="editingTypeId" class="ghost-btn slim" type="button" @click="resetTypeForm">取消编辑</button>
+            </div>
+            <label class="field">
+              <span>测试类型名称 <strong class="required-mark">*</strong></span>
+              <input v-model="typeForm.name" class="text-input" placeholder="例如：力量测试" />
+            </label>
+            <label class="field">
+              <span>备注</span>
+              <textarea v-model="typeForm.notes" class="text-input manager-textarea" placeholder="可选" />
+            </label>
+            <p class="manager-help">编码按名称自动生成；删除一级分类前，需要先处理挂在其下的全部二级分类。</p>
+            <div class="manager-form-actions">
+              <button class="primary-btn" type="submit" :disabled="typeSubmitting || !canSubmitType">
+                {{ typeSubmitting ? '保存中...' : editingTypeId ? '保存修改' : '新增测试类型' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </teleport>
+
+  <teleport to="body">
+    <div v-if="metricManagerOpen" class="manager-overlay" @click="closeMetricManager">
+      <section class="manager-dialog panel" role="dialog" aria-modal="true" aria-labelledby="test-metric-manager-title" @click.stop>
+        <div class="manager-dialog-head">
+          <div>
+            <p class="eyebrow">测试数据模块</p>
+            <h3 id="test-metric-manager-title">管理测试项目</h3>
+          </div>
+          <button class="ghost-btn slim" type="button" @click="closeMetricManager">关闭</button>
+        </div>
+
+        <div class="manager-dialog-body">
+          <div class="manager-list-block">
+            <div class="manager-block-head">
+              <strong>已有测试项目</strong>
+              <span>{{ metricDefinitions.length }} 个</span>
+            </div>
+            <p v-if="metricManagerError" class="manager-error">{{ metricManagerError }}</p>
+            <div v-if="!metricDefinitions.length" class="empty-state manager-empty">当前还没有测试项目，请先在对应测试类型下新增二级分类。</div>
+            <div v-else class="manager-list">
+              <div v-for="definition in metricDefinitions" :key="definition.id" class="manager-row">
+                <div class="manager-row-copy">
+                  <strong>{{ definition.name }}</strong>
+                  <span class="manager-row-meta">所属测试类型：{{ definition.test_type_name }}</span>
+                  <span class="manager-row-meta">默认单位：{{ definition.default_unit || '未设置' }}</span>
+                  <span class="manager-row-meta">
+                    项目方向：
+                    <span
+                      class="direction-tag"
+                      :class="definition.is_lower_better ? 'direction-tag-lower' : 'direction-tag-higher'"
+                    >
+                      {{ getTestMetricDirectionMeta(definition).shortLabel }}
+                    </span>
+                  </span>
+                  <span class="manager-row-meta">编码：{{ definition.code }}</span>
+                  <p v-if="definition.notes" class="manager-row-notes">{{ definition.notes }}</p>
+                </div>
+                <div class="manager-row-actions">
+                  <button class="ghost-btn slim" type="button" @click="startEditMetric(definition)">编辑</button>
+                  <button
+                    class="ghost-btn slim danger-btn"
+                    type="button"
+                    :disabled="deletingMetricId === definition.id"
+                    @click="removeMetric(definition)"
+                  >
+                    {{ deletingMetricId === definition.id ? '删除中...' : '删除' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <form class="manager-form-block" @submit.prevent="submitMetric">
+            <div class="manager-block-head">
+              <strong>{{ editingMetricId ? '编辑测试项目' : '新增测试项目' }}</strong>
+              <button v-if="editingMetricId" class="ghost-btn slim" type="button" @click="resetMetricForm">取消编辑</button>
+            </div>
+            <label class="field">
+              <span>所属测试类型 <strong class="required-mark">*</strong></span>
+              <select v-model="metricForm.test_type_id" class="text-input">
+                <option :value="null">请选择测试类型</option>
+                <option v-for="definition in definitions" :key="definition.id" :value="definition.id">
+                  {{ definition.name }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span>测试项目名称 <strong class="required-mark">*</strong></span>
+              <input v-model="metricForm.name" class="text-input" placeholder="例如：卧推" />
+            </label>
+            <label class="field">
+              <span>默认单位</span>
+              <input v-model="metricForm.default_unit" class="text-input" placeholder="例如：kg / cm / s / 次 / RSI" />
+            </label>
+            <label class="checkbox-field">
+              <input v-model="metricForm.is_lower_better" type="checkbox" />
+              <span>低值优先（数值越小越好）</span>
+            </label>
+            <label class="field">
+              <span>备注</span>
+              <textarea v-model="metricForm.notes" class="text-input manager-textarea" placeholder="可选" />
+            </label>
+            <p class="manager-help">可以把同一个二级分类改挂到别的一级分类下；历史测试记录仍保留原来的字符串快照。</p>
+            <div class="manager-form-actions">
+              <button
+                class="primary-btn"
+                type="submit"
+                :disabled="metricSubmitting || !canSubmitMetric || !definitions.length"
+              >
+                {{ metricSubmitting ? '保存中...' : editingMetricId ? '保存修改' : '新增测试项目' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </teleport>
 </template>
 
 <style scoped>
@@ -633,16 +1477,28 @@ onMounted(hydrate)
   min-height: 0;
 }
 
-.section-head {
+.section-head,
+.section-head-copy,
+.action-stack,
+.action-row {
   display: flex;
+}
+
+.section-head {
   justify-content: space-between;
   align-items: start;
   gap: 16px;
 }
 
+.section-head-copy,
 .action-stack {
-  display: grid;
+  flex-direction: column;
   gap: 10px;
+}
+
+.action-row {
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .ghost-btn {
@@ -652,6 +1508,14 @@ onMounted(hydrate)
   background: #e2e8f0;
   color: #0f172a;
   font-weight: 600;
+}
+
+.ghost-btn.slim {
+  min-height: 38px;
+}
+
+.danger-btn {
+  color: #b91c1c;
 }
 
 .hidden-input {
@@ -667,11 +1531,45 @@ onMounted(hydrate)
   font-size: 13px;
 }
 
-.hint-text {
+.hint-text,
+.field-note,
+.direction-note {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.field-note {
+  margin-top: -4px;
+}
+
+.direction-note {
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.entry-panel,
+.entry-panel-body {
+  display: grid;
+  gap: 12px;
+}
+
+.entry-panel {
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.entry-panel-body {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.entry-toggle {
+  width: 100%;
+  justify-content: center;
 }
 
 .status-banner {
@@ -760,11 +1658,197 @@ onMounted(hydrate)
   z-index: 1;
 }
 
+.manager-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.44);
+}
+
+.manager-dialog {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 48px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 18px;
+  overflow: hidden;
+}
+
+.manager-dialog-head,
+.manager-block-head,
+.manager-row,
+.manager-row-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.manager-dialog-head,
+.manager-block-head,
+.manager-row {
+  justify-content: space-between;
+}
+
+.manager-dialog-head,
+.manager-block-head {
+  align-items: center;
+}
+
+.manager-row {
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.manager-dialog-head h3,
+.manager-block-head strong,
+.manager-row-copy strong,
+.manager-row-notes,
+.manager-help,
+.manager-error {
+  margin: 0;
+}
+
+.manager-block-head {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.manager-dialog-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 18px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.manager-list-block,
+.manager-form-block {
+  min-height: 0;
+  gap: 12px;
+}
+
+.manager-list-block {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.manager-form-block {
+  display: grid;
+  align-content: start;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.manager-list {
+  display: grid;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.manager-row-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.manager-row-meta,
+.manager-row-notes,
+.manager-help {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.direction-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.direction-tag-higher {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
+}
+
+.direction-tag-lower {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 2px;
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.checkbox-field input {
+  width: 18px;
+  height: 18px;
+}
+
+.manager-textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.manager-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.manager-empty {
+  min-height: 120px;
+}
+
+.manager-error {
+  border-radius: 12px;
+  border: 1px solid rgba(185, 28, 28, 0.16);
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 10px 12px;
+}
+
 @media (max-width: 1100px) {
   .split-view,
   .two-col,
-  .filter-grid {
+  .filter-grid,
+  .manager-dialog-body {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .section-head,
+  .manager-dialog-head,
+  .manager-row,
+  .manager-row-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .manager-overlay {
+    padding: 16px;
+    align-items: flex-end;
+  }
+
+  .manager-dialog {
+    max-height: calc(100vh - 24px);
   }
 }
 </style>

@@ -42,15 +42,26 @@ set PYTHONPATH=.
 
 - `backend/training.db`
 
-当前数据库演进方式：
+当前数据库演进方式已经开始切换为：
 
-- 初始化脚本：`backend/scripts/init_db.py`
-- 运行时补列 / 删列：`backend/app/core/schema_sync.py`
+- 正式迁移基线：`backend/alembic/`
+- 迁移入口脚本：`backend/scripts/migrate_db.py`
+- 初始化入口：`backend/scripts/init_db.py`
 
-目前还没有正式迁移框架（如 Alembic），所以改模型时要特别注意：
+运行时 `backend/app/core/schema_sync.py` 目前仍保留为过渡期兜底，但不再作为长期正式迁移方案。
+对已有历史库的正式接管应优先通过 `backend/scripts/migrate_db.py` 完成；`bootstrap` 会先标记 Alembic 基线，再补跑后续 revisions，避免把缺失迁移直接“盖过去”。
 
-- 现有数据库如何升级
-- `schema_sync.py` 是否需要同步处理
+推荐命令：
+
+```powershell
+cd backend
+set PYTHONPATH=.
+.\.venv\Scripts\python.exe scripts\migrate_db.py bootstrap
+```
+
+迁移规划、顺序、回退与第一阶段拟新增表/字段说明见：
+
+- `docs/phase1-database-migrations.md`
 
 ## 真实数据导入
 

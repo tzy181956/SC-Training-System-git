@@ -1,5 +1,11 @@
 import client from './client'
 
+type DangerousActionPayload = {
+  confirmed: true
+  actor_name?: string | null
+  confirmation_text?: string | null
+}
+
 export async function fetchTags() {
   const { data } = await client.get('/tags')
   return data
@@ -40,6 +46,6 @@ export async function updateExercise(id: number, payload: Record<string, unknown
   return data
 }
 
-export async function deleteExercise(id: number) {
-  await client.delete(`/exercises/${id}`)
+export async function deleteExercise(id: number, payload: DangerousActionPayload) {
+  await client.delete(`/exercises/${id}`, { data: payload })
 }

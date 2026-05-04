@@ -14,12 +14,20 @@ class TrainingSession(BaseModel):
     assignment_id: Mapped[int] = mapped_column(ForeignKey("athlete_plan_assignments.id"), nullable=False)
     template_id: Mapped[int] = mapped_column(ForeignKey("training_plan_templates.id"), nullable=False)
     session_date: Mapped[date] = mapped_column(Date, nullable=False)
-    status: Mapped[str] = mapped_column(String(30), default="in_progress", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="not_started", nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    session_duration_minutes: Mapped[int | None] = mapped_column(Integer)
+    session_srpe_load: Mapped[int | None] = mapped_column(Integer)
+    load_metrics_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     coach_note: Mapped[str | None] = mapped_column(Text)
     athlete_note: Mapped[str | None] = mapped_column(Text)
+    session_rpe: Mapped[int | None] = mapped_column(Integer)
+    session_feedback: Mapped[str | None] = mapped_column(Text)
 
+    athlete = relationship("Athlete")
+    assignment = relationship("AthletePlanAssignment")
+    template = relationship("TrainingPlanTemplate")
     items = relationship(
         "TrainingSessionItem",
         back_populates="session",
@@ -44,6 +52,7 @@ class TrainingSessionItem(BaseModel):
     status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
 
     session = relationship("TrainingSession", back_populates="items")
+    template_item = relationship("TrainingPlanTemplateItem")
     exercise = relationship("Exercise")
     records = relationship(
         "SetRecord",

@@ -2,6 +2,7 @@
 import { computed, reactive, watch } from 'vue'
 
 import type { ExerciseCategoryNode, ExerciseLibraryItem } from '@/types/exerciseLibrary'
+import { confirmDangerousAction } from '@/utils/dangerousAction'
 import {
   EXERCISE_DETAIL_FACETS,
   EXERCISE_TAG_FACETS,
@@ -137,7 +138,15 @@ function handleSubmit() {
 
 function handleDelete() {
   if (!props.modelValue?.id) return
-  if (!window.confirm(`确定删除动作“${props.modelValue.name}”吗？此操作不可撤销。`)) return
+  const confirmed = confirmDangerousAction({
+    title: '删除动作',
+    impactLines: [
+      `动作名称：${props.modelValue.name}`,
+      `来源：${props.modelValue.source_type === 'exos_excel' ? 'Excel 导入动作' : '自定义动作'}`,
+      `分类：${props.modelValue.category_path || '未分类'}`,
+    ],
+  })
+  if (!confirmed) return
   emit('remove', props.modelValue.id)
 }
 </script>

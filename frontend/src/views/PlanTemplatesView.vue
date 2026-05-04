@@ -57,7 +57,7 @@ async function saveTemplate(payload: Record<string, any>) {
   if (selectedTemplate.value?.id) {
     await updatePlanTemplate(selectedTemplate.value.id, templatePayload)
     for (const itemId of removedItemIds) {
-      await deletePlanTemplateItem(itemId)
+      await deletePlanTemplateItem(itemId, { confirmed: true, actor_name: '管理端' })
     }
     for (const item of itemsPayload) {
       const normalized = { ...item }
@@ -88,7 +88,7 @@ async function saveTemplate(payload: Record<string, any>) {
 }
 
 async function removeTemplate(templateId: number) {
-  await deletePlanTemplate(templateId)
+  await deletePlanTemplate(templateId, { confirmed: true, actor_name: '管理端' })
   selectedTemplateId.value = null
   await hydrate()
 }

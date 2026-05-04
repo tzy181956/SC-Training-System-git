@@ -5,7 +5,7 @@ const props = defineProps<{
   item: any | null
   suggestion?: any | null
   onSubmitCurrentSet?: ((payload: Record<string, unknown>) => Promise<any>) | null
-  onUpdateRecord?: ((recordId: number, payload: Record<string, unknown>) => Promise<void>) | null
+  onUpdateRecord?: ((recordId: number, payload: Record<string, unknown>) => Promise<any>) | null
 }>()
 
 const currentDraft = reactive({
@@ -17,6 +17,7 @@ const currentDraftDirty = ref(false)
 const currentSetSaving = ref(false)
 const currentSetError = ref('')
 const currentSetFeedback = ref('')
+const RIR_OPTIONS = [0, 1, 2, 3, 4] as const
 
 const savingRecordId = ref<number | null>(null)
 const recordError = ref('')
@@ -25,6 +26,11 @@ const recordDrafts = reactive<Record<number, { weight: string; reps: string; rir
 const isCompleted = computed(() => {
   if (!props.item) return false
   return props.item.status === 'completed' || (props.item.records?.length || 0) >= props.item.prescribed_sets
+})
+
+const latestRecord = computed(() => {
+  const records = props.item?.records || []
+  return records.length ? records[records.length - 1] : null
 })
 
 const currentSetNumber = computed(() => Math.min((props.item?.records?.length || 0) + 1, props.item?.prescribed_sets || 1))
@@ -36,13 +42,27 @@ const currentSetButtonLabel = computed(() => {
 })
 
 watch(
-  () => [props.item?.id, props.item?.records?.length, props.item?.initial_load, props.item?.prescribed_reps, props.suggestion?.suggestion_weight],
-  () => {
+  () => ({
+    itemId: props.item?.id ?? null,
+    recordCount: props.item?.records?.length ?? 0,
+    initialLoad: props.item?.initial_load ?? null,
+    prescribedReps: props.item?.prescribed_reps ?? null,
+    latestRecordId: latestRecord.value?.id ?? null,
+    latestWeight: latestRecord.value?.actual_weight ?? latestRecord.value?.final_weight ?? null,
+    latestReps: latestRecord.value?.actual_reps ?? null,
+    latestRir: latestRecord.value?.actual_rir ?? null,
+  }),
+  (nextState, previousState) => {
     if (!props.item) return
-    const nextWeight = props.suggestion?.suggestion_weight ?? props.item.initial_load
-    currentDraft.weight = nextWeight === null || nextWeight === undefined ? '' : formatWeight(nextWeight)
-    currentDraft.reps = String(props.item.prescribed_reps || 5)
-    currentDraft.rir = '2'
+
+    const itemChanged = nextState.itemId !== previousState?.itemId
+    const recordCountChanged = nextState.recordCount !== previousState?.recordCount
+
+    if (!itemChanged && !recordCountChanged && currentDraftDirty.value) {
+      return
+    }
+
+    applyCurrentDraftDefaults()
     currentDraftDirty.value = false
     currentSetError.value = ''
     currentSetFeedback.value = ''
@@ -78,6 +98,23 @@ function formatWeight(value: number) {
   return Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(1)
 }
 
+function applyCurrentDraftDefaults() {
+  if (!props.item) return
+
+  if (latestRecord.value) {
+    const inheritedWeight = latestRecord.value.actual_weight ?? latestRecord.value.final_weight
+    currentDraft.weight = inheritedWeight === null || inheritedWeight === undefined ? '' : formatWeight(inheritedWeight)
+    currentDraft.reps = String(latestRecord.value.actual_reps ?? props.item.prescribed_reps ?? 5)
+    currentDraft.rir = String(latestRecord.value.actual_rir ?? 2)
+    return
+  }
+
+  currentDraft.weight =
+    props.item.initial_load === null || props.item.initial_load === undefined ? '' : formatWeight(props.item.initial_load)
+  currentDraft.reps = String(props.item.prescribed_reps || 5)
+  currentDraft.rir = '2'
+}
+
 function onCurrentInput() {
   currentDraftDirty.value = true
   currentSetFeedback.value = ''
@@ -95,22 +132,23 @@ function bumpWeight(step: number) {
   currentSetFeedback.value = ''
 }
 
-function bumpCurrentField(field: 'reps' | 'rir', step: number) {
+function bumpCurrentField(field: 'reps', step: number) {
   if (field === 'reps') {
     const base = Number(currentDraft.reps || 0)
     currentDraft.reps = String(Math.max(1, Math.round(base + step)))
-  }
-
-  if (field === 'rir') {
-    const base = Number(currentDraft.rir || 0)
-    currentDraft.rir = String(Math.max(0, Math.min(4, Math.round(base + step))))
   }
 
   currentDraftDirty.value = true
   currentSetFeedback.value = ''
 }
 
-function bumpRecordField(recordId: number, field: 'weight' | 'reps' | 'rir', step: number) {
+function setCurrentRirValue(value: number) {
+  currentDraft.rir = String(Math.max(0, Math.min(4, Math.round(value))))
+  currentDraftDirty.value = true
+  currentSetFeedback.value = ''
+}
+
+function bumpRecordField(recordId: number, field: 'weight' | 'reps', step: number) {
   const draft = recordDrafts[recordId]
   if (!draft) return
 
@@ -124,11 +162,13 @@ function bumpRecordField(recordId: number, field: 'weight' | 'reps' | 'rir', ste
     draft.reps = String(Math.max(1, Math.round(base + step)))
   }
 
-  if (field === 'rir') {
-    const base = Number(draft.rir || 0)
-    draft.rir = String(Math.max(0, Math.min(4, Math.round(base + step))))
-  }
+  draft.dirty = true
+}
 
+function setRecordRirValue(recordId: number, value: number) {
+  const draft = recordDrafts[recordId]
+  if (!draft) return
+  draft.rir = String(Math.max(0, Math.min(4, Math.round(value))))
   draft.dirty = true
 }
 
@@ -173,9 +213,13 @@ async function saveCurrentSet() {
     const response = await props.onSubmitCurrentSet(result.payload)
     currentDraftDirty.value = false
     currentSetFeedback.value =
-      response?.item?.status === 'completed'
-        ? '已保存，当前动作已完成。'
-        : `已保存，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
+      response?.local_only
+        ? response?.item?.status === 'completed'
+          ? '已保存到本机，后台会继续补传，当前动作已完成。'
+          : `已保存到本机，后台会继续补传，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
+        : response?.item?.status === 'completed'
+          ? '已保存，当前动作已完成。'
+          : `已保存，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
   } catch {
     currentSetError.value = '当前组保存失败，请重试。'
     currentSetFeedback.value = ''
@@ -290,9 +334,17 @@ function resetRecordDraft(record: any) {
           <label class="field">
             <span>RIR</span>
             <input v-model="currentDraft.rir" class="text-input current-input" type="number" step="1" min="0" max="4" @input="onCurrentInput" />
-            <div class="step-row step-row-compact">
-              <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('rir', -1)">-1</button>
-              <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('rir', 1)">+1</button>
+            <div class="step-row rir-step-row">
+              <button
+                v-for="rirValue in RIR_OPTIONS"
+                :key="`current-rir-${rirValue}`"
+                class="secondary-btn touch-btn step-btn rir-btn"
+                :class="{ active: currentDraft.rir === String(rirValue) }"
+                type="button"
+                @click="setCurrentRirValue(rirValue)"
+              >
+                {{ rirValue === 4 ? '4+' : rirValue }}
+              </button>
             </div>
           </label>
         </div>
@@ -378,9 +430,17 @@ function resetRecordDraft(record: any) {
                   inputmode="numeric"
                   @input="onRecordInput(record.id)"
                 />
-                <div class="step-row step-row-compact">
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'rir', -1)">-1</button>
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'rir', 1)">+1</button>
+                <div class="step-row rir-step-row">
+                  <button
+                    v-for="rirValue in RIR_OPTIONS"
+                    :key="`history-rir-${record.id}-${rirValue}`"
+                    class="secondary-btn touch-btn history-step-btn rir-btn"
+                    :class="{ active: recordDrafts[record.id].rir === String(rirValue) }"
+                    type="button"
+                    @click="setRecordRirValue(record.id, rirValue)"
+                  >
+                    {{ rirValue === 4 ? '4+' : rirValue }}
+                  </button>
                 </div>
               </label>
             </div>
@@ -517,9 +577,27 @@ span {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.rir-step-row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .step-btn,
 .history-step-btn {
   min-height: 48px;
+}
+
+.rir-btn {
+  min-height: 38px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.rir-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: transparent;
 }
 
 .set-label {
@@ -536,7 +614,54 @@ span {
   font-size: 13px;
 }
 
-@media (max-width: 768px) {
+@media (min-width: 768px) and (max-width: 1199px) {
+  .touch-panel {
+    gap: 12px;
+  }
+
+  .current-input,
+  .history-input {
+    min-height: 48px;
+    padding: 0 12px;
+    font-size: 16px;
+  }
+
+  .touch-btn {
+    min-height: 44px;
+    border-radius: 12px;
+  }
+
+  .confirm-btn {
+    min-height: 48px;
+  }
+
+  .suggestion-card,
+  .history-block {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .history-row {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .history-stack {
+    gap: 10px;
+  }
+
+  .step-row {
+    gap: 6px;
+  }
+
+  .rir-btn {
+    min-height: 34px;
+    border-radius: 9px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 767px) {
   .step-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

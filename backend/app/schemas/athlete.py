@@ -50,13 +50,14 @@ class AthleteBase(BaseModel):
 
 
 class AthleteCreate(AthleteBase):
-    pass
+    code: str | None = None
 
 
 class AthleteUpdate(BaseModel):
     user_id: int | None = None
     sport_id: int | None = None
     team_id: int | None = None
+    code: str | None = None
     full_name: str | None = None
     gender: str | None = None
     position: str | None = None
@@ -71,5 +72,6 @@ class AthleteUpdate(BaseModel):
 
 class AthleteRead(ORMModel, AthleteBase):
     id: int
+    code: str
     sport: SportRead | None = None
     team: TeamRead | None = None

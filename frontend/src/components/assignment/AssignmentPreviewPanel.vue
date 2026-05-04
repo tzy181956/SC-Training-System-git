@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { formatRepeatWeekdays } from '@/constants/repeatWeekdays'
+
 const props = defineProps<{
   preview: any | null
   selectedTemplate: any | null
@@ -91,6 +93,7 @@ function formatNumber(value: number) {
       </div>
       <div v-if="displayTemplate" class="meta">
         <span v-if="preview">{{ preview.start_date }} 至 {{ preview.end_date }}</span>
+        <span v-if="preview">{{ formatRepeatWeekdays(preview.repeat_weekdays) }}</span>
         <span v-else>已加载模板内容</span>
         <strong>{{ displayTemplate.name }}</strong>
       </div>
@@ -98,7 +101,7 @@ function formatNumber(value: number) {
 
     <div v-if="!displayTemplate" class="empty-state">
       <h4>请先选择训练模板</h4>
-      <p>模板一经选中，这里就会先显示模板内容；选择队员和时间范围后，会继续显示完整分配预览。</p>
+      <p>模板一经选中，这里就会先显示模板内容；选择队员、时间范围和循环星期后，会继续显示完整分配预览。</p>
     </div>
 
     <div v-else class="preview-body">
@@ -142,10 +145,10 @@ function formatNumber(value: number) {
         <div class="card-head">
           <div>
             <p class="eyebrow">下一步</p>
-            <h4>继续选择队员和时间范围</h4>
+            <h4>继续选择队员、时间范围和循环星期</h4>
           </div>
         </div>
-        <p class="muted">当前先展示模板内容。选择队员和时间范围后，这里会继续显示分配对象与异常提示。</p>
+        <p class="muted">当前先展示模板内容。选择队员、时间范围和循环星期后，这里会继续显示分配对象与异常提示。</p>
       </article>
 
       <article v-if="hasGeneratedPreview && missingBasisGroups.length" class="preview-card warning-panel">

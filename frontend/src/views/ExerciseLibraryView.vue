@@ -86,7 +86,7 @@ async function handleSave(payload: Record<string, unknown>) {
 
 async function handleDelete(exerciseId: number) {
   try {
-    await deleteExercise(exerciseId)
+    await deleteExercise(exerciseId, { confirmed: true, actor_name: '管理端' })
     await hydrate()
   } catch (error: any) {
     const detail = error?.response?.data?.detail

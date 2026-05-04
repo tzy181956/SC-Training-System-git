@@ -29,6 +29,7 @@ from app.models import (
     TrainingSession,
     TrainingSessionItem,
 )
+from app.services import backup_service, dangerous_operation_service
 from safety_utils import require_destructive_confirmation
 
 
@@ -200,10 +201,13 @@ def build_or_update_athlete(db, team: Team, row_map: dict[str, object]) -> Athle
     if athlete:
         for key, value in payload.items():
             setattr(athlete, key, value)
+        if not getattr(athlete, "code", None):
+            athlete.code = f"ATH-{athlete.id:06d}"
     else:
-        athlete = Athlete(**payload)
+        athlete = Athlete(code=f"TMP-IMPORT-{full_name}", **payload)
         db.add(athlete)
         db.flush()
+        athlete.code = f"ATH-{athlete.id:06d}"
     return athlete
 
 
@@ -306,8 +310,52 @@ def main() -> None:
             "组记录",
         ],
     )
+    backup_result = backup_service.create_pre_dangerous_operation_backup(label="real_data_reimport")
+    if backup_result.backup_path:
+        print(f"[BACKUP] Backup created before destructive import: {backup_result.backup_path}")
     with SessionLocal() as db:
-        import_workbook(db, source_xlsx)
+        try:
+            import_workbook(db, source_xlsx)
+            dangerous_operation_service.log_dangerous_operation(
+                db,
+                operation_key="clear_and_reimport_real_test_data",
+                object_type="business_data",
+                actor_name="系统脚本",
+                source="script",
+                confirmation_phrase=CONFIRMATION_PHRASE,
+                summary="清空业务数据并重导真实运动员/测试数据",
+                impact_scope={
+                    "source_xlsx": str(source_xlsx),
+                    "target_date": TARGET_DATE.isoformat(),
+                    "cleared_tables": [
+                        "athletes",
+                        "test_records",
+                        "athlete_plan_assignments",
+                        "training_sessions",
+                        "training_session_items",
+                        "set_records",
+                    ],
+                },
+                backup_path=backup_result.backup_path,
+            )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            dangerous_operation_service.log_dangerous_operation(
+                db,
+                operation_key="clear_and_reimport_real_test_data",
+                object_type="business_data",
+                actor_name="系统脚本",
+                source="script",
+                status="failed",
+                confirmation_phrase=CONFIRMATION_PHRASE,
+                summary="清空业务数据并重导真实运动员/测试数据失败",
+                impact_scope={"source_xlsx": str(source_xlsx), "target_date": TARGET_DATE.isoformat()},
+                backup_path=backup_result.backup_path,
+                extra_data={"error": str(exc)},
+            )
+            db.commit()
+            raise
     print("Real athlete and test data imported.")
 
 

@@ -10,6 +10,7 @@ class Athlete(BaseModel, ActiveMixin):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     sport_id: Mapped[int | None] = mapped_column(ForeignKey("sports.id"))
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     gender: Mapped[str | None] = mapped_column(String(20))
     position: Mapped[str | None] = mapped_column(String(100))

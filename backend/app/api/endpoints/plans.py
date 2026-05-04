@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.schemas.dangerous_action import DangerousActionConfirm
 from app.schemas.training_plan import PlanTemplateCreate, PlanTemplateItemCreate, PlanTemplateItemRead, PlanTemplateItemUpdate, PlanTemplateRead, PlanTemplateUpdate
-from app.services import plan_service
+from app.services import dangerous_operation_service, plan_service
 
 
 router = APIRouter(prefix="/plan-templates", tags=["plan-templates"])
@@ -41,12 +42,24 @@ def update_item(item_id: int, payload: PlanTemplateItemUpdate, db: Session = Dep
 
 
 @router.delete("/items/{item_id}", response_model=dict[str, str])
-def delete_item(item_id: int, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
-    plan_service.delete_template_item(db, item_id)
+def delete_item(
+    item_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="删除模板动作")
+    plan_service.delete_template_item(db, item_id, actor_name=payload.actor_name)
     return {"message": "deleted"}
 
 
 @router.delete("/{template_id}", response_model=dict[str, str])
-def delete_template(template_id: int, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
-    plan_service.delete_template(db, template_id)
+def delete_template(
+    template_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="删除训练模板")
+    plan_service.delete_template(db, template_id, actor_name=payload.actor_name)
     return {"message": "deleted"}
