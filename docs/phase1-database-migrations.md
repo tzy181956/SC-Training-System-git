@@ -105,17 +105,23 @@
 1. 迁移脚本先自动备份当前数据库
 2. 检测到已有业务表但还没有 `alembic_version`
 3. 不执行基线建表 SQL
-4. 直接执行：
+4. 先执行：
 
 ```text
-alembic stamp head
+alembic stamp c318e7988c37
+```
+
+5. 再执行：
+
+```text
+alembic upgrade head
 ```
 
 意义：
 
-- 把当前库标记为“已处于基线版本”
-- 不重复建表
-- 从此之后再追加 revision 时，就能正式 `upgrade`
+- 先把当前库标记为“已接入 Alembic 基线”
+- 再按正式 revision 顺序补齐后续结构
+- 即使部分字段或表曾被 `schema_sync.py` 兜底创建，后续 migration 也应保持幂等兼容
 
 ## 4.2 新数据库（还没有业务表）
 
@@ -149,7 +155,7 @@ set PYTHONPATH=.
 行为：
 
 - 自动备份数据库
-- 如果当前库已有业务表但没有版本表：`stamp head`
+- 如果当前库已有业务表但没有版本表：先 `stamp` 基线，再 `upgrade head`
 - 如果当前库是空库：`upgrade head`
 
 ## 5.2 查看当前 revision
@@ -452,10 +458,11 @@ training_session_change_logs
 
 ## 9.1 当前基线接管的回退
 
-如果 `bootstrap` 是对现有数据库执行 `stamp head`：
+如果 `bootstrap` 是对现有数据库执行“先 `stamp` 基线，再 `upgrade head`”：
 
-- 数据库结构本身不会被改写
-- 主要变化是新增 `alembic_version`
+- 会新增 `alembic_version`
+- 也可能继续补跑基线之后尚未正式落库的 revision
+- 因此回退仍应优先依赖迁移前备份，而不是假设“只是打了一个版本标记”
 
 回退方式：
 
@@ -498,6 +505,12 @@ training_session_change_logs
 
 `schema_sync.py` 现在仍可作为过渡期防线存在，  
 但它不应继续承担“长期正式迁移机制”的职责。
+
+只要它还存在，后续新增 migration 就必须默认考虑：
+
+- 历史数据库可能已经被 `schema_sync.py` 补过字段或表
+- migration 需要先检查表/字段/索引是否已存在，再决定是否执行 DDL
+- 旧库接管不能再靠 `stamp head` 直接掩盖结构缺口
 
 后续任何新字段、新表、新状态结构：
 

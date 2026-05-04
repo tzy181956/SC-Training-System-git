@@ -19,35 +19,56 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "training_sync_conflicts",
-        sa.Column("athlete_id", sa.Integer(), nullable=False),
-        sa.Column("assignment_id", sa.Integer(), nullable=True),
-        sa.Column("session_id", sa.Integer(), nullable=True),
-        sa.Column("session_date", sa.Date(), nullable=False),
-        sa.Column("trigger_reason", sa.String(length=20), nullable=False),
-        sa.Column("conflict_type", sa.String(length=50), nullable=False),
-        sa.Column("summary", sa.Text(), nullable=False),
-        sa.Column("local_snapshot", sa.JSON(), nullable=True),
-        sa.Column("remote_snapshot", sa.JSON(), nullable=True),
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
-        sa.ForeignKeyConstraint(["assignment_id"], ["athlete_plan_assignments.id"]),
-        sa.ForeignKeyConstraint(["athlete_id"], ["athletes.id"]),
-        sa.ForeignKeyConstraint(["session_id"], ["training_sessions.id"]),
-        sa.PrimaryKeyConstraint("id"),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "training_sync_conflicts" not in set(inspector.get_table_names()):
+        op.create_table(
+            "training_sync_conflicts",
+            sa.Column("athlete_id", sa.Integer(), nullable=False),
+            sa.Column("assignment_id", sa.Integer(), nullable=True),
+            sa.Column("session_id", sa.Integer(), nullable=True),
+            sa.Column("session_date", sa.Date(), nullable=False),
+            sa.Column("trigger_reason", sa.String(length=20), nullable=False),
+            sa.Column("conflict_type", sa.String(length=50), nullable=False),
+            sa.Column("summary", sa.Text(), nullable=False),
+            sa.Column("local_snapshot", sa.JSON(), nullable=True),
+            sa.Column("remote_snapshot", sa.JSON(), nullable=True),
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
+            sa.ForeignKeyConstraint(["assignment_id"], ["athlete_plan_assignments.id"]),
+            sa.ForeignKeyConstraint(["athlete_id"], ["athletes.id"]),
+            sa.ForeignKeyConstraint(["session_id"], ["training_sessions.id"]),
+            sa.PrimaryKeyConstraint("id"),
+        )
+
+    existing_indexes = {
+        index["name"] for index in sa.inspect(bind).get_indexes("training_sync_conflicts")
+    }
     with op.batch_alter_table("training_sync_conflicts", schema=None) as batch_op:
-        batch_op.create_index(batch_op.f("ix_training_sync_conflicts_athlete_id"), ["athlete_id"], unique=False)
-        batch_op.create_index(batch_op.f("ix_training_sync_conflicts_id"), ["id"], unique=False)
-        batch_op.create_index(batch_op.f("ix_training_sync_conflicts_session_date"), ["session_date"], unique=False)
+        if batch_op.f("ix_training_sync_conflicts_athlete_id") not in existing_indexes:
+            batch_op.create_index(batch_op.f("ix_training_sync_conflicts_athlete_id"), ["athlete_id"], unique=False)
+        if batch_op.f("ix_training_sync_conflicts_id") not in existing_indexes:
+            batch_op.create_index(batch_op.f("ix_training_sync_conflicts_id"), ["id"], unique=False)
+        if batch_op.f("ix_training_sync_conflicts_session_date") not in existing_indexes:
+            batch_op.create_index(batch_op.f("ix_training_sync_conflicts_session_date"), ["session_date"], unique=False)
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "training_sync_conflicts" not in inspector.get_table_names():
+        return
+
+    existing_indexes = {
+        index["name"] for index in inspector.get_indexes("training_sync_conflicts")
+    }
     with op.batch_alter_table("training_sync_conflicts", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_training_sync_conflicts_session_date"))
-        batch_op.drop_index(batch_op.f("ix_training_sync_conflicts_id"))
-        batch_op.drop_index(batch_op.f("ix_training_sync_conflicts_athlete_id"))
+        if batch_op.f("ix_training_sync_conflicts_session_date") in existing_indexes:
+            batch_op.drop_index(batch_op.f("ix_training_sync_conflicts_session_date"))
+        if batch_op.f("ix_training_sync_conflicts_id") in existing_indexes:
+            batch_op.drop_index(batch_op.f("ix_training_sync_conflicts_id"))
+        if batch_op.f("ix_training_sync_conflicts_athlete_id") in existing_indexes:
+            batch_op.drop_index(batch_op.f("ix_training_sync_conflicts_athlete_id"))
 
     op.drop_table("training_sync_conflicts")

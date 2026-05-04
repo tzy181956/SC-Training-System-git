@@ -20,8 +20,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("athletes", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("code", sa.String(length=64), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    athlete_columns = {
+        column["name"]: column for column in inspector.get_columns("athletes")
+    }
+
+    if "code" not in athlete_columns:
+        with op.batch_alter_table("athletes", schema=None) as batch_op:
+            batch_op.add_column(sa.Column("code", sa.String(length=64), nullable=True))
+        athlete_columns = {
+            column["name"]: column for column in sa.inspect(bind).get_columns("athletes")
+        }
 
     op.execute(
         "UPDATE athletes "
@@ -29,12 +39,65 @@ def upgrade() -> None:
         "WHERE code IS NULL OR trim(code) = ''"
     )
 
-    with op.batch_alter_table("athletes", schema=None) as batch_op:
-        batch_op.alter_column("code", existing_type=sa.String(length=64), nullable=False)
-        batch_op.create_unique_constraint("uq_athletes_code", ["code"])
+    duplicate_code = bind.execute(
+        sa.text(
+            """
+            SELECT code
+            FROM athletes
+            WHERE code IS NOT NULL AND trim(code) <> ''
+            GROUP BY code
+            HAVING COUNT(*) > 1
+            LIMIT 1
+            """
+        )
+    ).scalar()
+    if duplicate_code is not None:
+        raise RuntimeError(
+            f"Cannot finalize athlete code migration because duplicate code exists: {duplicate_code}"
+        )
+
+    code_column = athlete_columns["code"]
+    if code_column.get("nullable", True):
+        with op.batch_alter_table("athletes", schema=None) as batch_op:
+            batch_op.alter_column("code", existing_type=sa.String(length=64), nullable=False)
+
+    if not _has_unique_code(sa.inspect(bind)):
+        op.create_index("ix_athletes_code_unique", "athletes", ["code"], unique=True)
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    athlete_columns = {
+        column["name"] for column in inspector.get_columns("athletes")
+    }
+    athlete_indexes = {
+        index["name"] for index in inspector.get_indexes("athletes")
+    }
+    athlete_unique_constraints = {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("athletes")
+        if constraint.get("name")
+    }
+
+    if "code" not in athlete_columns:
+        return
+
     with op.batch_alter_table("athletes", schema=None) as batch_op:
-        batch_op.drop_constraint("uq_athletes_code", type_="unique")
+        if "uq_athletes_code" in athlete_unique_constraints:
+            batch_op.drop_constraint("uq_athletes_code", type_="unique")
+        if "ix_athletes_code_unique" in athlete_indexes:
+            batch_op.drop_index("ix_athletes_code_unique")
         batch_op.drop_column("code")
+
+
+def _has_unique_code(inspector: sa.Inspector) -> bool:
+    for index in inspector.get_indexes("athletes"):
+        if index.get("unique") and index.get("column_names") == ["code"]:
+            return True
+
+    for constraint in inspector.get_unique_constraints("athletes"):
+        if constraint.get("column_names") == ["code"]:
+            return True
+
+    return False

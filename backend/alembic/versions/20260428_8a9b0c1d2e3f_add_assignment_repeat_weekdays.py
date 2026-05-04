@@ -19,8 +19,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("athlete_plan_assignments", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("repeat_weekdays", sa.JSON(), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("athlete_plan_assignments")
+    }
+
+    if "repeat_weekdays" not in existing_columns:
+        with op.batch_alter_table("athlete_plan_assignments", schema=None) as batch_op:
+            batch_op.add_column(sa.Column("repeat_weekdays", sa.JSON(), nullable=True))
 
     op.execute(
         "UPDATE athlete_plan_assignments "
@@ -30,5 +37,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("athlete_plan_assignments", schema=None) as batch_op:
-        batch_op.drop_column("repeat_weekdays")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("athlete_plan_assignments")
+    }
+
+    if "repeat_weekdays" in existing_columns:
+        with op.batch_alter_table("athlete_plan_assignments", schema=None) as batch_op:
+            batch_op.drop_column("repeat_weekdays")

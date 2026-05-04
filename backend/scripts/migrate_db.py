@@ -68,6 +68,15 @@ def _get_head_revision() -> str:
     return script.get_current_head()
 
 
+def _get_base_revision() -> str:
+    config = Config(str(ALEMBIC_INI))
+    script = ScriptDirectory.from_config(config)
+    bases = script.get_bases()
+    if len(bases) != 1:
+        raise RuntimeError(f"Expected exactly one alembic base revision, got: {bases}")
+    return bases[0]
+
+
 def bootstrap_database() -> None:
     settings = get_settings()
     db_path = _require_sqlite_path(settings.database_url)
@@ -85,8 +94,10 @@ def bootstrap_database() -> None:
         return
 
     if has_schema:
-        print("[MIGRATION] Existing application schema detected without alembic_version. Stamping current head for compatibility.")
-        _run_alembic("stamp", "head")
+        base_revision = _get_base_revision()
+        print("[MIGRATION] Existing application schema detected without alembic_version. Stamping baseline then upgrading head for compatibility.")
+        _run_alembic("stamp", base_revision)
+        _run_alembic("upgrade", "head")
         return
 
     print("[MIGRATION] No existing schema detected. Running upgrade head.")
