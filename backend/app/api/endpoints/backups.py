@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
 
 from app.api.deps import require_roles
-from app.schemas.backup_restore import BackupListRead, BackupRestorePayload, BackupRestoreRead, BackupItemRead, RestoreScopeRead
+from app.models import User
+from app.schemas.backup_restore import BackupItemRead, BackupListRead, BackupRestorePayload, BackupRestoreRead, RestoreScopeRead
 from app.services import backup_service, dangerous_operation_service
 
 
@@ -9,7 +10,8 @@ router = APIRouter(prefix="/backups", tags=["backups"])
 
 
 @router.get("", response_model=BackupListRead)
-def list_backups(_=Depends(require_roles("coach"))):
+def list_backups(current_user: User = Depends(require_roles("admin"))):
+    _ = current_user
     policy = backup_service.describe_backup_policy()
     items = backup_service.list_backup_catalog()
     scopes = backup_service.list_restore_scopes()
@@ -48,7 +50,10 @@ def list_backups(_=Depends(require_roles("coach"))):
 
 
 @router.post("/restore", response_model=BackupRestoreRead)
-def restore_backup(payload: BackupRestorePayload, _=Depends(require_roles("coach"))):
+def restore_backup(
+    payload: BackupRestorePayload,
+    current_user: User = Depends(require_roles("admin")),
+):
     dangerous_operation_service.require_confirmation(
         payload,
         action_label="恢复备份",
@@ -57,7 +62,7 @@ def restore_backup(payload: BackupRestorePayload, _=Depends(require_roles("coach
     result = backup_service.restore_backup(
         backup_filename=payload.backup_filename,
         restore_scope_key=payload.restore_scope,
-        actor_name=payload.actor_name,
+        actor_name=payload.actor_name or current_user.display_name,
     )
     return BackupRestoreRead(
         backup_filename=result.backup_record.filename,

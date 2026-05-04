@@ -93,8 +93,8 @@ def _validate_window(
             raise bad_request("该队员已存在相同模板、时间段和循环星期的有效计划，请勿重复分配。")
 
 
-def list_assignments(db: Session) -> list[AthletePlanAssignment]:
-    return (
+def list_assignments(db: Session, team_id: int | None = None) -> list[AthletePlanAssignment]:
+    query = (
         db.query(AthletePlanAssignment)
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
@@ -102,9 +102,10 @@ def list_assignments(db: Session) -> list[AthletePlanAssignment]:
             joinedload(AthletePlanAssignment.template).joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
             joinedload(AthletePlanAssignment.overrides),
         )
-        .order_by(AthletePlanAssignment.start_date.desc(), AthletePlanAssignment.id.desc())
-        .all()
     )
+    if team_id is not None:
+        query = query.join(Athlete, Athlete.id == AthletePlanAssignment.athlete_id).filter(Athlete.team_id == team_id)
+    return query.order_by(AthletePlanAssignment.start_date.desc(), AthletePlanAssignment.id.desc()).all()
 
 
 def get_assignment(db: Session, assignment_id: int) -> AthletePlanAssignment:
@@ -322,8 +323,8 @@ def cancel_batch_assignments(db: Session, payload: BatchAssignmentCancel) -> lis
     return [get_assignment(db, assignment.id) for assignment in assignments]
 
 
-def assignment_overview(db: Session, target_date: date) -> dict:
-    assignments = (
+def assignment_overview(db: Session, target_date: date, team_id: int | None = None) -> dict:
+    query = (
         db.query(AthletePlanAssignment)
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
@@ -331,7 +332,11 @@ def assignment_overview(db: Session, target_date: date) -> dict:
             joinedload(AthletePlanAssignment.template).joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
             joinedload(AthletePlanAssignment.overrides),
         )
-        .filter(
+    )
+    if team_id is not None:
+        query = query.join(Athlete, Athlete.id == AthletePlanAssignment.athlete_id).filter(Athlete.team_id == team_id)
+    assignments = (
+        query.filter(
             AthletePlanAssignment.status == "active",
             AthletePlanAssignment.end_date >= target_date,
         )
@@ -389,7 +394,7 @@ def assignment_overview(db: Session, target_date: date) -> dict:
     assigned_ids = {assignment.athlete_id for assignment in assignments}
     unassigned = [
         athlete
-        for athlete in athlete_service.list_athletes(db)
+        for athlete in athlete_service.list_athletes(db, team_id=team_id)
         if athlete.is_active and athlete.id not in assigned_ids
     ]
     return {

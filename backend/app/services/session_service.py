@@ -56,9 +56,9 @@ def get_or_create_today_session(db: Session, athlete_id: int, session_date: date
     return open_session_for_assignment(db, assignment.id, session_date)
 
 
-def list_training_athletes(db: Session, session_date: date) -> list[Athlete]:
+def list_training_athletes(db: Session, session_date: date, team_id: int | None = None) -> list[Athlete]:
     close_due_sessions(db)
-    athletes = athlete_service.list_athletes(db)
+    athletes = athlete_service.list_athletes(db, team_id=team_id)
     athlete_ids = [athlete.id for athlete in athletes if athlete.is_active]
     status_map = _get_athlete_training_status_map(db, athlete_ids, session_date)
     assignments_by_athlete = _get_active_assignments_by_athlete(db, athlete_ids, session_date)

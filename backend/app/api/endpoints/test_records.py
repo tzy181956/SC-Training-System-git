@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.core.exceptions import not_found
-from app.models import TestRecord
+from app.models import TestRecord, User
 from app.schemas.dangerous_action import DeleteTestRecordsBatchPayload
 from app.schemas.test_record import TestRecordCreate, TestRecordImportRead, TestRecordRead, TestRecordUpdate
 from app.services import dangerous_operation_service, test_definition_service, test_record_service
@@ -22,7 +22,11 @@ router = APIRouter(prefix="/test-records", tags=["test-records"])
 
 
 @router.get("/template")
-def download_test_record_template(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+def download_test_record_template(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
     content = build_import_template_workbook(db)
     return StreamingResponse(
         BytesIO(content),
@@ -32,7 +36,12 @@ def download_test_record_template(db: Session = Depends(get_db), _=Depends(requi
 
 
 @router.post("/import", response_model=TestRecordImportRead)
-async def import_test_records(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+async def import_test_records(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
     if not file.filename:
         raise HTTPException(status_code=400, detail="未提供导入文件")
     if not file.filename.lower().endswith((".xlsx", ".xlsm")):
@@ -52,7 +61,11 @@ async def import_test_records(file: UploadFile = File(...), db: Session = Depend
 
 
 @router.get("/export")
-def export_test_record_library(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+def export_test_record_library(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
     content = build_test_record_library_workbook(db)
     return StreamingResponse(
         BytesIO(content),
@@ -62,12 +75,21 @@ def export_test_record_library(db: Session = Depends(get_db), _=Depends(require_
 
 
 @router.get("", response_model=list[TestRecordRead])
-def list_test_records(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+def list_test_records(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
     return db.query(TestRecord).options(joinedload(TestRecord.athlete)).order_by(TestRecord.test_date.desc()).all()
 
 
 @router.post("", response_model=TestRecordRead)
-def create_test_record(payload: TestRecordCreate, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+def create_test_record(
+    payload: TestRecordCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
     record = TestRecord(**payload.model_dump())
     db.add(record)
     test_definition_service.ensure_test_definition_for_record_snapshot(
@@ -82,7 +104,13 @@ def create_test_record(payload: TestRecordCreate, db: Session = Depends(get_db),
 
 
 @router.patch("/{record_id}", response_model=TestRecordRead)
-def update_test_record(record_id: int, payload: TestRecordUpdate, db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+def update_test_record(
+    record_id: int,
+    payload: TestRecordUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
     record = db.query(TestRecord).filter(TestRecord.id == record_id).first()
     if not record:
         raise not_found("Test record not found")
@@ -103,12 +131,12 @@ def update_test_record(record_id: int, payload: TestRecordUpdate, db: Session = 
 def delete_test_records_batch(
     payload: DeleteTestRecordsBatchPayload,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
     dangerous_operation_service.require_confirmation(payload, action_label="批量删除测试数据")
     deleted_count = test_record_service.delete_test_records_batch(
         db,
         payload.record_ids,
-        actor_name=payload.actor_name,
+        actor_name=payload.actor_name or current_user.display_name,
     )
     return {"deleted_count": deleted_count}

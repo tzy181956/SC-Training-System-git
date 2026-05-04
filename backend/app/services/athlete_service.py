@@ -37,8 +37,11 @@ def create_sport(db: Session, payload: SportCreate) -> Sport:
     return sport
 
 
-def list_teams(db: Session) -> list[Team]:
-    return db.query(Team).options(joinedload(Team.sport)).order_by(Team.name).all()
+def list_teams(db: Session, team_id: int | None = None) -> list[Team]:
+    query = db.query(Team).options(joinedload(Team.sport)).order_by(Team.name)
+    if team_id is not None:
+        query = query.filter(Team.id == team_id)
+    return query.all()
 
 
 def create_team(db: Session, payload: TeamCreate) -> Team:
@@ -62,8 +65,11 @@ def create_team(db: Session, payload: TeamCreate) -> Team:
     )
 
 
-def list_athletes(db: Session) -> list[Athlete]:
-    return db.query(Athlete).options(joinedload(Athlete.sport), joinedload(Athlete.team)).order_by(Athlete.full_name).all()
+def list_athletes(db: Session, team_id: int | None = None) -> list[Athlete]:
+    query = db.query(Athlete).options(joinedload(Athlete.sport), joinedload(Athlete.team)).order_by(Athlete.full_name)
+    if team_id is not None:
+        query = query.filter(Athlete.team_id == team_id)
+    return query.all()
 
 
 def create_athlete(db: Session, payload: AthleteCreate) -> Athlete:

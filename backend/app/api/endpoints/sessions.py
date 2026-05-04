@@ -5,25 +5,26 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.models import User
 from app.schemas.training_session import (
     SessionFinishFeedbackUpdate,
     SessionFullSyncPayload,
     SessionFullSyncResponse,
     SessionRead,
-    SessionSnapshotRead,
     SessionSetSyncOperation,
     SessionSetSyncResponse,
+    SessionSnapshotRead,
     SetRecordCreate,
     SetRecordUpdate,
     SetRecordUpdateResponse,
     SetSubmissionResponse,
+    TrainingAthleteRead,
+    TrainingModePlanListRead,
     TrainingSyncIssueRead,
     TrainingSyncIssueReportPayload,
     TrainingSyncIssueRetryResponse,
-    TrainingAthleteRead,
-    TrainingModePlanListRead,
 )
-from app.services import session_service, training_sync_service
+from app.services import access_control_service, session_service, training_sync_service
 
 
 router = APIRouter(prefix="/training", tags=["training"])
@@ -33,9 +34,11 @@ router = APIRouter(prefix="/training", tags=["training"])
 def list_training_athletes(
     session_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
-    return session_service.list_training_athletes(db, session_date or date.today())
+    target_date = session_date or date.today()
+    visible_team_id = access_control_service.resolve_visible_team_id(current_user)
+    return session_service.list_training_athletes(db, target_date, team_id=visible_team_id)
 
 
 @router.get("/plans", response_model=TrainingModePlanListRead)
@@ -43,8 +46,9 @@ def list_training_plans(
     athlete_id: int = Query(...),
     session_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_athlete(db, current_user, athlete_id)
     athlete, assignments = session_service.list_training_plans(db, athlete_id, session_date or date.today())
     return {"athlete": athlete, "session_date": session_date or date.today(), "assignments": assignments}
 
@@ -54,8 +58,9 @@ def open_plan_session(
     assignment_id: int,
     session_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_assignment(db, current_user, assignment_id)
     return session_service.open_session_for_assignment(db, assignment_id, session_date or date.today())
 
 
@@ -64,18 +69,30 @@ def get_today_session(
     athlete_id: int = Query(...),
     session_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_athlete(db, current_user, athlete_id)
     return session_service.get_or_create_today_session(db, athlete_id, session_date or date.today())
 
 
 @router.get("/sessions/{session_id}", response_model=SessionRead)
-def get_session(session_id: int, db: Session = Depends(get_db), _=Depends(require_roles("training", "coach"))):
+def get_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("training", "coach")),
+):
+    access_control_service.get_accessible_session(db, current_user, session_id)
     return session_service.get_session(db, session_id)
 
 
 @router.post("/session-items/{item_id}/sets", response_model=SetSubmissionResponse)
-def submit_set(item_id: int, payload: SetRecordCreate, db: Session = Depends(get_db), _=Depends(require_roles("training", "coach"))):
+def submit_set(
+    item_id: int,
+    payload: SetRecordCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("training", "coach")),
+):
+    access_control_service.get_accessible_session_item(db, current_user, item_id)
     record, next_suggestion, item, session = session_service.submit_set_record(db, item_id, payload)
     return {
         "record": record,
@@ -92,8 +109,9 @@ def update_set_record(
     record_id: int,
     payload: SetRecordUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_set_record(db, current_user, record_id)
     record, next_suggestion, item, session = session_service.update_set_record(db, record_id, payload)
     return {
         "record": record,
@@ -109,8 +127,22 @@ def update_set_record(
 def sync_session_operation(
     payload: SessionSetSyncOperation,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    if payload.operation_type == "update_set" and payload.record_id is not None:
+        access_control_service.get_accessible_set_record(db, current_user, payload.record_id)
+    elif payload.operation_type == "create_set":
+        access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
+        if payload.session_id is not None:
+            access_control_service.get_accessible_session(db, current_user, payload.session_id)
+        if payload.session_item_id is not None:
+            access_control_service.get_accessible_session_item(db, current_user, payload.session_item_id)
+    else:
+        if payload.session_id is not None:
+            access_control_service.get_accessible_session(db, current_user, payload.session_id)
+        else:
+            access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
+
     record, next_suggestion, item, session = session_service.sync_session_operation(db, payload)
     return {
         "record": record,
@@ -129,8 +161,12 @@ def sync_session_operation(
 def sync_session_snapshot(
     payload: SessionFullSyncPayload,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_athlete(db, current_user, payload.athlete_id)
+    access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
+    if payload.session_id is not None:
+        access_control_service.get_accessible_session(db, current_user, payload.session_id)
     session, conflict_logged = session_service.sync_session_snapshot(db, payload)
     return {
         "session": session,
@@ -149,11 +185,14 @@ def list_sync_issues(
     date_to: date | None = Query(default=None),
     issue_status: str = Query(default="manual_retry_required"),
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    if athlete_id is not None:
+        access_control_service.get_accessible_athlete(db, current_user, athlete_id)
     return training_sync_service.list_sync_issues(
         db,
         athlete_id=athlete_id,
+        team_id=access_control_service.resolve_visible_team_id(current_user),
         date_from=date_from,
         date_to=date_to,
         issue_status=issue_status,
@@ -164,8 +203,9 @@ def list_sync_issues(
 def report_sync_issue(
     payload: TrainingSyncIssueReportPayload,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_athlete(db, current_user, payload.athlete_id)
     return training_sync_service.report_sync_issue(db, payload)
 
 
@@ -173,8 +213,9 @@ def report_sync_issue(
 def resolve_sync_issue(
     issue_id: int,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_sync_issue(db, current_user, issue_id)
     return training_sync_service.resolve_sync_issue(db, issue_id)
 
 
@@ -182,8 +223,9 @@ def resolve_sync_issue(
 def retry_sync_issue(
     issue_id: int,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_sync_issue(db, current_user, issue_id)
     issue, session, conflict_logged = training_sync_service.retry_sync_issue(db, issue_id)
     return {
         "issue": issue,
@@ -197,20 +239,30 @@ def sync_session_set(
     session_id: int,
     payload: SessionSetSyncOperation,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
     payload.session_id = session_id
-    return sync_session_operation(payload, db, _)
+    return sync_session_operation(payload, db, current_user)
 
 
 @router.post("/session-items/{item_id}/complete", response_model=SessionRead)
-def complete_item(item_id: int, db: Session = Depends(get_db), _=Depends(require_roles("training", "coach"))):
+def complete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("training", "coach")),
+):
+    access_control_service.get_accessible_session_item(db, current_user, item_id)
     item = session_service.complete_session_item(db, item_id)
     return session_service.get_session(db, item.session_id)
 
 
 @router.post("/sessions/{session_id}/complete", response_model=SessionRead)
-def complete_session(session_id: int, db: Session = Depends(get_db), _=Depends(require_roles("training", "coach"))):
+def complete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("training", "coach")),
+):
+    access_control_service.get_accessible_session(db, current_user, session_id)
     return session_service.complete_session(db, session_id)
 
 
@@ -219,6 +271,7 @@ def submit_session_finish_feedback(
     session_id: int,
     payload: SessionFinishFeedbackUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("training", "coach")),
 ):
+    access_control_service.get_accessible_session(db, current_user, session_id)
     return session_service.submit_session_finish_feedback(db, session_id, payload)

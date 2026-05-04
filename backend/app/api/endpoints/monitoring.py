@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.models import User
 from app.schemas.monitoring import MonitoringAthleteDetailRead, MonitoringTodayRead
-from app.services import monitoring_service
+from app.services import access_control_service, monitoring_service
 
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
@@ -18,13 +19,14 @@ def get_monitoring_today(
     team_id: int | None = Query(default=None),
     include_unassigned: bool = Query(default=True),
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("coach")),
 ):
+    resolved_team_id = access_control_service.resolve_visible_team_id(current_user, team_id)
     return monitoring_service.get_today_monitoring(
         db,
         session_date=session_date,
-        team_id=team_id,
-        include_unassigned=include_unassigned,
+        team_id=resolved_team_id,
+        include_unassigned=include_unassigned if access_control_service.is_admin(current_user) else False,
     )
 
 
@@ -33,8 +35,9 @@ def get_monitoring_athlete_detail(
     session_date: date = Query(...),
     athlete_id: int = Query(...),
     db: Session = Depends(get_db),
-    _=Depends(require_roles("training", "coach")),
+    current_user: User = Depends(require_roles("coach")),
 ):
+    access_control_service.get_accessible_athlete(db, current_user, athlete_id)
     return monitoring_service.get_athlete_monitoring_detail(
         db,
         session_date=session_date,

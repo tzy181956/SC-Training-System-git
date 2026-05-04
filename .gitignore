@@ -5,6 +5,11 @@ backend/**/*.pyc
 backend/**/*.pyo
 backend/**/*.pyd
 
+# Environment
+.env
+.env.*
+!.env.example
+
 # Database
 backend/*.sqlite3
 backend/tmp*.db

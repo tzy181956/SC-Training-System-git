@@ -1,4 +1,5 @@
 from app.services import (
+    access_control_service,
     assignment_service,
     athlete_service,
     backup_service,
@@ -14,9 +15,11 @@ from app.services import (
     test_record_service,
     training_load_service,
     training_report_service,
+    user_service,
 )
 
 __all__ = [
+    "access_control_service",
     "assignment_service",
     "athlete_service",
     "backup_service",
@@ -32,4 +35,5 @@ __all__ = [
     "test_record_service",
     "training_load_service",
     "training_report_service",
+    "user_service",
 ]

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.models import User
 from app.schemas.dangerous_action import DangerousActionConfirm
 from app.schemas.test_definition import (
     TestDefinitionCatalogRead,
@@ -20,7 +21,11 @@ router = APIRouter(prefix="/test-definitions", tags=["test-definitions"])
 
 
 @router.get("", response_model=TestDefinitionCatalogRead)
-def get_test_definition_catalog(db: Session = Depends(get_db), _=Depends(require_roles("coach"))):
+def get_test_definition_catalog(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    _ = current_user
     return {"types": test_definition_service.list_test_type_definitions(db)}
 
 
@@ -28,8 +33,9 @@ def get_test_definition_catalog(db: Session = Depends(get_db), _=Depends(require
 def create_test_type_definition(
     payload: TestTypeDefinitionCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
+    _ = current_user
     return test_definition_service.create_test_type_definition(db, payload)
 
 
@@ -38,8 +44,9 @@ def update_test_type_definition(
     definition_id: int,
     payload: TestTypeDefinitionUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
+    _ = current_user
     return test_definition_service.update_test_type_definition(db, definition_id, payload)
 
 
@@ -48,10 +55,10 @@ def delete_test_type_definition(
     definition_id: int,
     payload: DangerousActionConfirm,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
     dangerous_operation_service.require_confirmation(payload, action_label="删除测试类型")
-    test_definition_service.delete_test_type_definition(db, definition_id, actor_name=payload.actor_name)
+    test_definition_service.delete_test_type_definition(db, definition_id, actor_name=payload.actor_name or current_user.display_name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -59,8 +66,9 @@ def delete_test_type_definition(
 def create_test_metric_definition(
     payload: TestMetricDefinitionCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
+    _ = current_user
     return test_definition_service.create_test_metric_definition(db, payload)
 
 
@@ -69,8 +77,9 @@ def update_test_metric_definition(
     definition_id: int,
     payload: TestMetricDefinitionUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
+    _ = current_user
     return test_definition_service.update_test_metric_definition(db, definition_id, payload)
 
 
@@ -79,8 +88,8 @@ def delete_test_metric_definition(
     definition_id: int,
     payload: DangerousActionConfirm,
     db: Session = Depends(get_db),
-    _=Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
     dangerous_operation_service.require_confirmation(payload, action_label="删除测试项目")
-    test_definition_service.delete_test_metric_definition(db, definition_id, actor_name=payload.actor_name)
+    test_definition_service.delete_test_metric_definition(db, definition_id, actor_name=payload.actor_name or current_user.display_name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

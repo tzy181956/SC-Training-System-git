@@ -11,13 +11,25 @@ from app.schemas.training_plan import (
 from app.services import backup_service, content_change_log_service, dangerous_operation_service
 
 
-def list_templates(db: Session) -> list[TrainingPlanTemplate]:
-    return (
+def list_templates(
+    db: Session,
+    visible_team_id: int | None = None,
+    *,
+    include_global: bool = True,
+) -> list[TrainingPlanTemplate]:
+    query = (
         db.query(TrainingPlanTemplate)
         .options(joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise))
         .order_by(TrainingPlanTemplate.name)
-        .all()
     )
+    if visible_team_id is not None:
+        if include_global:
+            query = query.filter(
+                (TrainingPlanTemplate.team_id == visible_team_id) | (TrainingPlanTemplate.team_id.is_(None))
+            )
+        else:
+            query = query.filter(TrainingPlanTemplate.team_id == visible_team_id)
+    return query.all()
 
 
 def get_template(db: Session, template_id: int) -> TrainingPlanTemplate:
