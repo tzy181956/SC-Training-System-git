@@ -1,0 +1,7 @@
+﻿Training Platform launcher success summary
+Time: 2026-04-26 20:21:34
+Mode: init
+Result: Initialization finish
+Detail: Environment, dependencies, and database checks are ready. You can now run start_system.bat.
+Access URL: http://127.0.0.1:5173/
+Detailed log: C:\Users\Tian Ziyu\Documents\New project\logs\startup\last-launcher-detail.log

@@ -1,0 +1,21 @@
+﻿Training Platform launcher failure summary
+Time: 2026-05-04 12:29:58
+Mode: start
+Failed step: Database migration check
+Error type: Database migration failed
+Error code: database_migration_failed
+Most likely cause: A migration script failed while applying schema changes.
+Suggested fix: Check the summary log excerpt for the failing migration.
+Failure detail: Alembic database migration check did not complete successfully.
+Failed command: C:\Users\Tian Ziyu\Documents\New project\backend\.venv\Scripts\python.exe scripts\migrate_db.py ensure
+Detailed log: C:\Users\Tian Ziyu\Documents\New project\logs\startup\last-launcher-detail.log
+Troubleshooting doc: C:\Users\Tian Ziyu\Documents\New project\docs\phase1-launcher-failure-summary.md (see section/code: database_migration_failed)
+Recent log lines:
+ -     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+ -   File "C:\Users\Tian Ziyu\Documents\New project\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+ -     self.dialect.do_execute(
+ -   File "C:\Users\Tian Ziyu\Documents\New project\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
+ -     cursor.execute(statement, parameters)
+ - sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) duplicate column name: code
+ - [SQL: ALTER TABLE athletes ADD COLUMN code VARCHAR(64)]
+ - (Background on this error at: https://sqlalche.me/e/20/e3q8)

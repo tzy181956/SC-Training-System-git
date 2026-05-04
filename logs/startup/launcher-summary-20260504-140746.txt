@@ -1,0 +1,7 @@
+﻿Training Platform launcher success summary
+Time: 2026-05-04 14:08:05
+Mode: start
+Result: Startup finish
+Detail: Browser entry prepared at http://192.168.1.12:5173/
+Access URL: http://192.168.1.12:5173/
+Detailed log: C:\Users\Tian Ziyu\Documents\New project\logs\startup\last-launcher-detail.log
