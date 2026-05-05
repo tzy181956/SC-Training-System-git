@@ -177,6 +177,8 @@ docs/       专项说明文档
   - 动作库字段来源与结构说明
 - `docs/text-encoding.md`
   - 中文乱码问题说明、检查方式与防护规则
+- `docs/deployment/tencent-lighthouse-ubuntu.md`
+  - 腾讯云 Ubuntu 部署请参考这份文档
 
 ## 编码与乱码检查
 

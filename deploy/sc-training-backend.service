@@ -1,0 +1,16 @@
+[Unit]
+Description=SC Training System Backend
+After=network.target
+
+[Service]
+Type=simple
+# If the deploy path changes, update WorkingDirectory, EnvironmentFile, and ExecStart together.
+WorkingDirectory=/opt/sc-training-system/backend
+EnvironmentFile=/opt/sc-training-system/backend/.env
+Environment="PYTHONPATH=/opt/sc-training-system/backend"
+ExecStart=/opt/sc-training-system/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

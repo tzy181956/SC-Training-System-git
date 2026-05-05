@@ -5,16 +5,26 @@ backend/**/*.pyc
 backend/**/*.pyo
 backend/**/*.pyd
 
-# Environment
+# Environment / secrets
 .env
 .env.*
 !.env.example
+backend/.env
+frontend/.env
+frontend/.env.*
 
-# Database
+# Runtime data / databases
+backend/training.db
+backend/*.db
 backend/*.sqlite3
 backend/tmp*.db
 backend/*tmp*.db
 backend/backups/
+backend/backups/*.db
+backend/_private_runtime_backup/
+
+# Frontend runtime-generated files
+frontend/public/runtime-access.json
 
 # Frontend
 frontend/node_modules/

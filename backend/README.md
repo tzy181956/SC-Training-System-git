@@ -120,3 +120,100 @@ python scripts\check_text_encoding.py
 - 优先用编辑器或 Python UTF-8 读取验证文件内容
 - 乱码检查说明见：
   - `docs/text-encoding.md`
+
+## 生产环境配置（development / production）
+
+- 默认 `APP_ENV=development`，本地开发在没有 `backend/.env` 的情况下仍可继续使用：
+  - `http://localhost:5173`
+  - `http://127.0.0.1:5173`
+  - 默认 SQLite：`backend/training.db`
+- 部署到 Ubuntu 等生产环境时，请手动创建 `backend/.env`，至少显式配置：
+  - `APP_ENV=production`
+  - `SECRET_KEY`
+  - `DATABASE_URL`
+  - `CORS_ORIGINS`
+- 生产环境如果缺少上述变量，或 `SECRET_KEY` 仍是 `dev-secret-key-change-me`，后端会在启动时直接失败，不再依赖代码里的开发默认值裸跑。
+- `CORS_ORIGIN_REGEX` 可以保留为空；除非你明确知道风险，否则不要在生产环境使用宽泛正则。
+
+生产环境最小示例：
+
+```dotenv
+APP_ENV=production
+SECRET_KEY=replace-with-a-long-random-secret
+DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db
+CORS_ORIGINS=["https://your-domain.example"]
+CORS_ORIGIN_REGEX=
+```
+
+## systemd 后端服务模板
+
+项目已提供 systemd 后端服务模板：
+
+- `deploy/sc-training-backend.service`
+
+默认部署路径约定：
+
+- 项目：`/opt/sc-training-system`
+- 后端：`/opt/sc-training-system/backend`
+- 虚拟环境：`/opt/sc-training-system/backend/.venv`
+- 后端监听：`127.0.0.1:8000`
+
+如果你的部署路径不同，请同步修改 service 文件中的：
+
+- `WorkingDirectory`
+- `EnvironmentFile`
+- `ExecStart`
+
+常用命令：
+
+```bash
+sudo cp deploy/sc-training-backend.service /etc/systemd/system/sc-training-backend.service
+sudo systemctl daemon-reload
+sudo systemctl enable sc-training-backend
+sudo systemctl start sc-training-backend
+sudo systemctl status sc-training-backend
+journalctl -u sc-training-backend -f
+sudo systemctl restart sc-training-backend
+curl http://127.0.0.1:8000/health
+```
+
+说明：
+
+- service 使用 `backend/.env` 作为 `EnvironmentFile`
+- 启动命令不使用 `--reload`
+- 启动命令不使用多 worker
+- 该模板只监听 `127.0.0.1:8000`，用于交给 Nginx 在本机反向代理
+- 如果 `APP_ENV=production` 但 `.env` 缺少 `SECRET_KEY`、`DATABASE_URL` 或 `CORS_ORIGINS`，后端会在启动时直接失败
+
+## Nginx 同域反代模板
+
+项目已提供 Nginx 配置模板：
+
+- `deploy/nginx-sc-training.conf`
+
+用途：
+
+- Nginx 对外监听 `80`
+- 前端静态文件目录：`/opt/sc-training-system/frontend/dist`
+- `/api/` 回源到 `http://127.0.0.1:8000/api/`
+- `/health` 回源到 `http://127.0.0.1:8000/health`
+- Vue Router 使用 history fallback
+
+常用命令：
+
+```bash
+sudo cp deploy/nginx-sc-training.conf /etc/nginx/sites-available/sc-training
+sudo ln -s /etc/nginx/sites-available/sc-training /etc/nginx/sites-enabled/sc-training
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+sudo systemctl status nginx
+curl http://127.0.0.1/health
+curl http://127.0.0.1/
+```
+
+说明：
+
+- 模板默认 `server_name _;`，有正式域名后再改成真实域名
+- 当前模板不包含 HTTPS，HTTPS 后续单独配置
+- `8000` 只供 Nginx 本机回源，不应直接开放到公网
