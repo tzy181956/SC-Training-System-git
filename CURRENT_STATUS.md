@@ -75,6 +75,50 @@
   - `scripts/check_text_encoding.py`
   - `docs/text-encoding.md`
 
+## 云服务器部署状态
+
+- 腾讯云 Ubuntu HTTP 调试版部署成功。
+- 公网访问地址：`http://111.229.168.149`。
+- 后端服务 `sc-training-backend` 已设置开机自启。
+- Nginx 已设置开机自启。
+- 后端运行用户为 `ubuntu`。
+- 后端 `8000` 仅监听 `127.0.0.1`，不对公网开放。
+- `admin` / `coach` / `training` 权限链路已经完成回归验证。
+- 旧数据库已经覆盖到服务器，动作库数据已存在。
+- 自动备份已配置。
+- 还未配置域名和 HTTPS。
+
+## 本地开发与服务器运行分工
+
+- 本地电脑仍作为开发环境使用。
+- 腾讯云服务器作为线上调试 / 运行环境使用。
+- GitHub 作为代码同步中转。
+- 本地数据库和服务器数据库不是同一个。
+- 生产数据库位于 `/opt/sc-training-system-data/training.db`。
+- 生产数据不通过 GitHub 同步，服务器更新通过 `git pull origin 服务器端` 获取代码。
+
+## 备份与运行数据现状
+
+- 生产数据库路径：`/opt/sc-training-system-data/training.db`。
+- 手动备份目录：`/opt/sc-training-system-data/manual-backups`。
+- 每日 `02:30` 自动备份已配置。
+- 备份脚本：`/opt/sc-training-system-data/backup_daily.sh`。
+- `crontab` 目标项应为：
+
+```cron
+30 2 * * * /opt/sc-training-system-data/backup_daily.sh >> /opt/sc-training-system-data/manual-backups/backup.log 2>&1
+```
+
+- 任何覆盖数据库、迁移旧库、重大修改前必须先备份。
+
+## 当前已知性能注意事项
+
+- 动作库约 `1795` 条。
+- `exercise_categories` 约 `788` 条。
+- 动作库和训练模板首次加载较慢。
+- 当前先不做专项性能优化，后续方向是分页、搜索式加载、轻量接口、管理首页避免全量加载。
+- 后续修改动作库和训练模板时，优先考虑分页和懒加载，不要继续扩大首屏全量请求。
+
 ## 当前最高优先级
 
 1. 先按 `docs/phase1-final-acceptance.md` 跑一轮第一阶段总验收

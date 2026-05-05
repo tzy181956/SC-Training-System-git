@@ -179,6 +179,7 @@ docs/       专项说明文档
   - 中文乱码问题说明、检查方式与防护规则
 - `docs/deployment/tencent-lighthouse-ubuntu.md`
   - 腾讯云 Ubuntu 部署请参考这份文档
+  - 本地开发 -> GitHub -> 腾讯云服务器更新规范也在这份文档里
 
 ## 编码与乱码检查
 
@@ -225,16 +226,19 @@ python scripts/check_text_encoding.py
 
 ## Git 与数据库协作
 
-当前开发数据库：
+当前规则已经调整为：
 
-- `backend/training.db`
+- 本地开发数据库可以继续使用 `backend/training.db`
+- 腾讯云服务器生产数据库固定为 `/opt/sc-training-system-data/training.db`
+- 本地数据库和服务器数据库不是同一个
+- 代码通过 GitHub 同步，生产数据不通过 GitHub 同步
+- `backend/training.db` 和 `backend/backups/*.db` 不再纳入 Git 跟踪
+- `.env`、数据库、备份、日志、`node_modules`、`dist` 等运行时文件不要提交到 Git
+- 服务器更新默认流程是：本地改代码 -> push 到 GitHub -> 服务器 `git pull origin 服务器端` -> 安装依赖 / 迁移 / build / 重启服务
 
-它已经纳入 Git 跟踪，因此跨电脑继续开发时：
+如果需要完整部署和服务器更新说明，请优先阅读：
 
-- 需要提交代码改动
-- 也需要提交必要的数据库改动
-
-但 SQLite 不适合多人并行同时改同一份库；如发生并行修改，需要手动选择保留哪一份数据库变更。
+- `docs/deployment/tencent-lighthouse-ubuntu.md`
 
 ## 常见问题
 

@@ -1385,7 +1385,37 @@ Never let `rg` failure block coding, review, testing, or documentation updates.
 
 ---
 
-## 41. 外部审查意识
+## 41. 本地开发与云服务器部署协作规范
+
+当前项目已经进入“双环境并行”阶段：
+
+- 本地电脑是开发环境，继续承担 Windows 本地前后端联调、Vite dev server、局域网访问和功能开发
+- 腾讯云 Ubuntu 服务器是线上调试 / 运行环境，走 Nginx + systemd + FastAPI + SQLite
+- GitHub 只作为代码同步中转
+- 本地数据库和服务器数据库不是同一个
+- 代码通过 GitHub 同步，生产数据不通过 GitHub 同步
+
+### Codex 强制约束
+
+1. 不要在前端业务代码里写死 `localhost`、`127.0.0.1`、`192.168.x.x`、服务器公网 IP 或任何固定后端地址。
+2. 前端 API 默认必须使用同域 `/api`，不要回退到直连 `8000`。
+3. 不要提交 `.env`、数据库、备份、日志、`node_modules`、`dist`、运行时生成文件。
+4. 不要破坏现有 Windows 本地启动脚本，尤其是 `scripts/start_system.bat` 和 `scripts/init_system.bat`。
+5. 不要破坏 Ubuntu 上 `Nginx + systemd + frontend/dist + /api 反代` 的部署链路。
+6. 修改数据库模型时必须同步新增 Alembic 迁移，并在交付说明中明确服务器更新时要执行 `python scripts/migrate_db.py ensure`。
+7. 修改前端后必须确认 `cd frontend && npm run build` 可通过。
+8. 修改后端后必须确认 `cd backend && .\.venv\Scripts\python.exe -m compileall app scripts` 可通过。
+9. 修改权限、登录、账号体系时必须回归验证 `admin` / `coach` / `training` / 未登录四类场景。
+10. 修改动作库、训练模板、训练执行等大数据页面时，要注意服务器公网访问性能；优先分页、搜索式加载、轻量接口、懒加载，不要继续扩大首屏全量请求。
+11. 不要把生产数据库、生产备份或服务器 `/opt/sc-training-system-data` 下的数据重新带回 Git。
+12. 不要让后端在服务器上监听 `0.0.0.0:8000`。
+13. 不要要求开放 `8000` 或 `5173` 到公网，也不要要求开放 `3306` 或 `ALL`。
+14. 不要引入 Docker、PostgreSQL、CI/CD、HTTPS 或新的服务器架构，除非用户明确提出。
+15. 不要自动清空、覆盖、迁回或重建服务器生产数据库；任何覆盖数据库、迁移旧库、重大修改前必须先备份。
+16. 服务器更新默认流程是：`git pull origin 服务器端` -> 后端依赖 / 迁移 -> 前端 `npm run build` -> `sudo systemctl restart sc-training-backend` -> `sudo systemctl reload nginx` -> `curl http://127.0.0.1/health` -> 浏览器验收。
+17. 当前服务器是 HTTP 调试版，域名和 HTTPS 后续再做；不要擅自把当前部署说明扩展成更复杂的线上体系。
+
+## 42. 外部审查意识
 
 你必须始终假设：ChatGPT 和 Gemini 会审查你的所有代码修改和所有回答。
 

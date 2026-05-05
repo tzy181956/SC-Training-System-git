@@ -90,7 +90,7 @@ git clone <你的仓库地址> /opt/sc-training-system
 
 ```bash
 cd /opt/sc-training-system
-git pull
+git pull origin 服务器端
 ```
 
 如果 `/opt/sc-training-system` 已存在但不是这个项目仓库，不要直接覆盖。先确认目录内容，再决定是否备份或迁移。
@@ -300,7 +300,7 @@ curl -i http://127.0.0.1/api/users -H "Authorization: Bearer <ADMIN_TOKEN>"
 
 ```bash
 cd /opt/sc-training-system
-git pull
+git pull origin 服务器端
 ```
 
 ```bash
@@ -322,7 +322,14 @@ sudo systemctl reload nginx
 curl http://127.0.0.1/health
 ```
 
-如果更新涉及数据库风险，先备份生产数据再执行。
+补充说明：
+
+1. 如果只改前端，通常仍需要执行 `npm run build` 和 `sudo systemctl reload nginx`。
+2. 如果只改后端，通常需要执行 `sudo systemctl restart sc-training-backend`。
+3. 如果改数据库模型，必须先准备 Alembic 迁移，并执行 `python scripts/migrate_db.py ensure`。
+4. 如果改 Python 或前端依赖，必须重新执行 `pip install -r requirements.txt` 或 `npm install`。
+5. 每次更新后都必须再做浏览器人工验收。
+6. 如果更新涉及数据库风险，先备份生产数据再执行。
 
 ## 十五、备份和数据注意事项
 
@@ -331,19 +338,25 @@ curl http://127.0.0.1/health
 1. 生产数据库不要提交 Git。
 2. 生产数据库不要随意覆盖。
 3. 操作数据库前先备份。
-4. `backups` 目录要保留。
+4. 手动备份目录固定为 `/opt/sc-training-system-data/manual-backups`。
 5. 换服务器时需要一起迁移：
    - `.env`
    - `training.db`
-   - `backups`
+   - `manual-backups`
    - Nginx 配置
    - systemd 配置
 6. SQLite 只适合单机单实例，不要开多个后端实例写同一份库。
 
-如果使用推荐配置：
+当前推荐配置：
 
 - 数据库：`/opt/sc-training-system-data/training.db`
-- 备份目录通常在：`/opt/sc-training-system-data/backups/`
+- 手动备份目录：`/opt/sc-training-system-data/manual-backups/`
+- 自动备份脚本：`/opt/sc-training-system-data/backup_daily.sh`
+- `crontab` 目标项：
+
+```cron
+30 2 * * * /opt/sc-training-system-data/backup_daily.sh >> /opt/sc-training-system-data/manual-backups/backup.log 2>&1
+```
 
 ## 十六、常见错误排查
 
@@ -396,7 +409,58 @@ journalctl -u sc-training-backend -f
 - 腾讯云防火墙是否已开放 `80`
 - 不要开放 `8000`
 
-## 十七、后续 HTTPS
+## 十七、本地开发与云服务器协作规范
+
+### 环境分工
+
+- 本地电脑是开发环境。
+- 腾讯云 Ubuntu 服务器是线上调试 / 运行环境。
+- GitHub 是代码同步中转。
+- 本地数据库和服务器数据库不是同一个。
+- 代码通过 GitHub 同步，生产数据不通过 GitHub 同步。
+
+### 本地开发规则
+
+- 本地可以继续使用 Windows 启动脚本、局域网访问、Vite dev server、FastAPI 本地后端。
+- 本地可以继续使用 `backend/training.db` 做开发数据。
+- 但不要把 `backend/training.db`、`backend/backups/*.db`、`.env`、日志、`node_modules`、`dist` 等运行时文件提交到 Git。
+- 本地开发默认可以使用 `APP_ENV=development`。
+- 不要因为服务器部署而删除或破坏现有 Windows 本地启动链路。
+
+### 服务器运行规则
+
+- 服务器项目目录：`/opt/sc-training-system`
+- 服务器数据目录：`/opt/sc-training-system-data`
+- 生产数据库：`/opt/sc-training-system-data/training.db`
+- 后端 systemd 服务名：`sc-training-backend`
+- 后端只监听 `127.0.0.1:8000`
+- Nginx 对外提供 `80`
+- Nginx 托管 `frontend/dist`
+- `/api/` 反代到 `http://127.0.0.1:8000/api/`
+- `/health` 反代到 `http://127.0.0.1:8000/health`
+- 不开放 `8000`、`5173`、`3306`、`ALL`
+- 当前 HTTP 调试版已经部署成功，HTTPS 和域名后续再做
+
+### 本地与服务器差异
+
+- Windows 不区分大小写，Ubuntu 区分大小写。
+- Windows 路径是反斜杠，Ubuntu 路径是正斜杠。
+- 本地 Vite dev server 不等于服务器生产 build。
+- 本地 `localhost` / 局域网 IP 不能写死到生产代码。
+- 服务器前端请求后端必须走同域 `/api`。
+- 不允许在前端代码里写死 `localhost:8000`、`127.0.0.1:8000`、`192.168.x.x:8000` 或服务器公网 IP。
+- 服务器数据库和本地数据库不同，不能用 `git pull` 覆盖生产数据库。
+
+### 性能注意事项
+
+- 动作库约 `1795` 条。
+- `exercise_categories` 约 `788` 条。
+- 动作库和训练模板首次加载较慢。
+- 当前先不在本部署文档里直接推动性能重构。
+- 后续优化方向是分页、搜索式加载、轻量接口、管理首页避免全量加载。
+- 后续修改动作库和训练模板时，应优先考虑分页和懒加载，不要继续扩大首屏全量请求。
+
+## 十八、后续 HTTPS
 
 当前文档先以跑通 HTTP 为目标。
 
