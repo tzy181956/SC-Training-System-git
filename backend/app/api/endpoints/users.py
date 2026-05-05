@@ -75,6 +75,38 @@ def reset_user_password(
     return _to_user_read(user)
 
 
+@router.post("/{user_id}/deactivate", response_model=UserManagementRead)
+def deactivate_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    user = user_service.update_user(
+        db,
+        user_id=user_id,
+        is_active=False,
+        actor_name=current_user.display_name,
+        acting_user=current_user,
+    )
+    return _to_user_read(user)
+
+
+@router.post("/{user_id}/activate", response_model=UserManagementRead)
+def activate_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    user = user_service.update_user(
+        db,
+        user_id=user_id,
+        is_active=True,
+        actor_name=current_user.display_name,
+        acting_user=current_user,
+    )
+    return _to_user_read(user)
+
+
 def _to_user_read(user: User) -> UserManagementRead:
     return UserManagementRead(
         id=user.id,
@@ -84,4 +116,6 @@ def _to_user_read(user: User) -> UserManagementRead:
         team_id=user.team_id,
         team_name=user.team.name if user.team else None,
         is_active=user.is_active,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
     )

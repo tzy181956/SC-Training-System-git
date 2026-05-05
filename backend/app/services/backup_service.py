@@ -10,7 +10,6 @@ from pathlib import Path
 from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.exceptions import bad_request, not_found
-from app.core.schema_sync import ensure_runtime_schema
 
 
 BACKUP_KEEP_DAYS = 7
@@ -322,6 +321,8 @@ def restore_backup(
                 target_db_path=database_path,
                 restore_scope=restore_scope,
             )
+
+        from app.core.schema_sync import ensure_runtime_schema
 
         ensure_runtime_schema()
         _log_restore_operation(

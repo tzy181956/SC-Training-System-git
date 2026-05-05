@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
+import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 
 const monitorModeLabel = getAppModeDisplayLabel('monitor')
 </script>
@@ -20,6 +21,7 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
 
       <div class="monitor-actions">
         <slot name="header-actions" />
+        <AuthUserBar />
         <AppModeSwitch />
       </div>
     </header>

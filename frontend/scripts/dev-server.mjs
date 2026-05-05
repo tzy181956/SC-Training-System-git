@@ -95,6 +95,7 @@ const runtimeAccessPlugin = {
 
 const host = getArgValue('host') || process.env.FRONTEND_HOST || '0.0.0.0'
 const port = Number(getArgValue('port') || process.env.FRONTEND_PORT || 5173)
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000'
 
 const server = await createServer({
   plugins: [runtimeAccessPlugin],
@@ -103,6 +104,12 @@ const server = await createServer({
   server: {
     host,
     port,
+    proxy: {
+      '/api': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+    },
   },
 })
 

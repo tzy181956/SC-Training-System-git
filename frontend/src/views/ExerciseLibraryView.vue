@@ -11,6 +11,7 @@ import {
 } from '@/api/exercises'
 import ExerciseLibraryEditor from '@/components/exercise/ExerciseLibraryEditor.vue'
 import AppShell from '@/components/layout/AppShell.vue'
+import { useAuthStore } from '@/stores/auth'
 import type { ExerciseCategoryNode, ExerciseFacetValues, ExerciseLibraryItem } from '@/types/exerciseLibrary'
 import {
   EXERCISE_TAG_FACETS,
@@ -19,6 +20,7 @@ import {
 } from '@/utils/exerciseLibrary'
 
 const exercises = ref<ExerciseLibraryItem[]>([])
+const authStore = useAuthStore()
 const categoryTree = ref<ExerciseCategoryNode[]>([])
 const exerciseFacets = ref<ExerciseFacetValues>({
   level1_options: [],
@@ -43,6 +45,7 @@ const level2Options = computed(() => {
   return exerciseFacets.value.level2_options_by_level1?.[filters.level1] || []
 })
 const facetOptions = computed(() => exerciseFacets.value.facets || {})
+const isAdmin = computed(() => authStore.isAdmin)
 const hasActiveFilters = computed(() => {
   if (filters.keyword.trim()) return true
   if (filters.level1) return true
@@ -75,6 +78,7 @@ async function hydrate(preferredId?: number | null) {
 }
 
 async function handleSave(payload: Record<string, unknown>) {
+  if (!isAdmin.value) return
   if (selected.value?.id) {
     await updateExercise(selected.value.id, payload)
     await hydrate(selected.value.id)
@@ -85,6 +89,7 @@ async function handleSave(payload: Record<string, unknown>) {
 }
 
 async function handleDelete(exerciseId: number) {
+  if (!isAdmin.value) return
   try {
     await deleteExercise(exerciseId, { confirmed: true, actor_name: '管理端' })
     await hydrate()
@@ -111,6 +116,7 @@ function toggleTagFilter(key: string, value: string) {
 }
 
 function createCustomExercise() {
+  if (!isAdmin.value) return
   selected.value = null
 }
 
@@ -166,7 +172,12 @@ watch(
 
 <template>
   <AppShell>
-    <div ref="layoutRef" class="library-layout" :style="layoutHeight ? { '--library-layout-height': `${layoutHeight}px` } : {}">
+    <div
+      ref="layoutRef"
+      class="library-layout"
+      :class="{ 'library-layout--readonly': !isAdmin }"
+      :style="layoutHeight ? { '--library-layout-height': `${layoutHeight}px` } : {}"
+    >
       <section class="panel filter-panel">
         <div class="toolbar">
           <div>
@@ -268,6 +279,7 @@ watch(
         :model-value="selected"
         :category-tree="categoryTree"
         :facet-options="facetOptions"
+        :read-only="!isAdmin"
         @submit="handleSave"
         @remove="handleDelete"
       />
@@ -332,6 +344,10 @@ watch(
 
 .toolbar {
   align-items: start;
+}
+
+.library-layout--readonly .toolbar-actions {
+  display: none;
 }
 
 .toolbar-actions,

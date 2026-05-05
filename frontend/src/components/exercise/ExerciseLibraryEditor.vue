@@ -14,6 +14,7 @@ const props = defineProps<{
   modelValue?: ExerciseLibraryItem | null
   categoryTree: ExerciseCategoryNode[]
   facetOptions: Record<string, string[]>
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -89,7 +90,7 @@ watch(
       is_main_lift_candidate: value?.is_main_lift_candidate ?? false,
       structured_tags: tags,
     })
-    activeTab.value = value ? 'detail' : 'edit'
+    activeTab.value = value || props.readOnly ? 'detail' : 'edit'
   },
   { immediate: true },
 )
@@ -114,6 +115,7 @@ function toggleTagValue(key: string, value: string) {
 }
 
 function handleSubmit() {
+  if (props.readOnly) return
   emit('submit', {
     name: form.name,
     name_en: form.name_en || null,
@@ -137,6 +139,7 @@ function handleSubmit() {
 }
 
 function handleDelete() {
+  if (props.readOnly) return
   if (!props.modelValue?.id) return
   const confirmed = confirmDangerousAction({
     title: '删除动作',
@@ -152,7 +155,7 @@ function handleDelete() {
 </script>
 
 <template>
-  <div class="panel editor-shell">
+  <div class="panel editor-shell" :class="{ 'editor-shell--readonly': readOnly }">
     <div class="editor-head">
       <div>
         <p class="eyebrow">动作详情</p>
@@ -167,7 +170,7 @@ function handleDelete() {
       </div>
     </div>
 
-    <div v-if="activeTab.value === 'detail' && modelValue" class="detail-grid">
+    <div v-if="(activeTab.value === 'detail' || readOnly) && modelValue" class="detail-grid">
       <div class="summary-card">
         <strong>{{ modelValue.name }}</strong>
         <span>{{ modelValue.name_en || modelValue.alias || '无英文名' }}</span>
@@ -200,7 +203,7 @@ function handleDelete() {
       </div>
     </div>
 
-    <div v-else class="form-grid">
+    <div v-else-if="!readOnly" class="form-grid">
       <div class="grid two">
         <label class="field">
           <span class="field-label">动作名称</span>
@@ -276,6 +279,10 @@ function handleDelete() {
       </label>
 
       <button class="primary-btn" @click="handleSubmit">保存动作</button>
+    </div>
+
+    <div v-else class="empty-state">
+      先在左侧筛选并选择一个动作，再查看详情。
     </div>
   </div>
 </template>
@@ -356,6 +363,18 @@ function handleDelete() {
   padding: 14px;
   border-radius: 16px;
   background: var(--panel-soft);
+}
+
+.editor-shell--readonly .danger-tab,
+.editor-shell--readonly .tab-switch .tab-btn:last-child {
+  display: none;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  color: var(--text-soft);
 }
 
 .detail-tags,

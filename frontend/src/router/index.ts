@@ -6,67 +6,143 @@ import DashboardView from '@/views/DashboardView.vue'
 import ExerciseLibraryView from '@/views/ExerciseLibraryView.vue'
 import LoginView from '@/views/LoginView.vue'
 import LogsView from '@/views/LogsView.vue'
+import MonitorDashboardView from '@/views/MonitorDashboardView.vue'
 import PlanAssignmentsView from '@/views/PlanAssignmentsView.vue'
 import PlanTemplatesView from '@/views/PlanTemplatesView.vue'
-import MonitorDashboardView from '@/views/MonitorDashboardView.vue'
 import TestRecordsView from '@/views/TestRecordsView.vue'
-import TrainingReportsView from '@/views/TrainingReportsView.vue'
 import TrainingModeView from '@/views/TrainingModeView.vue'
+import TrainingReportsView from '@/views/TrainingReportsView.vue'
 import TrainingSessionView from '@/views/TrainingSessionView.vue'
+import UsersView from '@/views/UsersView.vue'
+import pinia from '@/stores/pinia'
 import { useAuthStore } from '@/stores/auth'
+import type { AppMode, UserRoleCode } from '@/types/auth'
 
-const TRAINING_ROUTE_NAMES = new Set(['training-mode', 'training-session'])
-const MANAGEMENT_ROUTE_NAMES = new Set([
-  'dashboard',
-  'athletes',
-  'exercises',
-  'plans',
-  'assignments',
-  'training-reports',
-  'backups',
-  'logs',
-  'tests',
-])
-const MONITOR_ROUTE_NAMES = new Set(['monitor-dashboard'])
+const ADMIN_ONLY_ROLES: UserRoleCode[] = ['admin']
+const COACH_AND_ADMIN_ROLES: UserRoleCode[] = ['admin', 'coach']
+const TRAINING_ACCESS_ROLES: UserRoleCode[] = ['admin', 'coach', 'training']
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: () => useAuthStore().homeRoute },
-    { path: '/login', name: 'login', component: LoginView },
-    { path: '/management', name: 'dashboard', component: DashboardView },
-    { path: '/athletes', name: 'athletes', component: AthletesView },
-    { path: '/exercises', name: 'exercises', component: ExerciseLibraryView },
-    { path: '/plans', name: 'plans', component: PlanTemplatesView },
-    { path: '/assignments', name: 'assignments', component: PlanAssignmentsView },
-    { path: '/training-reports', name: 'training-reports', component: TrainingReportsView },
-    { path: '/backups', name: 'backups', component: BackupsView },
-    { path: '/logs', name: 'logs', component: LogsView },
-    { path: '/tests', name: 'tests', component: TestRecordsView },
-    { path: '/monitor', name: 'monitor-dashboard', component: MonitorDashboardView },
-    { path: '/training-mode', name: 'training-mode', component: TrainingModeView },
+    { path: '/', redirect: { name: 'login' } },
+    {
+      path: '/login',
+      name: 'login',
+      component: LoginView,
+      meta: { publicOnly: true },
+    },
+    {
+      path: '/management',
+      name: 'dashboard',
+      component: DashboardView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/athletes',
+      name: 'athletes',
+      component: AthletesView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/exercises',
+      name: 'exercises',
+      component: ExerciseLibraryView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/plans',
+      name: 'plans',
+      component: PlanTemplatesView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/assignments',
+      name: 'assignments',
+      component: PlanAssignmentsView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/training-reports',
+      name: 'training-reports',
+      component: TrainingReportsView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/backups',
+      name: 'backups',
+      component: BackupsView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: ADMIN_ONLY_ROLES },
+    },
+    {
+      path: '/logs',
+      name: 'logs',
+      component: LogsView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/tests',
+      name: 'tests',
+      component: TestRecordsView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: ADMIN_ONLY_ROLES },
+    },
+    {
+      path: '/users',
+      name: 'users',
+      component: UsersView,
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: ADMIN_ONLY_ROLES },
+    },
+    {
+      path: '/monitor',
+      name: 'monitor-dashboard',
+      component: MonitorDashboardView,
+      meta: { requiresAuth: true, mode: 'monitor', allowedRoles: COACH_AND_ADMIN_ROLES },
+    },
+    {
+      path: '/training-mode',
+      name: 'training-mode',
+      component: TrainingModeView,
+      meta: { requiresAuth: true, mode: 'training', allowedRoles: TRAINING_ACCESS_ROLES },
+    },
     {
       path: '/training-mode/session/:sessionId?',
       name: 'training-session',
       component: TrainingSessionView,
+      meta: { requiresAuth: true, mode: 'training', allowedRoles: TRAINING_ACCESS_ROLES },
     },
   ],
 })
 
-router.beforeEach((to) => {
-  const authStore = useAuthStore()
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore(pinia)
+  await authStore.bootstrap()
 
-  if (to.name === 'login') {
+  if (to.meta.publicOnly) {
+    if (authStore.isAuthenticated) {
+      return authStore.homeRoute
+    }
+    return true
+  }
+
+  if (!to.meta.requiresAuth) {
+    return true
+  }
+
+  if (!authStore.isAuthenticated) {
+    return {
+      name: 'login',
+      query: to.fullPath && to.fullPath !== '/' ? { redirect: to.fullPath } : undefined,
+    }
+  }
+
+  const allowedRoles = (to.meta.allowedRoles || []) as UserRoleCode[]
+  if (allowedRoles.length && (!authStore.roleCode || !allowedRoles.includes(authStore.roleCode))) {
     return authStore.homeRoute
   }
 
-  const routeName = typeof to.name === 'string' ? to.name : ''
-  if (TRAINING_ROUTE_NAMES.has(routeName) && authStore.currentMode !== 'training') {
-    authStore.setMode('training')
-  } else if (MANAGEMENT_ROUTE_NAMES.has(routeName) && authStore.currentMode !== 'management') {
-    authStore.setMode('management')
-  } else if (MONITOR_ROUTE_NAMES.has(routeName) && authStore.currentMode !== 'monitor') {
-    authStore.setMode('monitor')
+  const routeMode = to.meta.mode as AppMode | undefined
+  if (routeMode) {
+    authStore.syncModeFromRoute(routeMode)
   }
 
   return true

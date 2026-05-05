@@ -2,7 +2,21 @@
 
 ## Unreleased / V1-dev
 
+### Fixed
+
+- 修复前端开发服务器下登录请求误打到 `5173/api/*` 自身导致 `404` 的问题：`frontend/vite.config.ts` 和 `frontend/scripts/dev-server.mjs` 已补 `/api -> http://127.0.0.1:8000` 开发代理，登录页不再因为前后端端口分离而直接报 `Request failed with status code 404`。
+
+- 修复 `backend/app/services/__init__.py` 的包级联导入导致的循环依赖，恢复 `scripts/phase1_acceptance_check.ps1` 中 `Backend phase1 smoke` 的通过能力，避免 `schema_sync -> services.__init__ -> backup_service` 启动链路再次被阻塞。
+- 修复 `backend/scripts/phase1_backend_smoke_check.py` 对固定日期 `2099-01-01` 的过时假设，改为按 assignment 当前日期窗口和 `repeat_weekdays` 自动选择有效训练日，并在失败路径统一释放数据库连接，避免验收脚本被新训练日规则或 SQLite 文件锁误伤。
+
 ### Added
+
+- 新增最小多账号与管理员账号体系闭环：
+  - 后端补齐 `backend/scripts/create_user.py` 首个管理员交互式创建链路，以及 `/api/users`、`/api/users/{id}`、`/api/users/{id}/reset-password` 管理员专用账号管理接口
+  - `/api/auth/me` 已扩展为前端统一权限来源，返回 `role_code`、`team_id`、`mode`、`available_modes`、`can_manage_users`、`can_manage_system`
+  - 前端接入真实登录态：`access_token` 持久化、统一 Bearer 注入、`401` 清理登录态、登录页表单、受保护路由守卫、管理员账号管理页 `/users`
+  - 三套 shell 已补充最小退出登录入口，管理端导航和部分页面按 `admin / coach / training` 做入口收口
+  - 本轮继续补齐 admin 账号管理收尾：`POST /api/users/{id}/activate`、`POST /api/users/{id}/deactivate`、用户列表时间字段、前端停用二次确认，以及账号管理页独立启用/停用动作
 
 - 新增测试数据模块的一级/二级分类主数据管理：
   - 后端新增 `test_type_definitions` / `test_metric_definitions` 主数据表、`/api/test-definitions` 接口与 Alembic 迁移，支持测试类型和测试项目的增删改，并保留历史测试记录字符串快照不受影响
@@ -59,6 +73,11 @@
   - `docs/phase1-local-draft-and-session.md`
 
 ### Changed
+
+- 第一轮账号权限与队伍隔离已经正式接入现有训练主链：
+  - `admin` 收口为超级角色；`coach` 和 `training` 未绑定 `team_id` 时访问队伍业务接口会直接得到明确 `403`
+  - `athletes`、`training/*`、`monitoring/*`、`training-reports/*`、`training-loads/*`、`logs` 等接口已经按本轮方案接入最小角色和队伍边界
+  - 管理端首页、动作库、运动员页和模式切换已按当前账号可用权限做最小裁剪，不再沿用免登录模式的全量入口
 
 - 测试项目主数据已新增“低值优先（数值越小越好）”方向配置：
   - `test_metric_definitions` 新增 `is_lower_better` 字段，默认未勾选时按高值优先处理

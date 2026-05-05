@@ -104,10 +104,10 @@ def update_user(
     next_role_code = _normalize_role_or_raise(role_code) if role_code is not None else normalize_role_code(user.role_code)
     next_display_name = _normalize_display_name(display_name) if display_name is not None else user.display_name
     next_is_active = is_active if is_active is not None else user.is_active
-    next_team_id = team_id if role_code is not None or team_id is not None else user.team_id
-    next_team_id = _resolve_team_id(db, role_code=next_role_code, team_id=next_team_id, allow_teamless_role=False)
+    requested_team_id = team_id if role_code is not None or team_id is not None else user.team_id
 
     _ensure_admin_update_allowed(db, user=user, acting_user=acting_user, next_role_code=next_role_code, next_is_active=next_is_active)
+    next_team_id = _resolve_team_id(db, role_code=next_role_code, team_id=requested_team_id, allow_teamless_role=False)
 
     user.display_name = next_display_name
     user.role_code = next_role_code

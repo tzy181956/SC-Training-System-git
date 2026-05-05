@@ -2,24 +2,37 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
+import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
+import { useAuthStore } from '@/stores/auth'
+import type { UserRoleCode } from '@/types/auth'
 
 const route = useRoute()
+const authStore = useAuthStore()
 
-const links = [
-  { name: 'dashboard', label: '总览' },
-  { name: 'athletes', label: '运动员' },
-  { name: 'exercises', label: '动作库' },
-  { name: 'plans', label: '训练模板' },
-  { name: 'assignments', label: '计划分配' },
-  { name: 'training-reports', label: '训练数据' },
-  { name: 'backups', label: '备份恢复' },
-  { name: 'logs', label: '日志' },
-  { name: 'tests', label: '测试数据' },
+const allLinks: Array<{ name: string; label: string; roles: UserRoleCode[] }> = [
+  { name: 'dashboard', label: '总览', roles: ['admin', 'coach'] },
+  { name: 'athletes', label: '运动员', roles: ['admin', 'coach'] },
+  { name: 'exercises', label: '动作库', roles: ['admin', 'coach'] },
+  { name: 'plans', label: '训练模板', roles: ['admin', 'coach'] },
+  { name: 'assignments', label: '计划分配', roles: ['admin', 'coach'] },
+  { name: 'training-reports', label: '训练数据', roles: ['admin', 'coach'] },
+  { name: 'users', label: '账号管理', roles: ['admin'] },
+  { name: 'backups', label: '备份恢复', roles: ['admin'] },
+  { name: 'logs', label: '日志', roles: ['admin', 'coach'] },
+  { name: 'tests', label: '测试数据', roles: ['admin'] },
 ]
 
-const currentLabel = computed(() => links.find((link) => link.name === route.name)?.label || getAppModeDisplayLabel('management'))
+const links = computed(() => {
+  if (!authStore.roleCode) return []
+  return allLinks.filter((link) => link.roles.includes(authStore.roleCode as UserRoleCode))
+})
+
+const currentLabel = computed(() => (
+  links.value.find((link) => link.name === route.name)?.label || getAppModeDisplayLabel('management')
+))
+
 const managementModeLabel = getAppModeDisplayLabel('management')
 </script>
 
@@ -30,6 +43,7 @@ const managementModeLabel = getAppModeDisplayLabel('management')
         <p class="eyebrow">{{ managementModeLabel }}</p>
         <h1>体能训练管理平台</h1>
       </div>
+
       <nav class="shell-links">
         <RouterLink
           v-for="link in links"
@@ -41,13 +55,16 @@ const managementModeLabel = getAppModeDisplayLabel('management')
           {{ link.label }}
         </RouterLink>
       </nav>
+
       <div class="shell-user">
         <div>
           <strong>当前模式</strong>
           <p>{{ managementModeLabel }}</p>
         </div>
+        <AuthUserBar variant="dark" />
       </div>
     </aside>
+
     <main class="shell-main">
       <header class="shell-header">
         <div>
@@ -59,6 +76,7 @@ const managementModeLabel = getAppModeDisplayLabel('management')
           <AppModeSwitch />
         </div>
       </header>
+
       <div class="shell-body">
         <slot />
       </div>

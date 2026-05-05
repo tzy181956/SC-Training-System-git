@@ -15,6 +15,7 @@ import {
   updateAthlete,
 } from '@/api/athletes'
 import AppShell from '@/components/layout/AppShell.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useAthletesStore } from '@/stores/athletes'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
 
@@ -23,6 +24,7 @@ type TeamItem = TeamRead
 type AthleteItem = AthleteRead
 
 const store = useAthletesStore()
+const authStore = useAuthStore()
 const selectedId = ref<number | null>(null)
 
 const sportManagerOpen = ref(false)
@@ -74,6 +76,7 @@ onMounted(async () => {
 })
 
 const selectedAthlete = computed(() => store.athletes.find((item) => item.id === selectedId.value) as AthleteItem | undefined)
+const isAdmin = computed(() => authStore.isAdmin)
 
 const filteredTeams = computed(() => {
   if (!filters.sportId) return store.teams as TeamItem[]
@@ -126,7 +129,11 @@ function selectAthlete(athlete: AthleteItem) {
 
 async function saveAthlete() {
   try {
-    const savedAthlete = selectedId.value ? await updateAthlete(selectedId.value, form) : await createAthlete(form)
+    const payload = {
+      ...form,
+      team_id: isAdmin.value ? form.team_id : authStore.currentUser?.team_id ?? null,
+    }
+    const savedAthlete = selectedId.value ? await updateAthlete(selectedId.value, payload) : await createAthlete(payload)
     await store.hydrate()
 
     const nextId = selectedId.value ?? savedAthlete?.id ?? null
@@ -178,7 +185,7 @@ function resetForm() {
     code: '',
     full_name: '',
     sport_id: null,
-    team_id: null,
+    team_id: isAdmin.value ? null : authStore.currentUser?.team_id ?? null,
     gender: '',
     position: '',
     height: null,
@@ -198,6 +205,10 @@ function handleSportFilterChange() {
 }
 
 function handleFormSportChange() {
+  if (!isAdmin.value) {
+    form.team_id = authStore.currentUser?.team_id ?? null
+    return
+  }
   if (
     form.team_id &&
     !availableFormTeams.value.some((team) => team.id === form.team_id)
@@ -401,7 +412,7 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
 
 <template>
   <AppShell>
-    <div class="split-view">
+    <div class="split-view" :class="{ 'split-view--coach': !isAdmin }">
       <div class="panel list-panel">
         <div class="toolbar">
           <h3>运动员列表</h3>
@@ -493,12 +504,14 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
           </label>
           <label class="field">
             <span class="field-label">所属队伍</span>
-            <select v-model="form.team_id" class="text-input">
+            <select v-model="form.team_id" class="text-input" :disabled="!isAdmin">
               <option :value="null">未选择</option>
               <option v-for="team in availableFormTeams" :key="team.id" :value="team.id">{{ team.name }}</option>
             </select>
           </label>
         </div>
+
+        <p v-if="!isAdmin" class="team-lock-hint">当前账号创建和修改运动员时会自动锁定到本队。</p>
 
         <div class="two-col">
           <label class="field">
@@ -552,7 +565,7 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
   </AppShell>
 
   <teleport to="body">
-    <div v-if="sportManagerOpen" class="manager-overlay" @click="closeSportManager">
+    <div v-if="isAdmin && sportManagerOpen" class="manager-overlay" @click="closeSportManager">
       <section class="manager-dialog panel" role="dialog" aria-modal="true" aria-labelledby="sport-manager-title" @click.stop>
         <div class="manager-dialog-head">
           <div>
@@ -614,7 +627,7 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
   </teleport>
 
   <teleport to="body">
-    <div v-if="teamManagerOpen" class="manager-overlay" @click="closeTeamManager">
+    <div v-if="isAdmin && teamManagerOpen" class="manager-overlay" @click="closeTeamManager">
       <section class="manager-dialog panel" role="dialog" aria-modal="true" aria-labelledby="team-manager-title" @click.stop>
         <div class="manager-dialog-head">
           <div>
@@ -733,6 +746,16 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.split-view--coach .toolbar-actions .ghost-btn {
+  display: none;
+}
+
+.team-lock-hint {
+  margin: -4px 0 0;
+  color: var(--text-soft);
+  font-size: 13px;
 }
 
 .filter-summary {

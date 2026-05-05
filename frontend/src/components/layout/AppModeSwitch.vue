@@ -1,20 +1,29 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
-import { resolveRouteForMode, useAuthStore, type AppMode } from '@/stores/auth'
+import { resolveRouteForMode, useAuthStore } from '@/stores/auth'
+import type { AppMode } from '@/types/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const modeButtons: Array<{ mode: AppMode; label: string }> = [
-  { mode: 'training', label: getAppModeDisplayLabel('training') },
-  { mode: 'management', label: getAppModeDisplayLabel('management') },
-  { mode: 'monitor', label: getAppModeDisplayLabel('monitor') },
-]
+const visibleModes = computed<AppMode[]>(() => (
+  authStore.availableModes.length
+    ? authStore.availableModes
+    : ['training', 'management', 'monitor']
+))
+
+const modeButtons = computed(() => (
+  visibleModes.value.map((mode) => ({
+    mode,
+    label: getAppModeDisplayLabel(mode),
+  }))
+))
 
 async function switchMode(mode: AppMode) {
-  if (authStore.currentMode === mode) return
+  if (!authStore.canUseMode(mode) || authStore.currentMode === mode) return
   authStore.setMode(mode)
   await router.push(resolveRouteForMode(mode))
 }

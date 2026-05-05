@@ -5,22 +5,41 @@ import { useRouter } from 'vue-router'
 import { fetchTrainingSyncIssues, retryTrainingSyncIssue } from '@/api/sessions'
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useAthletesStore } from '@/stores/athletes'
 import { usePlansStore } from '@/stores/plans'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const athletesStore = useAthletesStore()
 const plansStore = usePlansStore()
+
 const syncIssues = ref<any[]>([])
 const syncNotice = ref('')
 const syncNoticeTone = ref<'success' | 'warning' | 'error'>('success')
 const retryingIssueId = ref<number | null>(null)
 
+const activeAssignments = computed(() => plansStore.assignments.filter((item) => item.status === 'active').length)
+
+const actionCards = computed(() => {
+  const cards = [
+    { name: 'athletes', title: '运动员管理', description: '维护队员主档、项目、队伍和基础信息。', visible: true },
+    { name: 'exercises', title: '动作库', description: '浏览动作库，按权限进行维护。', visible: true },
+    { name: 'plans', title: '训练模板', description: '配置训练模板和动作项顺序。', visible: true },
+    { name: 'assignments', title: '计划分配', description: '按队伍和日期给运动员分配训练。', visible: true },
+    { name: 'training-reports', title: '训练数据', description: '查看训练执行、组记录和补录结果。', visible: true },
+    { name: 'logs', title: '日志', description: '追溯账号、模板、训练记录和危险操作。', visible: true },
+    { name: 'users', title: '账号管理', description: '创建账号、绑定队伍、启停用和重置密码。', visible: authStore.isAdmin },
+    { name: 'backups', title: '备份恢复', description: '查看备份列表并执行恢复。', visible: authStore.isAdmin },
+    { name: 'tests', title: '测试数据', description: '导入和维护阶段性测试记录。', visible: authStore.isAdmin },
+  ]
+
+  return cards.filter((card) => card.visible)
+})
+
 onMounted(async () => {
   await Promise.all([athletesStore.hydrate(), plansStore.hydrate(), loadSyncIssues()])
 })
-
-const activeAssignments = computed(() => plansStore.assignments.filter((item) => item.status === 'active').length)
 
 async function loadSyncIssues() {
   syncIssues.value = await fetchTrainingSyncIssues({ issue_status: 'manual_retry_required' })
@@ -34,7 +53,7 @@ async function retrySyncIssue(issueId: number) {
     syncNoticeTone.value = 'success'
     await loadSyncIssues()
   } catch {
-    syncNotice.value = '手动重试失败，请回到训练模式所在设备继续处理。'
+    syncNotice.value = '手动重试失败，请回到训练端所在设备继续处理。'
     syncNoticeTone.value = 'warning'
   } finally {
     retryingIssueId.value = null
@@ -47,20 +66,19 @@ async function retrySyncIssue(issueId: number) {
     <div class="hero-grid">
       <section class="hero-card">
         <p class="hero-label">管理模式</p>
-        <h3>在这里维护动作库、训练模板、计划分配、训练数据和测试数据</h3>
-        <p class="hero-copy">
-          当前页面面向教练使用，重点放在制定训练计划、分配周期、查看训练执行结果和维护基础资料。
-        </p>
+        <h3>围绕训练主链维护队伍、模板、计划、日志和训练数据。</h3>
+        <p class="hero-copy">账号体系已经接入后，当前页面会按角色收口入口。管理员可以管理账号、备份和测试数据；教练只看到本步允许的管理能力。</p>
         <div class="hero-actions">
-          <button class="primary-btn hero-btn" @click="router.push({ name: 'plans' })">管理训练模板</button>
-          <button class="secondary-btn hero-btn" @click="router.push({ name: 'assignments' })">管理计划分配</button>
-          <button class="secondary-btn hero-btn" @click="router.push({ name: 'training-reports' })">查看训练数据</button>
+          <button class="primary-btn hero-btn" @click="router.push({ name: 'plans' })">训练模板</button>
+          <button class="secondary-btn hero-btn" @click="router.push({ name: 'assignments' })">计划分配</button>
+          <button class="secondary-btn hero-btn" @click="router.push({ name: 'training-reports' })">训练数据</button>
         </div>
       </section>
+
       <section class="hero-side">
-        <StatCard label="运动员" :value="athletesStore.athletes.length" hint="当前系统中的运动员总数" />
-        <StatCard label="训练模板" :value="plansStore.templates.length" hint="当前可分配模板数量" />
-        <StatCard label="进行中计划" :value="activeAssignments" hint="支持同一周期多份计划并行" />
+        <StatCard label="运动员" :value="athletesStore.athletes.length" hint="当前可见的运动员总数" />
+        <StatCard label="训练模板" :value="plansStore.templates.length" hint="当前账号可见的模板数量" />
+        <StatCard label="进行中计划" :value="activeAssignments" hint="当前处于 active 状态的计划数" />
       </section>
     </div>
 
@@ -72,11 +90,13 @@ async function retrySyncIssue(issueId: number) {
         </div>
         <button class="secondary-btn" type="button" @click="loadSyncIssues">刷新异常</button>
       </div>
+
       <p v-if="syncNotice" class="sync-notice" :class="syncNoticeTone">{{ syncNotice }}</p>
+
       <div v-if="syncIssues.length" class="sync-issue-list">
         <article v-for="issue in syncIssues" :key="issue.id" class="sync-issue-card">
           <div class="sync-issue-copy">
-            <strong>{{ issue.athlete_name || `运动员 ${issue.athlete_id}` }}｜{{ issue.session_date }}</strong>
+            <strong>{{ issue.athlete_name || `运动员 ${issue.athlete_id}` }} · {{ issue.session_date }}</strong>
             <span>{{ issue.summary }}</span>
             <span v-if="issue.last_error" class="sync-issue-error">最近错误：{{ issue.last_error }}</span>
           </div>
@@ -90,35 +110,22 @@ async function retrySyncIssue(issueId: number) {
           </button>
         </article>
       </div>
+
       <div v-else class="sync-empty">当前没有待处理的同步异常。</div>
     </section>
 
-    <div class="panel dashboard-panels">
-      <button class="simple-card action-card" @click="router.push({ name: 'athletes' })">
-        <strong>运动员管理</strong>
-        <span>维护基础资料、所属队伍、位置和备注。</span>
+    <section class="panel dashboard-panels">
+      <button
+        v-for="card in actionCards"
+        :key="card.name"
+        class="simple-card action-card"
+        type="button"
+        @click="router.push({ name: card.name })"
+      >
+        <strong>{{ card.title }}</strong>
+        <span>{{ card.description }}</span>
       </button>
-      <button class="simple-card action-card" @click="router.push({ name: 'exercises' })">
-        <strong>动作库管理</strong>
-        <span>维护动作标签、技术要点、视频地址和训练属性。</span>
-      </button>
-      <button class="simple-card action-card" @click="router.push({ name: 'plans' })">
-        <strong>模板管理</strong>
-        <span>创建多动作模板，设置负荷方式、组次数和进阶逻辑。</span>
-      </button>
-      <button class="simple-card action-card" @click="router.push({ name: 'training-reports' })">
-        <strong>训练数据</strong>
-        <span>查看计划执行情况、组次完成度、主项重量变化和异常提醒。</span>
-      </button>
-      <button class="simple-card action-card" @click="router.push({ name: 'backups' })">
-        <strong>备份恢复</strong>
-        <span>查看备份列表，执行整库恢复或某类数据恢复。</span>
-      </button>
-      <button class="simple-card action-card" @click="router.push({ name: 'tests' })">
-        <strong>测试数据</strong>
-        <span>记录深蹲、卧推、纵跳、冲刺等测试结果，供分配联动使用。</span>
-      </button>
-    </div>
+    </section>
   </AppShell>
 </template>
 

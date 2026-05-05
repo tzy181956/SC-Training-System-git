@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -16,6 +17,8 @@ class UserManagementRead(ORMModel):
     team_id: int | None = None
     team_name: str | None = None
     is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class UserCreate(BaseModel):

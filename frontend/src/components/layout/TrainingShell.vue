@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useSlots } from 'vue'
 
-import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
-import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
+import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 import RuntimeAccessCard from '@/components/layout/RuntimeAccessCard.vue'
 import '@/components/training/trainingLayout.css'
+import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
+import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 
 const slots = useSlots()
 const runtimeAccess = ref<RuntimeAccessInfo>({
@@ -16,7 +17,7 @@ const runtimeAccess = ref<RuntimeAccessInfo>({
   source: 'fallback',
 })
 
-const hasHeaderFilters = computed(() => !!slots['header-filters'])
+const hasHeaderFilters = computed(() => Boolean(slots['header-filters']))
 const trainingModeLabel = getAppModeDisplayLabel('training')
 
 onMounted(async () => {
@@ -41,6 +42,7 @@ onMounted(async () => {
 
       <div class="topbar-actions">
         <RuntimeAccessCard class="topbar-action secondary-action" :info="runtimeAccess" />
+        <AuthUserBar class="topbar-action" />
         <AppModeSwitch class="mode-switcher" />
       </div>
     </header>
