@@ -9,14 +9,24 @@ class TestTypeDefinition(BaseModel):
 
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     notes: Mapped[str | None] = mapped_column(Text)
 
+    team = relationship("Team", back_populates="test_type_definitions")
     metrics = relationship(
         "TestMetricDefinition",
         back_populates="test_type",
         cascade="all, delete-orphan",
         order_by="TestMetricDefinition.name",
     )
+
+    @property
+    def is_system(self) -> bool:
+        return self.team_id is None
+
+    @property
+    def team_name(self) -> str | None:
+        return self.team.name if self.team else None
 
 
 class TestMetricDefinition(BaseModel):

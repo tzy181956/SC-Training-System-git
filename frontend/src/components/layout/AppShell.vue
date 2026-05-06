@@ -20,8 +20,8 @@ const allLinks: Array<{ name: string; label: string; roles: UserRoleCode[] }> = 
   { name: 'training-reports', label: '训练数据', roles: ['admin', 'coach'] },
   { name: 'users', label: '账号管理', roles: ['admin'] },
   { name: 'backups', label: '备份恢复', roles: ['admin'] },
-  { name: 'logs', label: '日志', roles: ['admin', 'coach'] },
-  { name: 'tests', label: '测试数据', roles: ['admin'] },
+  { name: 'logs', label: '日志', roles: ['admin'] },
+  { name: 'tests', label: '测试数据', roles: ['admin', 'coach'] },
 ]
 
 const links = computed(() => {

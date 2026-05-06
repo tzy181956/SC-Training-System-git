@@ -3,7 +3,7 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
-import { fetchAthletes } from '@/api/athletes'
+import { fetchAthletes, fetchTeams, type TeamRead } from '@/api/athletes'
 import {
   createTestMetricDefinition,
   createTestRecord,
@@ -22,6 +22,7 @@ import {
   type TestTypeDefinitionRead,
 } from '@/api/testRecords'
 import AppShell from '@/components/layout/AppShell.vue'
+import { useAuthStore } from '@/stores/auth'
 import { todayString } from '@/utils/date'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
 import { getTestMetricDirectionMeta } from '@/utils/testMetricDirection'
@@ -58,9 +59,14 @@ type MetricRangePoint = {
 
 type ManagedMetricDefinition = TestMetricDefinitionRead & {
   test_type_name: string
+  team_id?: number | null
+  team_name?: string | null
+  is_system: boolean
 }
 
+const authStore = useAuthStore()
 const athletes = ref<Athlete[]>([])
+const teams = ref<TeamRead[]>([])
 const records = ref<TestRecord[]>([])
 const definitions = ref<TestTypeDefinitionRead[]>([])
 const chartRef = ref<HTMLDivElement | null>(null)
@@ -114,6 +120,7 @@ const entryPanelOpen = ref(false)
 
 const typeForm = reactive({
   name: '',
+  team_id: null as number | null,
   notes: '',
 })
 
@@ -140,8 +147,15 @@ const metricDefinitions = computed<ManagedMetricDefinition[]>(() =>
     definition.metrics.map((metric) => ({
       ...metric,
       test_type_name: definition.name,
+      team_id: definition.team_id,
+      team_name: definition.team_name,
+      is_system: definition.is_system,
     })),
   ),
+)
+
+const editableTypeDefinitions = computed(() =>
+  authStore.isAdmin ? definitions.value : definitions.value.filter((definition) => !definition.is_system),
 )
 
 const availableMetricDefinitions = computed(() => selectedTypeDefinition.value?.metrics || [])
@@ -298,12 +312,14 @@ const entryActiveUnit = computed(() => entryForm.unit || selectedMetricDefinitio
 async function hydrate() {
   loading.value = true
   try {
-    const [athleteData, recordData, catalog] = await Promise.all([
+    const [athleteData, teamData, recordData, catalog] = await Promise.all([
       fetchAthletes(),
+      fetchTeams(),
       fetchTestRecords(),
       fetchTestDefinitions(),
     ])
     athletes.value = athleteData
+    teams.value = teamData
     records.value = recordData
     definitions.value = catalog.types || []
     syncTrendFilterSelection({
@@ -552,6 +568,9 @@ function handleTrendMetricChange() {
 function openTypeManager() {
   typeManagerError.value = ''
   typeManagerOpen.value = true
+  if (!editingTypeId.value && authStore.isAdmin) {
+    typeForm.team_id = null
+  }
 }
 
 function closeTypeManager() {
@@ -573,13 +592,22 @@ function closeMetricManager() {
 }
 
 function startEditType(definition: TestTypeDefinitionRead) {
+  if (!canEditType(definition)) {
+    typeManagerError.value = '系统测试类型仅管理员可维护'
+    return
+  }
   editingTypeId.value = definition.id
   typeForm.name = definition.name
+  typeForm.team_id = definition.team_id ?? null
   typeForm.notes = definition.notes || ''
   typeManagerError.value = ''
 }
 
 function startEditMetric(definition: ManagedMetricDefinition) {
+  if (!canEditMetric(definition)) {
+    metricManagerError.value = '系统测试项目仅管理员可维护'
+    return
+  }
   editingMetricId.value = definition.id
   metricForm.test_type_id = definition.test_type_id
   metricForm.name = definition.name
@@ -602,6 +630,7 @@ async function submitType() {
       name: typeForm.name.trim(),
       code: resolveTypeCode(),
       notes: normalizeOptionalText(typeForm.notes),
+      ...(editingTypeId.value ? {} : { team_id: authStore.isAdmin ? typeForm.team_id : undefined }),
     }
     const saved = editingTypeId.value
       ? await updateTestTypeDefinition(editingTypeId.value, payload)
@@ -628,6 +657,11 @@ async function submitMetric() {
 
   metricSubmitting.value = true
   try {
+    const selectedType = editableTypeDefinitions.value.find((item) => item.id === metricForm.test_type_id)
+    if (!selectedType) {
+      metricManagerError.value = authStore.isAdmin ? '请选择所属测试类型' : '队伍账号只能在本队自建测试类型下维护测试项目'
+      return
+    }
     const payload = {
       test_type_id: metricForm.test_type_id,
       name: metricForm.name.trim(),
@@ -653,6 +687,10 @@ async function submitMetric() {
 }
 
 async function removeType(definition: TestTypeDefinitionRead) {
+  if (!canEditType(definition)) {
+    typeManagerError.value = '系统测试类型仅管理员可维护'
+    return
+  }
   const confirmed = confirmDangerousAction({
     title: '删除测试类型',
     impactLines: [
@@ -680,6 +718,10 @@ async function removeType(definition: TestTypeDefinitionRead) {
 }
 
 async function removeMetric(definition: ManagedMetricDefinition) {
+  if (!canEditMetric(definition)) {
+    metricManagerError.value = '系统测试项目仅管理员可维护'
+    return
+  }
   const confirmed = confirmDangerousAction({
     title: '删除测试项目',
     impactLines: [
@@ -709,6 +751,7 @@ async function removeMetric(definition: ManagedMetricDefinition) {
 function resetTypeForm() {
   editingTypeId.value = null
   typeForm.name = ''
+  typeForm.team_id = null
   typeForm.notes = ''
 }
 
@@ -723,11 +766,24 @@ function resetMetricForm() {
 
 function resolvePreferredTypeId() {
   return (
-    selectedTypeDefinition.value?.id ||
-    definitions.value.find((item) => item.metrics.length > 0)?.id ||
-    definitions.value[0]?.id ||
+    editableTypeDefinitions.value.find((item) => item.id === selectedTypeDefinition.value?.id)?.id ||
+    editableTypeDefinitions.value.find((item) => item.metrics.length > 0)?.id ||
+    editableTypeDefinitions.value[0]?.id ||
     null
   )
+}
+
+function canEditType(definition: TestTypeDefinitionRead) {
+  return authStore.isAdmin || !definition.is_system
+}
+
+function canEditMetric(definition: ManagedMetricDefinition) {
+  return authStore.isAdmin || !definition.is_system
+}
+
+function resolveDefinitionScopeLabel(definition: { is_system: boolean; team_name?: string | null }) {
+  if (definition.is_system) return '系统项目'
+  return definition.team_name ? `${definition.team_name} / 本队项目` : '本队项目'
 }
 
 function resolveTypeCode() {
@@ -1309,11 +1365,14 @@ onMounted(hydrate)
               <div v-for="definition in definitions" :key="definition.id" class="manager-row">
                 <div class="manager-row-copy">
                   <strong>{{ definition.name }}</strong>
+                  <span class="scope-tag" :class="definition.is_system ? 'scope-tag-system' : 'scope-tag-team'">
+                    {{ resolveDefinitionScopeLabel(definition) }}
+                  </span>
                   <span class="manager-row-meta">编码：{{ definition.code }}</span>
                   <span class="manager-row-meta">测试项目：{{ definition.metrics.length }} 个</span>
                   <p v-if="definition.notes" class="manager-row-notes">{{ definition.notes }}</p>
                 </div>
-                <div class="manager-row-actions">
+                <div v-if="canEditType(definition)" class="manager-row-actions">
                   <button class="ghost-btn slim" type="button" @click="startEditType(definition)">编辑</button>
                   <button
                     class="ghost-btn slim danger-btn"
@@ -1337,11 +1396,22 @@ onMounted(hydrate)
               <span>测试类型名称 <strong class="required-mark">*</strong></span>
               <input v-model="typeForm.name" class="text-input" placeholder="例如：力量测试" />
             </label>
+            <label v-if="authStore.isAdmin" class="field">
+              <span>项目范围</span>
+              <select v-model="typeForm.team_id" class="text-input" :disabled="Boolean(editingTypeId)">
+                <option :value="null">系统项目（所有队伍可见）</option>
+                <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
+              </select>
+            </label>
             <label class="field">
               <span>备注</span>
               <textarea v-model="typeForm.notes" class="text-input manager-textarea" placeholder="可选" />
             </label>
-            <p class="manager-help">编码按名称自动生成；删除一级分类前，需要先处理挂在其下的全部二级分类。</p>
+            <p class="manager-help">
+              {{ authStore.isAdmin
+                ? '管理员可新建系统项目，也可通过接口创建指定队伍私有项目；当前页面编辑时不调整作用域。'
+                : '队伍账号新建的测试类型默认归属当前队伍，仅本队和管理员可见。' }}
+            </p>
             <div class="manager-form-actions">
               <button class="primary-btn" type="submit" :disabled="typeSubmitting || !canSubmitType">
                 {{ typeSubmitting ? '保存中...' : editingTypeId ? '保存修改' : '新增测试类型' }}
@@ -1376,7 +1446,7 @@ onMounted(hydrate)
               <div v-for="definition in metricDefinitions" :key="definition.id" class="manager-row">
                 <div class="manager-row-copy">
                   <strong>{{ definition.name }}</strong>
-                  <span class="manager-row-meta">所属测试类型：{{ definition.test_type_name }}</span>
+                  <span class="manager-row-meta">所属测试类型：{{ definition.test_type_name }} / {{ resolveDefinitionScopeLabel(definition) }}</span>
                   <span class="manager-row-meta">默认单位：{{ definition.default_unit || '未设置' }}</span>
                   <span class="manager-row-meta">
                     项目方向：
@@ -1390,7 +1460,7 @@ onMounted(hydrate)
                   <span class="manager-row-meta">编码：{{ definition.code }}</span>
                   <p v-if="definition.notes" class="manager-row-notes">{{ definition.notes }}</p>
                 </div>
-                <div class="manager-row-actions">
+                <div v-if="canEditMetric(definition)" class="manager-row-actions">
                   <button class="ghost-btn slim" type="button" @click="startEditMetric(definition)">编辑</button>
                   <button
                     class="ghost-btn slim danger-btn"
@@ -1414,7 +1484,7 @@ onMounted(hydrate)
               <span>所属测试类型 <strong class="required-mark">*</strong></span>
               <select v-model="metricForm.test_type_id" class="text-input">
                 <option :value="null">请选择测试类型</option>
-                <option v-for="definition in definitions" :key="definition.id" :value="definition.id">
+                <option v-for="definition in editableTypeDefinitions" :key="definition.id" :value="definition.id">
                   {{ definition.name }}
                 </option>
               </select>
@@ -1435,12 +1505,16 @@ onMounted(hydrate)
               <span>备注</span>
               <textarea v-model="metricForm.notes" class="text-input manager-textarea" placeholder="可选" />
             </label>
-            <p class="manager-help">可以把同一个二级分类改挂到别的一级分类下；历史测试记录仍保留原来的字符串快照。</p>
+            <p class="manager-help">
+              {{ authStore.isAdmin
+                ? '管理员可以把测试项目挂到任意系统或队伍私有测试类型下。'
+                : '队伍账号只能在本队自建测试类型下维护测试项目；系统项目可用但不可改。' }}
+            </p>
             <div class="manager-form-actions">
               <button
                 class="primary-btn"
                 type="submit"
-                :disabled="metricSubmitting || !canSubmitMetric || !definitions.length"
+                :disabled="metricSubmitting || !canSubmitMetric || !editableTypeDefinitions.length"
               >
                 {{ metricSubmitting ? '保存中...' : editingMetricId ? '保存修改' : '新增测试项目' }}
               </button>
@@ -1765,6 +1839,27 @@ onMounted(hydrate)
 .manager-help {
   color: var(--muted);
   font-size: 13px;
+}
+
+.scope-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  width: fit-content;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scope-tag-system {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.scope-tag-team {
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
 }
 
 .direction-tag {

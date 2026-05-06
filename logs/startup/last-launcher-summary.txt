@@ -1,7 +1,7 @@
 ﻿Training Platform launcher success summary
-Time: 2026-05-05 12:02:54
+Time: 2026-05-06 12:48:30
 Mode: start
 Result: Startup finish
-Detail: Browser entry prepared at http://192.168.1.12:5173/
-Access URL: http://192.168.1.12:5173/
-Detailed log: C:\Users\Tian Ziyu\Documents\New project\logs\startup\last-launcher-detail.log
+Detail: Browser entry prepared at http://172.31.1.234:5173/
+Access URL: http://172.31.1.234:5173/
+Detailed log: C:\Users\Tian Ziyu\Documents\SC-Training-System-git\logs\startup\last-launcher-detail.log

@@ -9,6 +9,9 @@ from app.models import (
     Athlete,
     AthletePlanAssignment,
     SetRecord,
+    TestMetricDefinition,
+    TestRecord,
+    TestTypeDefinition,
     TrainingPlanTemplate,
     TrainingPlanTemplateItem,
     TrainingSession,
@@ -20,8 +23,9 @@ from app.models import (
 
 TEAM_BINDING_REQUIRED_DETAIL = "当前账号未绑定队伍"
 TEAM_ACCESS_DENIED_DETAIL = "无权访问其他队伍数据"
-GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL = "无权修改全局模板"
+GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL = "无权修改系统训练模板"
 GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL = "无权分配其他队伍模板"
+GLOBAL_TEST_DEFINITION_EDIT_DENIED_DETAIL = "无权修改系统测试项目"
 
 
 def normalize_role_code(role_code: str | None) -> str:
@@ -121,9 +125,7 @@ def get_accessible_template(
 
     scoped_team_id = ensure_team_bound_user(user)
     if template.team_id is None:
-        if allow_global_write:
-            return template
-        if allow_global_read:
+        if allow_global_write or allow_global_read:
             return template
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
     if template.team_id != scoped_team_id:
@@ -193,10 +195,7 @@ def get_accessible_template_item(
     scoped_team_id = ensure_team_bound_user(user)
     if template.team_id is None:
         if allow_global_write or allow_global_read:
-            if allow_global_write:
-                return item
-            if allow_global_read:
-                return item
+            return item
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
     if template.team_id != scoped_team_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_ACCESS_DENIED_DETAIL)
@@ -282,3 +281,97 @@ def get_accessible_sync_issue(db: Session, user: User, issue_id: int) -> Trainin
     athlete = get_accessible_athlete(db, user, issue.athlete_id)
     ensure_team_access(user, athlete.team_id)
     return issue
+
+
+def get_accessible_test_type_definition(
+    db: Session,
+    user: User,
+    definition_id: int,
+    *,
+    allow_system_read: bool = True,
+    allow_system_write: bool = False,
+) -> TestTypeDefinition:
+    definition = (
+        db.query(TestTypeDefinition)
+        .options(joinedload(TestTypeDefinition.team), joinedload(TestTypeDefinition.metrics))
+        .filter(TestTypeDefinition.id == definition_id)
+        .first()
+    )
+    if not definition:
+        raise not_found("Test type definition not found")
+
+    _ensure_test_type_access(
+        user,
+        definition,
+        allow_system_read=allow_system_read,
+        allow_system_write=allow_system_write,
+    )
+    return definition
+
+
+def get_accessible_test_metric_definition(
+    db: Session,
+    user: User,
+    definition_id: int,
+    *,
+    allow_system_read: bool = True,
+    allow_system_write: bool = False,
+) -> TestMetricDefinition:
+    definition = (
+        db.query(TestMetricDefinition)
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
+        .filter(TestMetricDefinition.id == definition_id)
+        .first()
+    )
+    if not definition:
+        raise not_found("Test metric definition not found")
+    if definition.test_type is None:
+        raise not_found("Test type definition not found")
+
+    _ensure_test_type_access(
+        user,
+        definition.test_type,
+        allow_system_read=allow_system_read,
+        allow_system_write=allow_system_write,
+    )
+    return definition
+
+
+def ensure_test_type_writable(user: User, definition: TestTypeDefinition) -> TestTypeDefinition:
+    _ensure_test_type_access(user, definition, allow_system_read=False, allow_system_write=False)
+    return definition
+
+
+def get_accessible_test_record(db: Session, user: User, record_id: int) -> TestRecord:
+    record = (
+        db.query(TestRecord)
+        .options(
+            joinedload(TestRecord.athlete).joinedload(Athlete.team),
+            joinedload(TestRecord.athlete).joinedload(Athlete.sport),
+        )
+        .filter(TestRecord.id == record_id)
+        .first()
+    )
+    if not record:
+        raise not_found("Test record not found")
+    ensure_team_access(user, record.athlete.team_id if record.athlete else None)
+    return record
+
+
+def _ensure_test_type_access(
+    user: User,
+    definition: TestTypeDefinition,
+    *,
+    allow_system_read: bool,
+    allow_system_write: bool,
+) -> None:
+    if is_admin(user):
+        return
+
+    scoped_team_id = ensure_team_bound_user(user)
+    if definition.team_id is None:
+        if allow_system_write or allow_system_read:
+            return
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEST_DEFINITION_EDIT_DENIED_DETAIL)
+    if definition.team_id != scoped_team_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_ACCESS_DENIED_DETAIL)

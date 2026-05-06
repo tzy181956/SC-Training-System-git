@@ -2,6 +2,12 @@ import type { AppMode } from '@/types/auth'
 
 const ACCESS_TOKEN_STORAGE_KEY = 'training-platform-access-token'
 const MODE_STORAGE_KEY = 'training-platform-mode'
+const MANAGEMENT_UNLOCK_STORAGE_KEY = 'training-platform-management-unlock'
+
+export type StoredManagementUnlock = {
+  userId: number
+  unlockedUntil: number
+}
 
 function readStorageValue(key: string): string | null {
   const value = localStorage.getItem(key)
@@ -38,7 +44,34 @@ export function clearStoredPreferredMode() {
   localStorage.removeItem(MODE_STORAGE_KEY)
 }
 
+export function getStoredManagementUnlock(): StoredManagementUnlock | null {
+  const value = readStorageValue(MANAGEMENT_UNLOCK_STORAGE_KEY)
+  if (!value) return null
+
+  try {
+    const parsed = JSON.parse(value) as Partial<StoredManagementUnlock>
+    if (typeof parsed.userId !== 'number' || typeof parsed.unlockedUntil !== 'number') {
+      return null
+    }
+    return {
+      userId: parsed.userId,
+      unlockedUntil: parsed.unlockedUntil,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function setStoredManagementUnlock(payload: StoredManagementUnlock) {
+  localStorage.setItem(MANAGEMENT_UNLOCK_STORAGE_KEY, JSON.stringify(payload))
+}
+
+export function clearStoredManagementUnlock() {
+  localStorage.removeItem(MANAGEMENT_UNLOCK_STORAGE_KEY)
+}
+
 export function clearStoredAuthState() {
   clearStoredAccessToken()
   clearStoredPreferredMode()
+  clearStoredManagementUnlock()
 }

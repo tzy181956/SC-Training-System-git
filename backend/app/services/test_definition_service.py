@@ -1,38 +1,54 @@
+from __future__ import annotations
+
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.exceptions import bad_request, not_found
 from app.core.test_definition_defaults import (
     DEFAULT_TEST_DEFINITION_CATALOG,
     build_auto_test_metric_code,
     build_auto_test_type_code,
 )
-from app.core.exceptions import bad_request, not_found
-from app.models import TestMetricDefinition, TestRecord, TestTypeDefinition
+from app.models import Team, TestMetricDefinition, TestRecord, TestTypeDefinition, User
 from app.schemas.test_definition import (
     TestMetricDefinitionCreate,
     TestMetricDefinitionUpdate,
     TestTypeDefinitionCreate,
     TestTypeDefinitionUpdate,
 )
-from app.services import backup_service, dangerous_operation_service
+from app.services import access_control_service, backup_service, dangerous_operation_service
 
 
-def list_test_type_definitions(db: Session) -> list[TestTypeDefinition]:
-    return (
+def list_test_type_definitions(db: Session, *, visible_team_id: int | None = None) -> list[TestTypeDefinition]:
+    query = (
         db.query(TestTypeDefinition)
-        .options(joinedload(TestTypeDefinition.metrics))
-        .order_by(TestTypeDefinition.name.asc(), TestTypeDefinition.id.asc())
-        .all()
+        .options(
+            joinedload(TestTypeDefinition.team),
+            joinedload(TestTypeDefinition.metrics),
+        )
     )
-
-
-def list_test_metric_definitions(db: Session) -> list[TestMetricDefinition]:
+    if visible_team_id is not None:
+        query = query.filter(or_(TestTypeDefinition.team_id.is_(None), TestTypeDefinition.team_id == visible_team_id))
     return (
-        db.query(TestMetricDefinition)
-        .options(joinedload(TestMetricDefinition.test_type))
-        .order_by(TestMetricDefinition.name.asc(), TestMetricDefinition.id.asc())
+        query.order_by(
+            TestTypeDefinition.team_id.asc(),
+            TestTypeDefinition.name.asc(),
+            TestTypeDefinition.id.asc(),
+        )
         .all()
     )
+
+
+def list_test_metric_definitions(db: Session, *, visible_team_id: int | None = None) -> list[TestMetricDefinition]:
+    query = (
+        db.query(TestMetricDefinition)
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
+        .join(TestMetricDefinition.test_type)
+    )
+    if visible_team_id is not None:
+        query = query.filter(or_(TestTypeDefinition.team_id.is_(None), TestTypeDefinition.team_id == visible_team_id))
+    return query.order_by(TestTypeDefinition.name.asc(), TestMetricDefinition.name.asc(), TestMetricDefinition.id.asc()).all()
 
 
 def ensure_default_test_definition_catalog(db: Session, *, commit: bool = False) -> dict[str, int]:
@@ -46,6 +62,7 @@ def ensure_default_test_definition_catalog(db: Session, *, commit: bool = False)
             type_definition = TestTypeDefinition(
                 name=definition["name"],
                 code=definition["code"],
+                team_id=None,
                 notes=definition["notes"],
             )
             db.add(type_definition)
@@ -143,6 +160,7 @@ def ensure_test_definition_for_record_snapshot(
         type_definition = TestTypeDefinition(
             name=normalized_type_name,
             code=build_auto_test_type_code(normalized_type_name),
+            team_id=None,
             notes="由历史测试记录自动补建",
         )
         db.add(type_definition)
@@ -182,10 +200,17 @@ def ensure_test_definition_for_record_snapshot(
     }
 
 
-def create_test_type_definition(db: Session, payload: TestTypeDefinitionCreate) -> TestTypeDefinition:
+def create_test_type_definition(db: Session, payload: TestTypeDefinitionCreate, user: User) -> TestTypeDefinition:
+    team_id = _resolve_definition_team_id(db, payload, user)
+    normalized_name = payload.normalized_name()
+    normalized_code = payload.normalized_code()
+
+    _ensure_test_type_name_and_code_unique(db, name=normalized_name, code=normalized_code)
+
     definition = TestTypeDefinition(
-        name=payload.normalized_name(),
-        code=payload.normalized_code(),
+        name=normalized_name,
+        code=normalized_code,
+        team_id=team_id,
         notes=payload.normalized_notes(),
     )
     db.add(definition)
@@ -194,16 +219,34 @@ def create_test_type_definition(db: Session, payload: TestTypeDefinitionCreate) 
     return get_test_type_definition(db, definition.id)
 
 
-def update_test_type_definition(db: Session, definition_id: int, payload: TestTypeDefinitionUpdate) -> TestTypeDefinition:
-    definition = db.query(TestTypeDefinition).filter(TestTypeDefinition.id == definition_id).first()
-    if not definition:
-        raise not_found("测试类型不存在")
+def update_test_type_definition(
+    db: Session,
+    definition_id: int,
+    payload: TestTypeDefinitionUpdate,
+    user: User,
+) -> TestTypeDefinition:
+    definition = access_control_service.get_accessible_test_type_definition(
+        db,
+        user,
+        definition_id,
+        allow_system_read=False,
+        allow_system_write=False,
+    )
+
+    next_name = payload.normalized_name() if payload.name is not None else definition.name
+    next_code = payload.normalized_code() if payload.code is not None else definition.code
+    _ensure_test_type_name_and_code_unique(
+        db,
+        name=next_name,
+        code=next_code,
+        exclude_id=definition.id,
+    )
 
     updates = payload.model_dump(exclude_unset=True)
     if "name" in updates:
-        definition.name = payload.normalized_name()
+        definition.name = next_name
     if "code" in updates:
-        definition.code = payload.normalized_code()
+        definition.code = next_code
     if "notes" in updates:
         definition.notes = payload.normalized_notes()
 
@@ -211,14 +254,18 @@ def update_test_type_definition(db: Session, definition_id: int, payload: TestTy
     return get_test_type_definition(db, definition.id)
 
 
-def delete_test_type_definition(db: Session, definition_id: int, *, actor_name: str | None = None) -> None:
-    definition = db.query(TestTypeDefinition).options(joinedload(TestTypeDefinition.metrics)).filter(TestTypeDefinition.id == definition_id).first()
-    if not definition:
-        raise not_found("测试类型不存在")
+def delete_test_type_definition(db: Session, definition_id: int, user: User, *, actor_name: str | None = None) -> None:
+    definition = access_control_service.get_accessible_test_type_definition(
+        db,
+        user,
+        definition_id,
+        allow_system_read=False,
+        allow_system_write=False,
+    )
 
     metric_count = len(definition.metrics or [])
     if metric_count:
-        raise bad_request(f"该测试类型下仍有 {metric_count} 个测试项目，请先处理这些二级分类后再删除。")
+        raise bad_request(f"该测试类型下仍有 {metric_count} 个测试项目，请先处理这些测试项目后再删除。")
 
     historical_record_count = db.query(TestRecord).filter(TestRecord.test_type == definition.name).count()
     backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"delete_test_type_definition_{definition_id}")
@@ -233,6 +280,8 @@ def delete_test_type_definition(db: Session, definition_id: int, *, actor_name: 
         impact_scope={
             "test_type_name": definition.name,
             "test_type_code": definition.code,
+            "team_id": definition.team_id,
+            "team_name": definition.team_name,
             "historical_record_count": historical_record_count,
             "note": "删除测试类型定义不会删除已有历史测试记录。",
         },
@@ -244,19 +293,26 @@ def delete_test_type_definition(db: Session, definition_id: int, *, actor_name: 
 def get_test_type_definition(db: Session, definition_id: int) -> TestTypeDefinition:
     definition = (
         db.query(TestTypeDefinition)
-        .options(joinedload(TestTypeDefinition.metrics))
+        .options(
+            joinedload(TestTypeDefinition.team),
+            joinedload(TestTypeDefinition.metrics),
+        )
         .filter(TestTypeDefinition.id == definition_id)
         .first()
     )
     if not definition:
-        raise not_found("测试类型不存在")
+        raise not_found("Test type definition not found")
     return definition
 
 
-def create_test_metric_definition(db: Session, payload: TestMetricDefinitionCreate) -> TestMetricDefinition:
-    test_type = db.query(TestTypeDefinition).filter(TestTypeDefinition.id == payload.test_type_id).first()
-    if not test_type:
-        raise bad_request("所属测试类型不存在，请先刷新后重试。")
+def create_test_metric_definition(db: Session, payload: TestMetricDefinitionCreate, user: User) -> TestMetricDefinition:
+    test_type = access_control_service.get_accessible_test_type_definition(
+        db,
+        user,
+        payload.test_type_id,
+        allow_system_read=False,
+        allow_system_write=False,
+    )
 
     definition = TestMetricDefinition(
         test_type_id=test_type.id,
@@ -271,15 +327,28 @@ def create_test_metric_definition(db: Session, payload: TestMetricDefinitionCrea
     return get_test_metric_definition(db, definition.id)
 
 
-def update_test_metric_definition(db: Session, definition_id: int, payload: TestMetricDefinitionUpdate) -> TestMetricDefinition:
-    definition = db.query(TestMetricDefinition).filter(TestMetricDefinition.id == definition_id).first()
-    if not definition:
-        raise not_found("测试项目不存在")
+def update_test_metric_definition(
+    db: Session,
+    definition_id: int,
+    payload: TestMetricDefinitionUpdate,
+    user: User,
+) -> TestMetricDefinition:
+    definition = access_control_service.get_accessible_test_metric_definition(
+        db,
+        user,
+        definition_id,
+        allow_system_read=False,
+        allow_system_write=False,
+    )
 
-    if payload.test_type_id is not None:
-        test_type = db.query(TestTypeDefinition).filter(TestTypeDefinition.id == payload.test_type_id).first()
-        if not test_type:
-            raise bad_request("所属测试类型不存在，请先刷新后重试。")
+    if payload.test_type_id is not None and payload.test_type_id != definition.test_type_id:
+        test_type = access_control_service.get_accessible_test_type_definition(
+            db,
+            user,
+            payload.test_type_id,
+            allow_system_read=False,
+            allow_system_write=False,
+        )
         definition.test_type_id = test_type.id
 
     updates = payload.model_dump(exclude_unset=True)
@@ -298,10 +367,14 @@ def update_test_metric_definition(db: Session, definition_id: int, payload: Test
     return get_test_metric_definition(db, definition.id)
 
 
-def delete_test_metric_definition(db: Session, definition_id: int, *, actor_name: str | None = None) -> None:
-    definition = db.query(TestMetricDefinition).options(joinedload(TestMetricDefinition.test_type)).filter(TestMetricDefinition.id == definition_id).first()
-    if not definition:
-        raise not_found("测试项目不存在")
+def delete_test_metric_definition(db: Session, definition_id: int, user: User, *, actor_name: str | None = None) -> None:
+    definition = access_control_service.get_accessible_test_metric_definition(
+        db,
+        user,
+        definition_id,
+        allow_system_read=False,
+        allow_system_write=False,
+    )
 
     historical_record_count = db.query(TestRecord).filter(
         TestRecord.test_type == (definition.test_type.name if definition.test_type else ""),
@@ -320,6 +393,8 @@ def delete_test_metric_definition(db: Session, definition_id: int, *, actor_name
             "metric_name": definition.name,
             "metric_code": definition.code,
             "test_type_name": definition.test_type.name if definition.test_type else None,
+            "team_id": definition.test_type.team_id if definition.test_type else None,
+            "team_name": definition.test_type.team_name if definition.test_type else None,
             "historical_record_count": historical_record_count,
             "note": "删除测试项目定义不会删除已有历史测试记录。",
         },
@@ -331,13 +406,43 @@ def delete_test_metric_definition(db: Session, definition_id: int, *, actor_name
 def get_test_metric_definition(db: Session, definition_id: int) -> TestMetricDefinition:
     definition = (
         db.query(TestMetricDefinition)
-        .options(joinedload(TestMetricDefinition.test_type))
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
         .filter(TestMetricDefinition.id == definition_id)
         .first()
     )
     if not definition:
-        raise not_found("测试项目不存在")
+        raise not_found("Test metric definition not found")
     return definition
+
+
+def require_visible_metric_definition(
+    db: Session,
+    *,
+    visible_team_id: int | None,
+    test_type_name: str,
+    metric_name: str,
+) -> TestMetricDefinition:
+    normalized_type_name = (test_type_name or "").strip()
+    normalized_metric_name = (metric_name or "").strip()
+    if not normalized_type_name or not normalized_metric_name:
+        raise bad_request("测试类型和测试项目不能为空。")
+
+    query = (
+        db.query(TestMetricDefinition)
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
+        .join(TestMetricDefinition.test_type)
+        .filter(
+            TestTypeDefinition.name == normalized_type_name,
+            TestMetricDefinition.name == normalized_metric_name,
+        )
+    )
+    if visible_team_id is not None:
+        query = query.filter(or_(TestTypeDefinition.team_id.is_(None), TestTypeDefinition.team_id == visible_team_id))
+    definition = query.first()
+    if definition:
+        return definition
+
+    raise bad_request("测试项目不存在，或当前账号无权使用该测试项目，请先检查测试项目目录。")
 
 
 def _commit_or_raise(db: Session, *, conflict_message: str) -> None:
@@ -346,6 +451,40 @@ def _commit_or_raise(db: Session, *, conflict_message: str) -> None:
     except IntegrityError as exc:
         db.rollback()
         raise bad_request(conflict_message) from exc
+
+
+def _resolve_definition_team_id(db: Session, payload: TestTypeDefinitionCreate, user: User) -> int | None:
+    if access_control_service.is_admin(user):
+        team_id = payload.normalized_team_id()
+    else:
+        team_id = access_control_service.ensure_team_bound_user(user)
+    if team_id is not None:
+        _ensure_team_exists(db, team_id)
+    return team_id
+
+
+def _ensure_team_exists(db: Session, team_id: int) -> None:
+    if not db.query(Team.id).filter(Team.id == team_id).first():
+        raise bad_request("绑定队伍不存在，请刷新后重试。")
+
+
+def _ensure_test_type_name_and_code_unique(
+    db: Session,
+    *,
+    name: str,
+    code: str,
+    exclude_id: int | None = None,
+) -> None:
+    duplicate_name_query = db.query(TestTypeDefinition.id).filter(TestTypeDefinition.name == name)
+    duplicate_code_query = db.query(TestTypeDefinition.id).filter(TestTypeDefinition.code == code)
+    if exclude_id is not None:
+        duplicate_name_query = duplicate_name_query.filter(TestTypeDefinition.id != exclude_id)
+        duplicate_code_query = duplicate_code_query.filter(TestTypeDefinition.id != exclude_id)
+
+    if duplicate_name_query.first():
+        raise bad_request("测试类型名称已存在，请修改后重试。")
+    if duplicate_code_query.first():
+        raise bad_request("测试类型编码已存在，请修改后重试。")
 
 
 def _find_test_type_definition_by_name_or_code(db: Session, name: str, code: str) -> TestTypeDefinition | None:

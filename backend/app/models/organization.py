@@ -26,3 +26,4 @@ class Team(BaseModel):
 
     sport = relationship("Sport", back_populates="teams")
     athletes = relationship("Athlete", back_populates="team")
+    test_type_definitions = relationship("TestTypeDefinition", back_populates="team")

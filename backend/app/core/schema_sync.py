@@ -35,6 +35,7 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
         "ALTER TABLE test_metric_definitions ADD COLUMN is_lower_better BOOLEAN NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
+        "ALTER TABLE test_type_definitions ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]
 
     with engine.begin() as connection:
@@ -235,6 +236,7 @@ def ensure_runtime_schema() -> None:
                     id INTEGER PRIMARY KEY,
                     name VARCHAR(80) NOT NULL,
                     code VARCHAR(80) NOT NULL UNIQUE,
+                    team_id INTEGER REFERENCES teams(id),
                     notes TEXT,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -262,6 +264,9 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_id ON test_type_definitions(id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_team_id ON test_type_definitions(team_id)")
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_test_metric_definitions_id ON test_metric_definitions(id)")

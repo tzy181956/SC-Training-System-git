@@ -36,6 +36,9 @@ class TestTypeDefinitionSummaryRead(ORMModel):
     id: int
     name: str
     code: str
+    team_id: int | None = None
+    team_name: str | None = None
+    is_system: bool
     notes: str | None = None
 
 
@@ -54,6 +57,7 @@ class TestDefinitionCatalogRead(BaseModel):
 class TestTypeDefinitionCreate(BaseModel):
     name: str
     code: str
+    team_id: int | None = None
     notes: str | None = None
 
     def normalized_name(self) -> str:
@@ -64,6 +68,9 @@ class TestTypeDefinitionCreate(BaseModel):
 
     def normalized_notes(self) -> str | None:
         return _normalize_optional_text(self.notes)
+
+    def normalized_team_id(self) -> int | None:
+        return self.team_id
 
 
 class TestTypeDefinitionUpdate(BaseModel):

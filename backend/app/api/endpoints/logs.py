@@ -21,7 +21,7 @@ def list_logs(
     object_type: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
     return log_service.list_logs(
         db,

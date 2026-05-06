@@ -5,11 +5,16 @@ import { login as loginRequest, me as meRequest } from '@/api/auth'
 import type { AppMode, AuthUser, UserRoleCode } from '@/types/auth'
 import {
   clearStoredAuthState,
+  clearStoredManagementUnlock,
   getStoredAccessToken,
+  getStoredManagementUnlock,
   getStoredPreferredMode,
   setStoredAccessToken,
+  setStoredManagementUnlock,
   setStoredPreferredMode,
 } from '@/utils/authStorage'
+
+const MANAGEMENT_UNLOCK_DURATION_MS = 30 * 60 * 1000
 
 export type { AppMode, AuthUser, UserRoleCode } from '@/types/auth'
 
@@ -46,6 +51,8 @@ export const useAuthStore = defineStore('auth', () => {
   const currentMode = ref<AppMode>('training')
   const bootstrapped = ref(false)
   const bootstrappingPromise = ref<Promise<void> | null>(null)
+  const managementUnlockedUntil = ref<number | null>(null)
+  const pendingManagementPath = ref<string | null>(null)
 
   const isAuthenticated = computed(() => Boolean(accessToken.value && currentUser.value))
   const roleCode = computed<UserRoleCode | null>(() => currentUser.value?.role_code || null)
@@ -58,13 +65,86 @@ export const useAuthStore = defineStore('auth', () => {
   const isTraining = computed(() => roleCode.value === 'training')
   const canManageUsers = computed(() => Boolean(currentUser.value?.can_manage_users))
   const canManageSystem = computed(() => Boolean(currentUser.value?.can_manage_system))
-  const homeRoute = computed(() => (isAuthenticated.value ? resolveRouteForMode(currentMode.value) : { name: 'login' as const }))
+  const isManagementUnlocked = computed(() => (
+    isAdmin.value
+      || (isCoach.value && Boolean(managementUnlockedUntil.value && managementUnlockedUntil.value > Date.now()))
+  ))
+  const needsManagementPassword = computed(() => isCoach.value && !isManagementUnlocked.value)
+  const hasPendingManagementPath = computed(() => Boolean(pendingManagementPath.value))
+  const homeRoute = computed(() => (
+    isAuthenticated.value
+      ? resolveRouteForMode(currentMode.value)
+      : { name: 'login' as const }
+  ))
+
+  function clearManagementUnlock() {
+    managementUnlockedUntil.value = null
+    clearStoredManagementUnlock()
+  }
+
+  function refreshManagementUnlock() {
+    if (!managementUnlockedUntil.value) return false
+    if (managementUnlockedUntil.value <= Date.now()) {
+      clearManagementUnlock()
+      return false
+    }
+    return true
+  }
+
+  function hydrateManagementUnlockForUser(user: AuthUser) {
+    const storedUnlock = getStoredManagementUnlock()
+    if (
+      !storedUnlock
+      || storedUnlock.userId !== user.id
+      || storedUnlock.unlockedUntil <= Date.now()
+    ) {
+      clearManagementUnlock()
+      return
+    }
+
+    managementUnlockedUntil.value = storedUnlock.unlockedUntil
+  }
+
+  function unlockManagement(durationMs = MANAGEMENT_UNLOCK_DURATION_MS) {
+    if (!currentUser.value) return
+
+    const unlockedUntil = Date.now() + durationMs
+    managementUnlockedUntil.value = unlockedUntil
+    setStoredManagementUnlock({
+      userId: currentUser.value.id,
+      unlockedUntil,
+    })
+  }
+
+  function setPendingManagementPath(path: string | null) {
+    const normalized = (path || '').trim()
+    pendingManagementPath.value = normalized || null
+  }
+
+  function clearPendingManagementPath() {
+    pendingManagementPath.value = null
+  }
+
+  function consumePendingManagementPath() {
+    const path = pendingManagementPath.value
+    pendingManagementPath.value = null
+    return path
+  }
 
   function applyUser(user: AuthUser, options: { preferStoredMode: boolean }) {
     currentUser.value = user
+    hydrateManagementUnlockForUser(user)
+
     const fallbackMode = normalizeMode(user.mode) || 'training'
     const preferredMode = options.preferStoredMode ? getStoredPreferredMode() : null
-    const nextMode = resolveAllowedMode(preferredMode, user.available_modes, fallbackMode)
+    const requestedMode = (
+      user.role_code === 'coach'
+      && preferredMode === 'management'
+      && !refreshManagementUnlock()
+    )
+      ? null
+      : preferredMode
+    const nextMode = resolveAllowedMode(requestedMode, user.available_modes, fallbackMode)
     currentMode.value = nextMode
     setStoredPreferredMode(nextMode)
   }
@@ -86,6 +166,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (!accessToken.value) {
         currentUser.value = null
         currentMode.value = 'training'
+        clearManagementUnlock()
         bootstrapped.value = true
         return
       }
@@ -113,7 +194,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     const fallbackMode = normalizeMode(currentUser.value.mode) || 'training'
-    const nextMode = resolveAllowedMode(mode, availableModes.value, fallbackMode)
+    const requestedMode = (
+      mode === 'management'
+      && currentUser.value.role_code === 'coach'
+      && !refreshManagementUnlock()
+    )
+      ? fallbackMode
+      : mode
+    const nextMode = resolveAllowedMode(requestedMode, availableModes.value, fallbackMode)
     currentMode.value = nextMode
     setStoredPreferredMode(nextMode)
   }
@@ -130,6 +218,8 @@ export const useAuthStore = defineStore('auth', () => {
     const tokenResponse = await loginRequest(username.trim(), password)
     accessToken.value = tokenResponse.access_token
     setStoredAccessToken(tokenResponse.access_token)
+    clearManagementUnlock()
+    clearPendingManagementPath()
     bootstrapped.value = false
 
     try {
@@ -146,6 +236,8 @@ export const useAuthStore = defineStore('auth', () => {
     accessToken.value = null
     currentUser.value = null
     currentMode.value = 'training'
+    managementUnlockedUntil.value = null
+    pendingManagementPath.value = null
     bootstrapped.value = true
     clearStoredAuthState()
   }
@@ -159,6 +251,8 @@ export const useAuthStore = defineStore('auth', () => {
     currentUser,
     currentMode,
     bootstrapped,
+    managementUnlockedUntil,
+    pendingManagementPath,
     isAuthenticated,
     roleCode,
     availableModes,
@@ -168,6 +262,9 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
     isCoach,
     isTraining,
+    isManagementUnlocked,
+    needsManagementPassword,
+    hasPendingManagementPath,
     canManageUsers,
     canManageSystem,
     homeRoute,
@@ -178,5 +275,11 @@ export const useAuthStore = defineStore('auth', () => {
     setMode,
     syncModeFromRoute,
     canUseMode,
+    unlockManagement,
+    clearManagementUnlock,
+    refreshManagementUnlock,
+    setPendingManagementPath,
+    clearPendingManagementPath,
+    consumePendingManagementPath,
   }
 })

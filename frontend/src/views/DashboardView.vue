@@ -24,14 +24,14 @@ const activeAssignments = computed(() => plansStore.assignments.filter((item) =>
 const actionCards = computed(() => {
   const cards = [
     { name: 'athletes', title: '运动员管理', description: '维护队员主档、项目、队伍和基础信息。', visible: true },
-    { name: 'exercises', title: '动作库', description: '浏览动作库，按权限进行维护。', visible: true },
+    { name: 'exercises', title: '动作库', description: '浏览动作库，并按权限进行维护。', visible: true },
     { name: 'plans', title: '训练模板', description: '配置训练模板和动作项顺序。', visible: true },
     { name: 'assignments', title: '计划分配', description: '按队伍和日期给运动员分配训练。', visible: true },
     { name: 'training-reports', title: '训练数据', description: '查看训练执行、组记录和补录结果。', visible: true },
-    { name: 'logs', title: '日志', description: '追溯账号、模板、训练记录和危险操作。', visible: true },
+    { name: 'logs', title: '日志', description: '追溯账号、模板、训练记录和危险操作。', visible: authStore.isAdmin },
     { name: 'users', title: '账号管理', description: '创建账号、绑定队伍、启停用和重置密码。', visible: authStore.isAdmin },
     { name: 'backups', title: '备份恢复', description: '查看备份列表并执行恢复。', visible: authStore.isAdmin },
-    { name: 'tests', title: '测试数据', description: '导入和维护阶段性测试记录。', visible: authStore.isAdmin },
+    { name: 'tests', title: '测试数据', description: '导入和维护本队或系统可见的阶段性测试记录。', visible: true },
   ]
 
   return cards.filter((card) => card.visible)
@@ -66,8 +66,11 @@ async function retrySyncIssue(issueId: number) {
     <div class="hero-grid">
       <section class="hero-card">
         <p class="hero-label">管理模式</p>
-        <h3>围绕训练主链维护队伍、模板、计划、日志和训练数据。</h3>
-        <p class="hero-copy">账号体系已经接入后，当前页面会按角色收口入口。管理员可以管理账号、备份和测试数据；教练只看到本步允许的管理能力。</p>
+        <h3>围绕训练主链维护队伍、模板、计划、训练数据和账号入口。</h3>
+        <p class="hero-copy">
+          当前页面会按角色收口功能。超级管理员可以管理账号、日志、备份和全部测试数据；
+          队伍账号只看到当前允许使用的管理能力，并且只能管理本队测试数据。
+        </p>
         <div class="hero-actions">
           <button class="primary-btn hero-btn" @click="router.push({ name: 'plans' })">训练模板</button>
           <button class="secondary-btn hero-btn" @click="router.push({ name: 'assignments' })">计划分配</button>

@@ -15,7 +15,7 @@ import TrainingReportsView from '@/views/TrainingReportsView.vue'
 import TrainingSessionView from '@/views/TrainingSessionView.vue'
 import UsersView from '@/views/UsersView.vue'
 import pinia from '@/stores/pinia'
-import { useAuthStore } from '@/stores/auth'
+import { resolveRouteForMode, useAuthStore } from '@/stores/auth'
 import type { AppMode, UserRoleCode } from '@/types/auth'
 
 const ADMIN_ONLY_ROLES: UserRoleCode[] = ['admin']
@@ -78,13 +78,13 @@ const router = createRouter({
       path: '/logs',
       name: 'logs',
       component: LogsView,
-      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: ADMIN_ONLY_ROLES },
     },
     {
       path: '/tests',
       name: 'tests',
       component: TestRecordsView,
-      meta: { requiresAuth: true, mode: 'management', allowedRoles: ADMIN_ONLY_ROLES },
+      meta: { requiresAuth: true, mode: 'management', allowedRoles: COACH_AND_ADMIN_ROLES },
     },
     {
       path: '/users',
@@ -141,6 +141,20 @@ router.beforeEach(async (to) => {
   }
 
   const routeMode = to.meta.mode as AppMode | undefined
+  if (routeMode === 'management' && authStore.roleCode === 'coach') {
+    authStore.refreshManagementUnlock()
+    if (!authStore.isManagementUnlocked) {
+      authStore.setPendingManagementPath(to.fullPath)
+      const safeMode = (
+        authStore.currentMode !== 'management'
+        && authStore.canUseMode(authStore.currentMode)
+      )
+        ? authStore.currentMode
+        : 'training'
+      return resolveRouteForMode(safeMode)
+    }
+  }
+
   if (routeMode) {
     authStore.syncModeFromRoute(routeMode)
   }

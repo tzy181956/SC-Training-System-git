@@ -9,8 +9,9 @@ from openpyxl.styles import Font
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.test_definition_defaults import DEFAULT_TEST_DEFINITION_CATALOG
-from app.models import Athlete, TestRecord, TestTypeDefinition
-from app.services import test_definition_service
+from app.models import Athlete, TestRecord, TestTypeDefinition, User
+from app.services import access_control_service, test_definition_service
+
 
 ATHLETE_CODE_HEADER = "运动员编码"
 ATHLETE_NAME_HEADER = "运动员姓名"
@@ -54,19 +55,10 @@ class TestRecordImportSummary:
     skipped_rows: int
 
 
-def build_import_template_workbook(db: Session) -> bytes:
-    athletes = (
-        db.query(Athlete)
-        .options(joinedload(Athlete.team), joinedload(Athlete.sport))
-        .order_by(Athlete.full_name.asc(), Athlete.id.asc())
-        .all()
-    )
-    definitions = (
-        db.query(TestTypeDefinition)
-        .options(joinedload(TestTypeDefinition.metrics))
-        .order_by(TestTypeDefinition.name.asc(), TestTypeDefinition.id.asc())
-        .all()
-    )
+def build_import_template_workbook(db: Session, user: User) -> bytes:
+    visible_team_id = access_control_service.resolve_visible_team_id(user)
+    athletes = _query_visible_athletes(db, visible_team_id)
+    definitions = test_definition_service.list_test_type_definitions(db, visible_team_id=visible_team_id)
     example_rows = _build_example_rows(definitions)
 
     workbook = Workbook()
@@ -77,7 +69,7 @@ def build_import_template_workbook(db: Session) -> bytes:
 
     example_athlete = athletes[0] if athletes else None
     example_name = example_athlete.full_name if example_athlete else "示例运动员"
-    example_code = example_athlete.code if example_athlete else "ATH-000001"
+    example_code = example_athlete.code if example_athlete and example_athlete.code else "ATH-000001"
     for row in example_rows:
         sheet.append(
             [
@@ -93,7 +85,7 @@ def build_import_template_workbook(db: Session) -> bytes:
             ]
         )
 
-    reference_sheet = workbook.create_sheet("运动员名单")
+    reference_sheet = workbook.create_sheet("运动员参考")
     reference_sheet.append([ATHLETE_CODE_HEADER, ATHLETE_NAME_HEADER, "队伍", "项目"])
     _style_bold_row(reference_sheet)
     for athlete in athletes:
@@ -107,11 +99,13 @@ def build_import_template_workbook(db: Session) -> bytes:
         )
 
     definition_sheet = workbook.create_sheet("测试项目参考")
-    definition_sheet.append([TEST_TYPE_HEADER, METRIC_NAME_HEADER, "默认单位", NOTES_HEADER])
+    definition_sheet.append([TEST_TYPE_HEADER, METRIC_NAME_HEADER, "默认单位", "范围", "队伍", NOTES_HEADER])
     _style_bold_row(definition_sheet)
     for definition in definitions:
+        scope_label = "系统" if definition.team_id is None else "本队"
+        team_name = definition.team_name or ""
         if not definition.metrics:
-            definition_sheet.append([definition.name, "", "", definition.notes or ""])
+            definition_sheet.append([definition.name, "", "", scope_label, team_name, definition.notes or ""])
             continue
         for metric in definition.metrics:
             definition_sheet.append(
@@ -119,6 +113,8 @@ def build_import_template_workbook(db: Session) -> bytes:
                     definition.name,
                     metric.name,
                     metric.default_unit or "",
+                    scope_label,
+                    team_name,
                     metric.notes or "",
                 ]
             )
@@ -127,26 +123,32 @@ def build_import_template_workbook(db: Session) -> bytes:
     instruction_sheet.append(["字段", "说明"])
     _style_bold_row(instruction_sheet)
     instruction_sheet.append(["模板说明", "红色标题为必填项；黑色标题为选填项。"])
-    instruction_sheet.append([ATHLETE_CODE_HEADER, "可留空；如果系统中存在同名运动员，必须填写编码。"])
-    instruction_sheet.append([ATHLETE_NAME_HEADER, "必填；如果未填写运动员编码，姓名必须与系统中的运动员姓名完全一致且唯一。"])
+    instruction_sheet.append([ATHLETE_CODE_HEADER, "可留空；如系统中存在同名运动员，建议填写编码。"])
+    instruction_sheet.append([ATHLETE_NAME_HEADER, "必填；必须与当前账号可管理范围内的运动员姓名一致。"])
     instruction_sheet.append([TEST_DATE_HEADER, "必填；建议填写 YYYY-MM-DD，例如 2026-03-14。"])
-    instruction_sheet.append([TEST_TYPE_HEADER, "必填；请优先使用系统当前维护的测试类型，可参考“测试项目参考”工作表。"])
-    instruction_sheet.append([METRIC_NAME_HEADER, "必填；请优先使用系统当前维护的测试项目，并与测试类型保持一致。"])
-    instruction_sheet.append([RESULT_VALUE_HEADER, "必填；系统统计和图表使用该字段。"])
-    instruction_sheet.append([RESULT_TEXT_HEADER, "可选；用于展示原始文本结果，例如 13′32″3。"])
+    instruction_sheet.append([TEST_TYPE_HEADER, "必填；必须使用“测试项目参考”工作表里的测试类型。"])
+    instruction_sheet.append([METRIC_NAME_HEADER, "必填；必须使用“测试项目参考”工作表里的测试项目。"])
+    instruction_sheet.append([RESULT_VALUE_HEADER, "必填；图表和统计使用该字段。"])
+    instruction_sheet.append([RESULT_TEXT_HEADER, "选填；用于展示原始文本结果，例如 13'2''。"])
     instruction_sheet.append([UNIT_HEADER, "必填；例如 kg / cm / s / 次 / RSI。"])
-    instruction_sheet.append([NOTES_HEADER, "可选。"])
+    instruction_sheet.append([NOTES_HEADER, "选填。"])
+    instruction_sheet.append(["权限提醒", "队伍账号只能导入本队运动员，并且只能使用系统项目和本队私有项目。"])
 
     return _workbook_to_bytes(workbook)
 
 
-def build_test_record_library_workbook(db: Session) -> bytes:
-    records = (
+def build_test_record_library_workbook(db: Session, user: User) -> bytes:
+    visible_team_id = access_control_service.resolve_visible_team_id(user)
+    query = (
         db.query(TestRecord)
-        .options(joinedload(TestRecord.athlete).joinedload(Athlete.team), joinedload(TestRecord.athlete).joinedload(Athlete.sport))
-        .order_by(TestRecord.test_date.desc(), TestRecord.id.desc())
-        .all()
+        .options(
+            joinedload(TestRecord.athlete).joinedload(Athlete.team),
+            joinedload(TestRecord.athlete).joinedload(Athlete.sport),
+        )
     )
+    if visible_team_id is not None:
+        query = query.join(TestRecord.athlete).filter(Athlete.team_id == visible_team_id)
+    records = query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc()).all()
 
     workbook = Workbook()
     sheet = workbook.active
@@ -192,7 +194,7 @@ def build_test_record_library_workbook(db: Session) -> bytes:
     return _workbook_to_bytes(workbook)
 
 
-def import_test_records_from_workbook(db: Session, file_bytes: bytes) -> TestRecordImportSummary:
+def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User) -> TestRecordImportSummary:
     workbook = load_workbook(BytesIO(file_bytes), data_only=True)
     sheet = workbook[workbook.sheetnames[0]]
     headers = [str(cell.value).strip() if cell.value is not None else "" for cell in sheet[1]]
@@ -202,16 +204,43 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes) -> TestRec
     if missing_headers:
         raise ValueError(f"导入模板缺少列：{', '.join(missing_headers)}")
 
-    athletes = db.query(Athlete).all()
-    athletes_by_code = {
+    visible_team_id = access_control_service.resolve_visible_team_id(user)
+    visible_athletes = _query_visible_athletes(db, visible_team_id)
+    all_athletes = db.query(Athlete).all()
+    visible_athletes_by_code = {
         athlete.code.strip().upper(): athlete
-        for athlete in athletes
+        for athlete in visible_athletes
         if athlete.code and athlete.code.strip()
     }
-    athletes_by_name: dict[str, list[Athlete]] = {}
-    for athlete in athletes:
-        athletes_by_name.setdefault(athlete.full_name, []).append(athlete)
+    all_athletes_by_code = {
+        athlete.code.strip().upper(): athlete
+        for athlete in all_athletes
+        if athlete.code and athlete.code.strip()
+    }
 
+    visible_athletes_by_name: dict[str, list[Athlete]] = {}
+    all_athletes_by_name: dict[str, list[Athlete]] = {}
+    for athlete in visible_athletes:
+        visible_athletes_by_name.setdefault(athlete.full_name, []).append(athlete)
+    for athlete in all_athletes:
+        all_athletes_by_name.setdefault(athlete.full_name, []).append(athlete)
+
+    visible_definitions = test_definition_service.list_test_type_definitions(db, visible_team_id=visible_team_id)
+    all_definitions = test_definition_service.list_test_type_definitions(db, visible_team_id=None)
+    visible_pairs = {
+        (definition.name, metric.name)
+        for definition in visible_definitions
+        for metric in definition.metrics
+    }
+    all_pairs = {
+        (definition.name, metric.name)
+        for definition in all_definitions
+        for metric in definition.metrics
+    }
+
+    existing_query = db.query(TestRecord)
+    if visible_team_id is not None:
+        existing_query = existing_query.join(TestRecord.athlete).filter(Athlete.team_id == visible_team_id)
     existing_keys = {
         (
             record.athlete_id,
@@ -222,7 +251,7 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes) -> TestRec
             record.result_text or "",
             record.unit,
         )
-        for record in db.query(TestRecord).all()
+        for record in existing_query.all()
     }
 
     pending_records: list[TestRecord] = []
@@ -245,13 +274,23 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes) -> TestRec
             athlete = _resolve_athlete(
                 athlete_code=athlete_code,
                 athlete_name=athlete_name,
-                athletes_by_code=athletes_by_code,
-                athletes_by_name=athletes_by_name,
+                visible_athletes_by_code=visible_athletes_by_code,
+                visible_athletes_by_name=visible_athletes_by_name,
+                all_athletes_by_code=all_athletes_by_code,
+                all_athletes_by_name=all_athletes_by_name,
+                visible_team_id=visible_team_id,
             )
 
             record_date = _parse_date(row_values[header_index[TEST_DATE_HEADER]])
             test_type = _string_cell(row_values[header_index[TEST_TYPE_HEADER]], required=True)
             metric_name = _string_cell(row_values[header_index[METRIC_NAME_HEADER]], required=True)
+            _ensure_visible_definition_pair(
+                test_type=test_type,
+                metric_name=metric_name,
+                visible_pairs=visible_pairs,
+                all_pairs=all_pairs,
+                visible_team_id=visible_team_id,
+            )
             result_value = _float_cell(row_values[header_index[RESULT_VALUE_HEADER]])
             result_text = _optional_string_cell(row_values[header_index[RESULT_TEXT_HEADER]]) if RESULT_TEXT_HEADER in header_index else None
             unit = _string_cell(row_values[header_index[UNIT_HEADER]], required=True)
@@ -291,13 +330,6 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes) -> TestRec
 
     if pending_records:
         db.add_all(pending_records)
-        for record in pending_records:
-            test_definition_service.ensure_test_definition_for_record_snapshot(
-                db,
-                test_type_name=record.test_type,
-                metric_name=record.metric_name,
-                unit=record.unit,
-            )
         db.commit()
 
     return TestRecordImportSummary(
@@ -325,26 +357,61 @@ def _resolve_athlete(
     *,
     athlete_code: str | None,
     athlete_name: str,
-    athletes_by_code: dict[str, Athlete],
-    athletes_by_name: dict[str, list[Athlete]],
+    visible_athletes_by_code: dict[str, Athlete],
+    visible_athletes_by_name: dict[str, list[Athlete]],
+    all_athletes_by_code: dict[str, Athlete],
+    all_athletes_by_name: dict[str, list[Athlete]],
+    visible_team_id: int | None,
 ) -> Athlete:
     normalized_code = _normalize_optional_code(athlete_code)
     if normalized_code:
-        athlete = athletes_by_code.get(normalized_code)
-        if not athlete:
-            raise ValueError(f"系统中不存在运动员编码：{normalized_code}")
-        if athlete.full_name != athlete_name:
-            raise ValueError(
-                f"运动员编码 {normalized_code} 与姓名“{athlete_name}”不匹配，系统记录为“{athlete.full_name}”"
-            )
-        return athlete
+        athlete = visible_athletes_by_code.get(normalized_code)
+        if athlete:
+            if athlete.full_name != athlete_name:
+                raise ValueError(
+                    f"运动员编码 {normalized_code} 与姓名“{athlete_name}”不匹配，系统记录为“{athlete.full_name}”。"
+                )
+            return athlete
+        if normalized_code in all_athletes_by_code and visible_team_id is not None:
+            raise ValueError(f"运动员编码 {normalized_code} 不在当前账号可管理队伍内。")
+        raise ValueError(f"系统中不存在运动员编码：{normalized_code}")
 
-    name_matches = athletes_by_name.get(athlete_name, [])
-    if not name_matches:
-        raise ValueError(f"系统中不存在运动员：{athlete_name}")
-    if len(name_matches) > 1:
-        raise ValueError(f"运动员姓名“{athlete_name}”存在重名，请填写运动员编码后重试")
-    return name_matches[0]
+    visible_matches = visible_athletes_by_name.get(athlete_name, [])
+    if visible_matches:
+        if len(visible_matches) > 1:
+            raise ValueError(f"运动员姓名“{athlete_name}”存在重名，请填写运动员编码后重试。")
+        return visible_matches[0]
+
+    if visible_team_id is not None and all_athletes_by_name.get(athlete_name):
+        raise ValueError(f"运动员“{athlete_name}”不在当前账号可管理队伍内。")
+    raise ValueError(f"系统中不存在运动员：{athlete_name}")
+
+
+def _ensure_visible_definition_pair(
+    *,
+    test_type: str,
+    metric_name: str,
+    visible_pairs: set[tuple[str, str]],
+    all_pairs: set[tuple[str, str]],
+    visible_team_id: int | None,
+) -> None:
+    pair = (test_type, metric_name)
+    if pair in visible_pairs:
+        return
+    if visible_team_id is not None and pair in all_pairs:
+        raise ValueError(f"测试项目“{test_type} / {metric_name}”不在当前账号可用目录内。")
+    raise ValueError(f"测试项目“{test_type} / {metric_name}”不存在，请先在测试项目目录中创建。")
+
+
+def _query_visible_athletes(db: Session, visible_team_id: int | None) -> list[Athlete]:
+    query = (
+        db.query(Athlete)
+        .options(joinedload(Athlete.team), joinedload(Athlete.sport))
+        .order_by(Athlete.full_name.asc(), Athlete.id.asc())
+    )
+    if visible_team_id is not None:
+        query = query.filter(Athlete.team_id == visible_team_id)
+    return query.all()
 
 
 def _normalize_optional_code(value: str | None) -> str | None:
@@ -369,7 +436,7 @@ def _build_example_rows(definitions: list[TestTypeDefinition]) -> list[dict[str,
                     "test_type": definition.name,
                     "metric_name": metric.name,
                     "result_value": 55 if metric.default_unit == "kg" else 812.3 if metric.default_unit == "s" else 42,
-                    "result_text": "13′32″3" if metric.default_unit == "s" else "",
+                    "result_text": "13'2''" if metric.default_unit == "s" else "",
                     "unit": metric.default_unit or "",
                     "notes": "示例",
                 }
@@ -390,7 +457,7 @@ def _build_example_rows(definitions: list[TestTypeDefinition]) -> list[dict[str,
                     "test_type": definition["name"],
                     "metric_name": metric["name"],
                     "result_value": 55 if metric["default_unit"] == "kg" else 812.3 if metric["default_unit"] == "s" else 42,
-                    "result_text": "13′32″3" if metric["default_unit"] == "s" else "",
+                    "result_text": "13'2''" if metric["default_unit"] == "s" else "",
                     "unit": metric["default_unit"] or "",
                     "notes": "示例",
                 }
@@ -405,7 +472,7 @@ def _build_example_rows(definitions: list[TestTypeDefinition]) -> list[dict[str,
 def _string_cell(value: object, *, required: bool = False) -> str:
     text = str(value).strip() if value is not None else ""
     if required and not text:
-        raise ValueError("存在必填字段为空")
+        raise ValueError("存在必填字段为空。")
     return text
 
 
@@ -416,7 +483,7 @@ def _optional_string_cell(value: object) -> str | None:
 
 def _float_cell(value: object) -> float:
     if value is None or str(value).strip() == "":
-        raise ValueError("数值结果不能为空")
+        raise ValueError("数值结果不能为空。")
     try:
         return float(value)
     except (TypeError, ValueError) as exc:
@@ -425,7 +492,7 @@ def _float_cell(value: object) -> float:
 
 def _parse_date(value: object) -> date:
     if value is None or str(value).strip() == "":
-        raise ValueError("测试日期不能为空")
+        raise ValueError("测试日期不能为空。")
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
