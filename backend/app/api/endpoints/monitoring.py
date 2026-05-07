@@ -21,10 +21,12 @@ def get_monitoring_today(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    resolved_team_id = access_control_service.resolve_visible_team_id(current_user, team_id)
+    resolved_sport_id = access_control_service.resolve_visible_sport_id(current_user)
+    resolved_team_id = access_control_service.resolve_visible_team_id(db, current_user, team_id)
     return monitoring_service.get_today_monitoring(
         db,
         session_date=session_date,
+        sport_id=resolved_sport_id,
         team_id=resolved_team_id,
         include_unassigned=include_unassigned if access_control_service.is_admin(current_user) else False,
     )

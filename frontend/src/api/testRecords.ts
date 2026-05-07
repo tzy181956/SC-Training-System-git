@@ -21,8 +21,8 @@ export type TestTypeDefinitionSummary = {
   id: number
   name: string
   code: string
-  team_id?: number | null
-  team_name?: string | null
+  sport_id?: number | null
+  sport_name?: string | null
   is_system: boolean
   notes?: string | null
 }
@@ -38,7 +38,7 @@ export type TestMetricDefinitionRead = TestMetricDefinitionSummary & {
 type TestTypeDefinitionPayload = {
   name: string
   code: string
-  team_id?: number | null
+  sport_id?: number | null
   notes?: string | null
 }
 

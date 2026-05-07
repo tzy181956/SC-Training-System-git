@@ -26,11 +26,10 @@ class UserRead(ORMModel):
     username: str
     display_name: str
     role_code: str
-    team_id: int | None = None
-    team_name: str | None = None
+    sport_id: int | None = None
+    sport_name: str | None = None
     mode: str
     available_modes: list[str]
     can_manage_users: bool
     can_manage_system: bool
-    can_switch_athletes: bool
     is_active: bool

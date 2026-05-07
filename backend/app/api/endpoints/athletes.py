@@ -48,16 +48,17 @@ def list_teams(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    return athlete_service.list_teams(db, team_id=access_control_service.resolve_visible_team_id(current_user))
+    return athlete_service.list_teams(db, sport_id=access_control_service.resolve_visible_sport_id(current_user))
 
 
 @router.post("/teams", response_model=TeamRead)
 def create_team(
     payload: TeamCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin")),
+    current_user: User = Depends(require_roles("coach")),
 ):
-    _ = current_user
+    if not access_control_service.is_admin(current_user):
+        payload = payload.model_copy(update={"sport_id": access_control_service.ensure_sport_bound_user(current_user)})
     return athlete_service.create_team(db, payload)
 
 
@@ -66,9 +67,10 @@ def delete_team(
     team_id: int,
     payload: DangerousActionConfirm,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin")),
+    current_user: User = Depends(require_roles("coach")),
 ):
     dangerous_operation_service.require_confirmation(payload, action_label="删除队伍")
+    access_control_service.get_accessible_team(db, current_user, team_id)
     athlete_service.delete_team(db, team_id, actor_name=payload.actor_name or current_user.display_name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -78,7 +80,7 @@ def list_athletes(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    return athlete_service.list_athletes(db, team_id=access_control_service.resolve_visible_team_id(current_user))
+    return athlete_service.list_athletes(db, sport_id=access_control_service.resolve_visible_sport_id(current_user))
 
 
 @router.post("/athletes", response_model=AthleteRead)
@@ -88,7 +90,9 @@ def create_athlete(
     current_user: User = Depends(require_roles("coach")),
 ):
     if not access_control_service.is_admin(current_user):
-        payload = payload.model_copy(update={"team_id": access_control_service.ensure_team_bound_user(current_user)})
+        if payload.team_id is not None:
+            access_control_service.get_accessible_team(db, current_user, payload.team_id)
+        payload = payload.model_copy(update={"sport_id": access_control_service.ensure_sport_bound_user(current_user)})
     return athlete_service.create_athlete(db, payload)
 
 
@@ -111,7 +115,9 @@ def update_athlete(
 ):
     access_control_service.get_accessible_athlete(db, current_user, athlete_id)
     if not access_control_service.is_admin(current_user):
-        payload = payload.model_copy(update={"team_id": access_control_service.ensure_team_bound_user(current_user)})
+        if payload.team_id is not None:
+            access_control_service.get_accessible_team(db, current_user, payload.team_id)
+        payload = payload.model_copy(update={"sport_id": access_control_service.ensure_sport_bound_user(current_user)})
     return athlete_service.update_athlete(db, athlete_id, payload)
 
 

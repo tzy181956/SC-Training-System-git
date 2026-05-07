@@ -9,9 +9,11 @@ class TestTypeDefinition(BaseModel):
 
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    sport_id: Mapped[int | None] = mapped_column(ForeignKey("sports.id"))
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     notes: Mapped[str | None] = mapped_column(Text)
 
+    sport = relationship("Sport", back_populates="test_type_definitions")
     team = relationship("Team", back_populates="test_type_definitions")
     metrics = relationship(
         "TestMetricDefinition",
@@ -22,11 +24,11 @@ class TestTypeDefinition(BaseModel):
 
     @property
     def is_system(self) -> bool:
-        return self.team_id is None
+        return self.sport_id is None
 
     @property
-    def team_name(self) -> str | None:
-        return self.team.name if self.team else None
+    def sport_name(self) -> str | None:
+        return self.sport.name if self.sport else None
 
 
 class TestMetricDefinition(BaseModel):

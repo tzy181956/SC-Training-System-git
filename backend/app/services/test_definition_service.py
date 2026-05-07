@@ -7,10 +7,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.exceptions import bad_request, not_found
 from app.core.test_definition_defaults import (
     DEFAULT_TEST_DEFINITION_CATALOG,
-    build_auto_test_metric_code,
-    build_auto_test_type_code,
 )
-from app.models import Team, TestMetricDefinition, TestRecord, TestTypeDefinition, User
+from app.models import Sport, TestMetricDefinition, TestRecord, TestTypeDefinition, User
 from app.schemas.test_definition import (
     TestMetricDefinitionCreate,
     TestMetricDefinitionUpdate,
@@ -20,19 +18,19 @@ from app.schemas.test_definition import (
 from app.services import access_control_service, backup_service, dangerous_operation_service
 
 
-def list_test_type_definitions(db: Session, *, visible_team_id: int | None = None) -> list[TestTypeDefinition]:
+def list_test_type_definitions(db: Session, *, visible_sport_id: int | None = None) -> list[TestTypeDefinition]:
     query = (
         db.query(TestTypeDefinition)
         .options(
-            joinedload(TestTypeDefinition.team),
+            joinedload(TestTypeDefinition.sport),
             joinedload(TestTypeDefinition.metrics),
         )
     )
-    if visible_team_id is not None:
-        query = query.filter(or_(TestTypeDefinition.team_id.is_(None), TestTypeDefinition.team_id == visible_team_id))
+    if visible_sport_id is not None:
+        query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
     return (
         query.order_by(
-            TestTypeDefinition.team_id.asc(),
+            TestTypeDefinition.sport_id.asc(),
             TestTypeDefinition.name.asc(),
             TestTypeDefinition.id.asc(),
         )
@@ -40,14 +38,14 @@ def list_test_type_definitions(db: Session, *, visible_team_id: int | None = Non
     )
 
 
-def list_test_metric_definitions(db: Session, *, visible_team_id: int | None = None) -> list[TestMetricDefinition]:
+def list_test_metric_definitions(db: Session, *, visible_sport_id: int | None = None) -> list[TestMetricDefinition]:
     query = (
         db.query(TestMetricDefinition)
-        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.sport))
         .join(TestMetricDefinition.test_type)
     )
-    if visible_team_id is not None:
-        query = query.filter(or_(TestTypeDefinition.team_id.is_(None), TestTypeDefinition.team_id == visible_team_id))
+    if visible_sport_id is not None:
+        query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
     return query.order_by(TestTypeDefinition.name.asc(), TestMetricDefinition.name.asc(), TestMetricDefinition.id.asc()).all()
 
 
@@ -62,6 +60,7 @@ def ensure_default_test_definition_catalog(db: Session, *, commit: bool = False)
             type_definition = TestTypeDefinition(
                 name=definition["name"],
                 code=definition["code"],
+                sport_id=None,
                 team_id=None,
                 notes=definition["notes"],
             )
@@ -106,35 +105,10 @@ def ensure_default_test_definition_catalog(db: Session, *, commit: bool = False)
 
 
 def backfill_test_definitions_from_records(db: Session, *, commit: bool = False) -> dict[str, int]:
-    created_type_count = 0
-    created_metric_count = 0
-    updated_metric_unit_count = 0
-
-    rows = (
-        db.query(TestRecord.test_type, TestRecord.metric_name, TestRecord.unit)
-        .distinct()
-        .order_by(TestRecord.test_type.asc(), TestRecord.metric_name.asc())
-        .all()
-    )
-    for test_type_name, metric_name, unit in rows:
-        result = ensure_test_definition_for_record_snapshot(
-            db,
-            test_type_name=test_type_name,
-            metric_name=metric_name,
-            unit=unit,
-        )
-        created_type_count += 1 if result["created_type"] else 0
-        created_metric_count += 1 if result["created_metric"] else 0
-        updated_metric_unit_count += 1 if result["updated_metric_unit"] else 0
-
+    _ = db
     if commit:
-        db.commit()
-
-    return {
-        "created_type_count": created_type_count,
-        "created_metric_count": created_metric_count,
-        "updated_metric_unit_count": updated_metric_unit_count,
-    }
+        return {"created_type_count": 0, "created_metric_count": 0, "updated_metric_unit_count": 0}
+    return {"created_type_count": 0, "created_metric_count": 0, "updated_metric_unit_count": 0}
 
 
 def ensure_test_definition_for_record_snapshot(
@@ -144,64 +118,16 @@ def ensure_test_definition_for_record_snapshot(
     metric_name: str,
     unit: str | None = None,
 ) -> dict[str, bool]:
-    normalized_type_name = (test_type_name or "").strip()
-    normalized_metric_name = (metric_name or "").strip()
-    normalized_unit = (unit or "").strip() or None
-    if not normalized_type_name or not normalized_metric_name:
-        return {
-            "created_type": False,
-            "created_metric": False,
-            "updated_metric_unit": False,
-        }
-
-    type_definition = db.query(TestTypeDefinition).filter(TestTypeDefinition.name == normalized_type_name).first()
-    created_type = False
-    if not type_definition:
-        type_definition = TestTypeDefinition(
-            name=normalized_type_name,
-            code=build_auto_test_type_code(normalized_type_name),
-            team_id=None,
-            notes="由历史测试记录自动补建",
-        )
-        db.add(type_definition)
-        db.flush()
-        created_type = True
-
-    metric_definition = (
-        db.query(TestMetricDefinition)
-        .filter(
-            TestMetricDefinition.test_type_id == type_definition.id,
-            TestMetricDefinition.name == normalized_metric_name,
-        )
-        .first()
-    )
-    created_metric = False
-    updated_metric_unit = False
-    if not metric_definition:
-        metric_definition = TestMetricDefinition(
-            test_type_id=type_definition.id,
-            name=normalized_metric_name,
-            code=build_auto_test_metric_code(normalized_type_name, normalized_metric_name),
-            default_unit=normalized_unit,
-            is_lower_better=False,
-            notes="由历史测试记录自动补建",
-        )
-        db.add(metric_definition)
-        db.flush()
-        created_metric = True
-    elif normalized_unit and not metric_definition.default_unit:
-        metric_definition.default_unit = normalized_unit
-        updated_metric_unit = True
-
+    _ = (db, test_type_name, metric_name, unit)
     return {
-        "created_type": created_type,
-        "created_metric": created_metric,
-        "updated_metric_unit": updated_metric_unit,
+        "created_type": False,
+        "created_metric": False,
+        "updated_metric_unit": False,
     }
 
 
 def create_test_type_definition(db: Session, payload: TestTypeDefinitionCreate, user: User) -> TestTypeDefinition:
-    team_id = _resolve_definition_team_id(db, payload, user)
+    sport_id = _resolve_definition_sport_id(db, payload, user)
     normalized_name = payload.normalized_name()
     normalized_code = payload.normalized_code()
 
@@ -210,7 +136,8 @@ def create_test_type_definition(db: Session, payload: TestTypeDefinitionCreate, 
     definition = TestTypeDefinition(
         name=normalized_name,
         code=normalized_code,
-        team_id=team_id,
+        sport_id=sport_id,
+        team_id=None,
         notes=payload.normalized_notes(),
     )
     db.add(definition)
@@ -280,8 +207,8 @@ def delete_test_type_definition(db: Session, definition_id: int, user: User, *, 
         impact_scope={
             "test_type_name": definition.name,
             "test_type_code": definition.code,
-            "team_id": definition.team_id,
-            "team_name": definition.team_name,
+            "sport_id": definition.sport_id,
+            "sport_name": definition.sport_name,
             "historical_record_count": historical_record_count,
             "note": "删除测试类型定义不会删除已有历史测试记录。",
         },
@@ -294,7 +221,7 @@ def get_test_type_definition(db: Session, definition_id: int) -> TestTypeDefinit
     definition = (
         db.query(TestTypeDefinition)
         .options(
-            joinedload(TestTypeDefinition.team),
+            joinedload(TestTypeDefinition.sport),
             joinedload(TestTypeDefinition.metrics),
         )
         .filter(TestTypeDefinition.id == definition_id)
@@ -393,8 +320,8 @@ def delete_test_metric_definition(db: Session, definition_id: int, user: User, *
             "metric_name": definition.name,
             "metric_code": definition.code,
             "test_type_name": definition.test_type.name if definition.test_type else None,
-            "team_id": definition.test_type.team_id if definition.test_type else None,
-            "team_name": definition.test_type.team_name if definition.test_type else None,
+            "sport_id": definition.test_type.sport_id if definition.test_type else None,
+            "sport_name": definition.test_type.sport_name if definition.test_type else None,
             "historical_record_count": historical_record_count,
             "note": "删除测试项目定义不会删除已有历史测试记录。",
         },
@@ -406,7 +333,7 @@ def delete_test_metric_definition(db: Session, definition_id: int, user: User, *
 def get_test_metric_definition(db: Session, definition_id: int) -> TestMetricDefinition:
     definition = (
         db.query(TestMetricDefinition)
-        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.sport))
         .filter(TestMetricDefinition.id == definition_id)
         .first()
     )
@@ -418,7 +345,7 @@ def get_test_metric_definition(db: Session, definition_id: int) -> TestMetricDef
 def require_visible_metric_definition(
     db: Session,
     *,
-    visible_team_id: int | None,
+    visible_sport_id: int | None,
     test_type_name: str,
     metric_name: str,
 ) -> TestMetricDefinition:
@@ -429,15 +356,15 @@ def require_visible_metric_definition(
 
     query = (
         db.query(TestMetricDefinition)
-        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.sport))
         .join(TestMetricDefinition.test_type)
         .filter(
             TestTypeDefinition.name == normalized_type_name,
             TestMetricDefinition.name == normalized_metric_name,
         )
     )
-    if visible_team_id is not None:
-        query = query.filter(or_(TestTypeDefinition.team_id.is_(None), TestTypeDefinition.team_id == visible_team_id))
+    if visible_sport_id is not None:
+        query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
     definition = query.first()
     if definition:
         return definition
@@ -453,19 +380,19 @@ def _commit_or_raise(db: Session, *, conflict_message: str) -> None:
         raise bad_request(conflict_message) from exc
 
 
-def _resolve_definition_team_id(db: Session, payload: TestTypeDefinitionCreate, user: User) -> int | None:
+def _resolve_definition_sport_id(db: Session, payload: TestTypeDefinitionCreate, user: User) -> int | None:
     if access_control_service.is_admin(user):
-        team_id = payload.normalized_team_id()
+        sport_id = payload.normalized_sport_id()
     else:
-        team_id = access_control_service.ensure_team_bound_user(user)
-    if team_id is not None:
-        _ensure_team_exists(db, team_id)
-    return team_id
+        sport_id = access_control_service.ensure_sport_bound_user(user)
+    if sport_id is not None:
+        _ensure_sport_exists(db, sport_id)
+    return sport_id
 
 
-def _ensure_team_exists(db: Session, team_id: int) -> None:
-    if not db.query(Team.id).filter(Team.id == team_id).first():
-        raise bad_request("绑定队伍不存在，请刷新后重试。")
+def _ensure_sport_exists(db: Session, sport_id: int) -> None:
+    if not db.query(Sport.id).filter(Sport.id == sport_id).first():
+        raise bad_request("绑定项目不存在，请刷新后重试。")
 
 
 def _ensure_test_type_name_and_code_unique(

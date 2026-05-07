@@ -131,7 +131,8 @@ async function saveAthlete() {
   try {
     const payload = {
       ...form,
-      team_id: isAdmin.value ? form.team_id : authStore.currentUser?.team_id ?? null,
+      sport_id: isAdmin.value ? form.sport_id : authStore.currentUser?.sport_id ?? null,
+      team_id: form.team_id,
     }
     const savedAthlete = selectedId.value ? await updateAthlete(selectedId.value, payload) : await createAthlete(payload)
     await store.hydrate()
@@ -184,8 +185,8 @@ function resetForm() {
   Object.assign(form, {
     code: '',
     full_name: '',
-    sport_id: null,
-    team_id: isAdmin.value ? null : authStore.currentUser?.team_id ?? null,
+    sport_id: isAdmin.value ? null : authStore.currentUser?.sport_id ?? null,
+    team_id: null,
     gender: '',
     position: '',
     height: null,
@@ -206,7 +207,7 @@ function handleSportFilterChange() {
 
 function handleFormSportChange() {
   if (!isAdmin.value) {
-    form.team_id = authStore.currentUser?.team_id ?? null
+    form.sport_id = authStore.currentUser?.sport_id ?? null
     return
   }
   if (

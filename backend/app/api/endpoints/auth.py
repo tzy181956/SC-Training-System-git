@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -40,19 +40,17 @@ def me(current_user=Depends(get_current_user)) -> UserRead:
         mode = "training"
         available_modes = ["management", "training", "monitor"]
     else:
-        mode = "training"
-        available_modes = ["training"]
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前账号角色已停用，请联系管理员重建账号。")
     return UserRead(
         id=current_user.id,
         username=current_user.username,
         display_name=current_user.display_name,
         role_code=role_code,
-        team_id=current_user.team_id,
-        team_name=current_user.team.name if getattr(current_user, "team", None) else None,
+        sport_id=current_user.sport_id,
+        sport_name=current_user.sport.name if getattr(current_user, "sport", None) else None,
         mode=mode,
         available_modes=available_modes,
         can_manage_users=role_code == "admin",
         can_manage_system=role_code in {"coach", "admin"},
-        can_switch_athletes=role_code == "training",
         is_active=current_user.is_active,
     )

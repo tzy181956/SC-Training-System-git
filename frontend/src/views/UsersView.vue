@@ -2,7 +2,7 @@
 import axios from 'axios'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
-import { fetchTeams, type TeamRead } from '@/api/athletes'
+import { fetchSports, type SportRead } from '@/api/athletes'
 import {
   activateUser,
   createUser,
@@ -28,15 +28,15 @@ const loadError = ref('')
 const notice = ref('')
 
 const users = ref<UserManagementRead[]>([])
-const teams = ref<TeamRead[]>([])
+const sports = ref<SportRead[]>([])
 const selectedUserId = ref<number | null>(null)
 const formMode = ref<'create' | 'edit'>('create')
 
 const form = reactive({
   username: '',
   display_name: '',
-  role_code: 'training' as UserRoleCode,
-  team_id: null as number | null,
+    role_code: 'coach' as UserRoleCode,
+    sport_id: null as number | null,
   password: '',
   confirm_password: '',
 })
@@ -49,11 +49,10 @@ const passwordResetForm = reactive({
 const roleOptions: Array<{ value: UserRoleCode; label: string }> = [
   { value: 'admin', label: '系统管理员' },
   { value: 'coach', label: '教练账号' },
-  { value: 'training', label: '队伍训练端账号' },
 ]
 
 const selectedUser = computed(() => users.value.find((user) => user.id === selectedUserId.value) || null)
-const requiresTeamBinding = computed(() => form.role_code !== 'admin')
+const requiresSportBinding = computed(() => form.role_code !== 'admin')
 const editingSelf = computed(() => selectedUser.value?.id === authStore.currentUser?.id)
 const selectedUserStatusLabel = computed(() => (selectedUser.value?.is_active ? '启用中' : '已停用'))
 
@@ -92,8 +91,8 @@ function resetCreateForm() {
   Object.assign(form, {
     username: '',
     display_name: '',
-    role_code: 'training',
-    team_id: null,
+    role_code: 'coach',
+    sport_id: null,
     password: '',
     confirm_password: '',
   })
@@ -108,7 +107,7 @@ function editUser(user: UserManagementRead) {
     username: user.username,
     display_name: user.display_name,
     role_code: user.role_code,
-    team_id: user.team_id,
+    sport_id: user.sport_id,
     password: '',
     confirm_password: '',
   })
@@ -119,7 +118,7 @@ watch(
   () => form.role_code,
   (roleCode) => {
     if (roleCode === 'admin') {
-      form.team_id = null
+      form.sport_id = null
     }
   },
 )
@@ -129,9 +128,9 @@ async function hydrate(preferredUserId?: number | null) {
   loadError.value = ''
 
   try {
-    const [userList, teamList] = await Promise.all([fetchUsers(), fetchTeams()])
+    const [userList, sportList] = await Promise.all([fetchUsers(), fetchSports()])
     users.value = userList
-    teams.value = teamList
+    sports.value = sportList
 
     if (preferredUserId && users.value.some((user) => user.id === preferredUserId)) {
       const nextUser = users.value.find((user) => user.id === preferredUserId)
@@ -180,8 +179,8 @@ async function submitForm() {
     return
   }
 
-  if (requiresTeamBinding.value && form.team_id == null) {
-    loadError.value = '教练账号和训练端账号必须绑定队伍。'
+  if (requiresSportBinding.value && form.sport_id == null) {
+    loadError.value = '教练账号必须绑定项目。'
     return
   }
 
@@ -202,7 +201,7 @@ async function submitForm() {
         username: form.username.trim(),
         display_name: form.display_name.trim(),
         role_code: form.role_code,
-        team_id: requiresTeamBinding.value ? form.team_id : null,
+        sport_id: requiresSportBinding.value ? form.sport_id : null,
         is_active: true,
         password: form.password,
       }
@@ -217,7 +216,7 @@ async function submitForm() {
     const updated = await updateUser(selectedUser.value.id, {
       display_name: form.display_name.trim(),
       role_code: form.role_code,
-      team_id: requiresTeamBinding.value ? form.team_id : null,
+      sport_id: requiresSportBinding.value ? form.sport_id : null,
     })
     notice.value = `账号 ${updated.display_name} 已更新。`
     await hydrate(updated.id)
@@ -324,7 +323,7 @@ onMounted(async () => {
               <span class="status-badge" :class="{ inactive: !user.is_active }">{{ user.is_active ? '启用中' : '已停用' }}</span>
             </div>
             <span>{{ user.username }}</span>
-            <small>{{ getUserRoleLabel(user.role_code) }} · {{ user.team_name || '未绑定队伍' }}</small>
+            <small>{{ getUserRoleLabel(user.role_code) }} · {{ user.sport_name || '未绑定项目' }}</small>
           </button>
           <div v-if="!users.length" class="empty-state">当前还没有账号。</div>
         </div>
@@ -365,11 +364,11 @@ onMounted(async () => {
             </div>
           </div>
 
-          <label v-if="requiresTeamBinding" class="field">
-            <span class="field-label">绑定队伍</span>
-            <select v-model="form.team_id" class="text-input">
-              <option :value="null">请选择队伍</option>
-              <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
+          <label v-if="requiresSportBinding" class="field">
+            <span class="field-label">绑定项目</span>
+            <select v-model="form.sport_id" class="text-input">
+              <option :value="null">请选择项目</option>
+              <option v-for="sport in sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
             </select>
           </label>
 

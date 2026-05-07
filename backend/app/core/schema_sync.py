@@ -34,7 +34,9 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE athlete_plan_assignments ADD COLUMN repeat_weekdays JSON",
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
         "ALTER TABLE test_metric_definitions ADD COLUMN is_lower_better BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
+        "ALTER TABLE test_type_definitions ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
         "ALTER TABLE test_type_definitions ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]
 
@@ -227,6 +229,9 @@ def ensure_runtime_schema() -> None:
             text("CREATE INDEX IF NOT EXISTS ix_content_change_logs_team_id ON content_change_logs(team_id)")
         )
         connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_users_sport_id ON users(sport_id)")
+        )
+        connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_users_team_id ON users(team_id)")
         )
         connection.execute(
@@ -236,6 +241,7 @@ def ensure_runtime_schema() -> None:
                     id INTEGER PRIMARY KEY,
                     name VARCHAR(80) NOT NULL,
                     code VARCHAR(80) NOT NULL UNIQUE,
+                    sport_id INTEGER REFERENCES sports(id),
                     team_id INTEGER REFERENCES teams(id),
                     notes TEXT,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -264,6 +270,9 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_id ON test_type_definitions(id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_sport_id ON test_type_definitions(sport_id)")
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_team_id ON test_type_definitions(team_id)")
@@ -299,5 +308,4 @@ def ensure_runtime_schema() -> None:
 
     with SessionLocal() as db:
         test_definition_service.ensure_default_test_definition_catalog(db)
-        test_definition_service.backfill_test_definitions_from_records(db)
         db.commit()

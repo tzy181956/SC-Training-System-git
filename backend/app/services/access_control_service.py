@@ -9,6 +9,7 @@ from app.models import (
     Athlete,
     AthletePlanAssignment,
     SetRecord,
+    Team,
     TestMetricDefinition,
     TestRecord,
     TestTypeDefinition,
@@ -21,10 +22,11 @@ from app.models import (
 )
 
 
-TEAM_BINDING_REQUIRED_DETAIL = "当前账号未绑定队伍"
-TEAM_ACCESS_DENIED_DETAIL = "无权访问其他队伍数据"
+SPORT_BINDING_REQUIRED_DETAIL = "当前账号未绑定项目"
+SPORT_ACCESS_DENIED_DETAIL = "无权访问其他项目数据"
+TEAM_ACCESS_DENIED_DETAIL = "无权访问其他项目下的队伍"
 GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL = "无权修改系统训练模板"
-GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL = "无权分配其他队伍模板"
+GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL = "无权使用其他项目训练模板"
 GLOBAL_TEST_DEFINITION_EDIT_DENIED_DETAIL = "无权修改系统测试项目"
 
 
@@ -40,54 +42,67 @@ def is_coach(user: User | None) -> bool:
     return normalize_role_code(getattr(user, "role_code", None)) == "coach"
 
 
-def is_training(user: User | None) -> bool:
-    return normalize_role_code(getattr(user, "role_code", None)) == "training"
-
-
-def ensure_team_bound_user(user: User) -> int:
+def ensure_sport_bound_user(user: User) -> int:
     if is_admin(user):
-        raise RuntimeError("Admin users do not require a bound team")
-    if user.team_id is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_BINDING_REQUIRED_DETAIL)
-    return user.team_id
+        raise RuntimeError("Admin users do not require a bound sport")
+    if user.sport_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_BINDING_REQUIRED_DETAIL)
+    return user.sport_id
 
 
-def ensure_team_access(user: User, team_id: int | None) -> None:
+def ensure_sport_access(user: User, sport_id: int | None) -> None:
     if is_admin(user):
         return
-    scoped_team_id = ensure_team_bound_user(user)
-    if team_id != scoped_team_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_ACCESS_DENIED_DETAIL)
+    scoped_sport_id = ensure_sport_bound_user(user)
+    if sport_id != scoped_sport_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
 
 
-def resolve_visible_team_id(user: User, requested_team_id: int | None = None) -> int | None:
+def resolve_visible_sport_id(user: User, requested_sport_id: int | None = None) -> int | None:
+    if is_admin(user):
+        return requested_sport_id
+    scoped_sport_id = ensure_sport_bound_user(user)
+    if requested_sport_id is not None and requested_sport_id != scoped_sport_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
+    return scoped_sport_id
+
+
+def get_accessible_team(db: Session, user: User, team_id: int) -> Team:
+    team = db.query(Team).options(joinedload(Team.sport)).filter(Team.id == team_id).first()
+    if not team:
+        raise not_found("队伍不存在")
+    ensure_sport_access(user, team.sport_id)
+    return team
+
+
+def resolve_visible_team_id(db: Session, user: User, requested_team_id: int | None = None) -> int | None:
     if is_admin(user):
         return requested_team_id
-    scoped_team_id = ensure_team_bound_user(user)
-    if requested_team_id is not None and requested_team_id != scoped_team_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_ACCESS_DENIED_DETAIL)
-    return scoped_team_id
+    if requested_team_id is None:
+        return None
+    team = get_accessible_team(db, user, requested_team_id)
+    return team.id
 
 
 def filter_visible_athletes(athletes: list[Athlete], user: User) -> list[Athlete]:
     if is_admin(user):
         return athletes
-    scoped_team_id = ensure_team_bound_user(user)
-    return [athlete for athlete in athletes if athlete.team_id == scoped_team_id]
+    scoped_sport_id = ensure_sport_bound_user(user)
+    return [athlete for athlete in athletes if athlete.sport_id == scoped_sport_id]
 
 
 def filter_visible_templates(templates: list[TrainingPlanTemplate], user: User) -> list[TrainingPlanTemplate]:
     if is_admin(user):
         return templates
-    scoped_team_id = ensure_team_bound_user(user)
-    return [template for template in templates if template.team_id in {None, scoped_team_id}]
+    scoped_sport_id = ensure_sport_bound_user(user)
+    return [template for template in templates if template.sport_id in {None, scoped_sport_id}]
 
 
 def filter_visible_assignments(assignments: list[AthletePlanAssignment], user: User) -> list[AthletePlanAssignment]:
     if is_admin(user):
         return assignments
-    scoped_team_id = ensure_team_bound_user(user)
-    return [assignment for assignment in assignments if getattr(assignment.athlete, "team_id", None) == scoped_team_id]
+    scoped_sport_id = ensure_sport_bound_user(user)
+    return [assignment for assignment in assignments if getattr(assignment.athlete, "sport_id", None) == scoped_sport_id]
 
 
 def get_accessible_athlete(db: Session, user: User, athlete_id: int) -> Athlete:
@@ -99,7 +114,7 @@ def get_accessible_athlete(db: Session, user: User, athlete_id: int) -> Athlete:
     )
     if not athlete:
         raise not_found("Athlete not found")
-    ensure_team_access(user, athlete.team_id)
+    ensure_sport_access(user, athlete.sport_id)
     return athlete
 
 
@@ -113,7 +128,7 @@ def get_accessible_template(
 ) -> TrainingPlanTemplate:
     template = (
         db.query(TrainingPlanTemplate)
-        .options(joinedload(TrainingPlanTemplate.items))
+        .options(joinedload(TrainingPlanTemplate.sport), joinedload(TrainingPlanTemplate.team), joinedload(TrainingPlanTemplate.items))
         .filter(TrainingPlanTemplate.id == template_id)
         .first()
     )
@@ -123,13 +138,13 @@ def get_accessible_template(
     if is_admin(user):
         return template
 
-    scoped_team_id = ensure_team_bound_user(user)
-    if template.team_id is None:
+    scoped_sport_id = ensure_sport_bound_user(user)
+    if template.sport_id is None:
         if allow_global_write or allow_global_read:
             return template
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
-    if template.team_id != scoped_team_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_ACCESS_DENIED_DETAIL)
+    if template.sport_id != scoped_sport_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
     return template
 
 
@@ -140,7 +155,7 @@ def ensure_template_assignable_to_athlete(
     athlete: Athlete,
 ) -> TrainingPlanTemplate:
     template = get_accessible_template(db, user, template_id, allow_global_read=True, allow_global_write=False)
-    if not is_admin(user) and template.team_id not in {None, athlete.team_id}:
+    if not is_admin(user) and template.sport_id not in {None, athlete.sport_id}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL)
     return template
 
@@ -150,6 +165,7 @@ def get_accessible_assignment(db: Session, user: User, assignment_id: int) -> At
         db.query(AthletePlanAssignment)
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
+            joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.template),
             joinedload(AthletePlanAssignment.overrides),
         )
@@ -158,11 +174,11 @@ def get_accessible_assignment(db: Session, user: User, assignment_id: int) -> At
     )
     if not assignment:
         raise not_found("未找到计划分配记录")
-    ensure_team_access(user, assignment.athlete.team_id if assignment.athlete else None)
+    ensure_sport_access(user, assignment.athlete.sport_id if assignment.athlete else None)
     if not is_admin(user):
-        template_team_id = assignment.template.team_id if assignment.template else None
-        scoped_team_id = ensure_team_bound_user(user)
-        if template_team_id not in {None, scoped_team_id}:
+        template_sport_id = assignment.template.sport_id if assignment.template else None
+        scoped_sport_id = ensure_sport_bound_user(user)
+        if template_sport_id not in {None, scoped_sport_id}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL)
     return assignment
 
@@ -178,7 +194,7 @@ def get_accessible_template_item(
     item = (
         db.query(TrainingPlanTemplateItem)
         .options(
-            joinedload(TrainingPlanTemplateItem.template),
+            joinedload(TrainingPlanTemplateItem.template).joinedload(TrainingPlanTemplate.sport),
             joinedload(TrainingPlanTemplateItem.exercise),
         )
         .filter(TrainingPlanTemplateItem.id == item_id)
@@ -192,13 +208,13 @@ def get_accessible_template_item(
     if is_admin(user):
         return item
 
-    scoped_team_id = ensure_team_bound_user(user)
-    if template.team_id is None:
+    scoped_sport_id = ensure_sport_bound_user(user)
+    if template.sport_id is None:
         if allow_global_write or allow_global_read:
             return item
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
-    if template.team_id != scoped_team_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_ACCESS_DENIED_DETAIL)
+    if template.sport_id != scoped_sport_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
     return item
 
 
@@ -209,6 +225,9 @@ def get_accessible_override(db: Session, user: User, override_id: int) -> Assign
             joinedload(AssignmentItemOverride.assignment)
             .joinedload(AthletePlanAssignment.athlete)
             .joinedload(Athlete.team),
+            joinedload(AssignmentItemOverride.assignment)
+            .joinedload(AthletePlanAssignment.athlete)
+            .joinedload(Athlete.sport),
         )
         .filter(AssignmentItemOverride.id == override_id)
         .first()
@@ -216,7 +235,7 @@ def get_accessible_override(db: Session, user: User, override_id: int) -> Assign
     if not override:
         raise not_found("未找到负荷覆盖项")
     assignment = override.assignment
-    ensure_team_access(user, assignment.athlete.team_id if assignment and assignment.athlete else None)
+    ensure_sport_access(user, assignment.athlete.sport_id if assignment and assignment.athlete else None)
     return override
 
 
@@ -225,6 +244,7 @@ def get_accessible_session(db: Session, user: User, session_id: int) -> Training
         db.query(TrainingSession)
         .options(
             joinedload(TrainingSession.athlete).joinedload(Athlete.team),
+            joinedload(TrainingSession.athlete).joinedload(Athlete.sport),
             joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
             joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
         )
@@ -233,7 +253,7 @@ def get_accessible_session(db: Session, user: User, session_id: int) -> Training
     )
     if not session:
         raise not_found("Training session not found")
-    ensure_team_access(user, session.athlete.team_id if session.athlete else None)
+    ensure_sport_access(user, session.athlete.sport_id if session.athlete else None)
     return session
 
 
@@ -242,6 +262,7 @@ def get_accessible_session_item(db: Session, user: User, item_id: int) -> Traini
         db.query(TrainingSessionItem)
         .options(
             joinedload(TrainingSessionItem.session).joinedload(TrainingSession.athlete).joinedload(Athlete.team),
+            joinedload(TrainingSessionItem.session).joinedload(TrainingSession.athlete).joinedload(Athlete.sport),
             joinedload(TrainingSessionItem.records),
             joinedload(TrainingSessionItem.exercise),
         )
@@ -250,7 +271,7 @@ def get_accessible_session_item(db: Session, user: User, item_id: int) -> Traini
     )
     if not item:
         raise not_found("Training session item not found")
-    ensure_team_access(user, item.session.athlete.team_id if item.session and item.session.athlete else None)
+    ensure_sport_access(user, item.session.athlete.sport_id if item.session and item.session.athlete else None)
     return item
 
 
@@ -262,6 +283,10 @@ def get_accessible_set_record(db: Session, user: User, record_id: int) -> SetRec
             .joinedload(TrainingSessionItem.session)
             .joinedload(TrainingSession.athlete)
             .joinedload(Athlete.team),
+            joinedload(SetRecord.session_item)
+            .joinedload(TrainingSessionItem.session)
+            .joinedload(TrainingSession.athlete)
+            .joinedload(Athlete.sport),
             joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.exercise),
         )
         .filter(SetRecord.id == record_id)
@@ -270,7 +295,7 @@ def get_accessible_set_record(db: Session, user: User, record_id: int) -> SetRec
     if not record:
         raise not_found("Set record not found")
     session = record.session_item.session if record.session_item else None
-    ensure_team_access(user, session.athlete.team_id if session and session.athlete else None)
+    ensure_sport_access(user, session.athlete.sport_id if session and session.athlete else None)
     return record
 
 
@@ -279,7 +304,7 @@ def get_accessible_sync_issue(db: Session, user: User, issue_id: int) -> Trainin
     if not issue:
         raise not_found("未找到同步异常记录")
     athlete = get_accessible_athlete(db, user, issue.athlete_id)
-    ensure_team_access(user, athlete.team_id)
+    ensure_sport_access(user, athlete.sport_id)
     return issue
 
 
@@ -293,7 +318,7 @@ def get_accessible_test_type_definition(
 ) -> TestTypeDefinition:
     definition = (
         db.query(TestTypeDefinition)
-        .options(joinedload(TestTypeDefinition.team), joinedload(TestTypeDefinition.metrics))
+        .options(joinedload(TestTypeDefinition.sport), joinedload(TestTypeDefinition.metrics))
         .filter(TestTypeDefinition.id == definition_id)
         .first()
     )
@@ -319,7 +344,7 @@ def get_accessible_test_metric_definition(
 ) -> TestMetricDefinition:
     definition = (
         db.query(TestMetricDefinition)
-        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.team))
+        .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.sport))
         .filter(TestMetricDefinition.id == definition_id)
         .first()
     )
@@ -354,7 +379,7 @@ def get_accessible_test_record(db: Session, user: User, record_id: int) -> TestR
     )
     if not record:
         raise not_found("Test record not found")
-    ensure_team_access(user, record.athlete.team_id if record.athlete else None)
+    ensure_sport_access(user, record.athlete.sport_id if record.athlete else None)
     return record
 
 
@@ -368,10 +393,10 @@ def _ensure_test_type_access(
     if is_admin(user):
         return
 
-    scoped_team_id = ensure_team_bound_user(user)
-    if definition.team_id is None:
+    scoped_sport_id = ensure_sport_bound_user(user)
+    if definition.sport_id is None:
         if allow_system_write or allow_system_read:
             return
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEST_DEFINITION_EDIT_DENIED_DETAIL)
-    if definition.team_id != scoped_team_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEAM_ACCESS_DENIED_DETAIL)
+    if definition.sport_id != scoped_sport_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)

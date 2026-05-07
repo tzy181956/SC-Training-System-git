@@ -16,18 +16,18 @@ def list_test_records(db: Session, user: User) -> list[TestRecord]:
         joinedload(TestRecord.athlete).joinedload(Athlete.team),
         joinedload(TestRecord.athlete).joinedload(Athlete.sport),
     )
-    visible_team_id = access_control_service.resolve_visible_team_id(user)
-    if visible_team_id is not None:
-        query = query.join(TestRecord.athlete).filter(Athlete.team_id == visible_team_id)
+    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
+    if visible_sport_id is not None:
+        query = query.join(TestRecord.athlete).filter(Athlete.sport_id == visible_sport_id)
     return query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc()).all()
 
 
 def create_test_record(db: Session, user: User, payload: TestRecordCreate) -> TestRecord:
     access_control_service.get_accessible_athlete(db, user, payload.athlete_id)
-    visible_team_id = access_control_service.resolve_visible_team_id(user)
+    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
     test_definition_service.require_visible_metric_definition(
         db,
-        visible_team_id=visible_team_id,
+        visible_sport_id=visible_sport_id,
         test_type_name=payload.test_type,
         metric_name=payload.metric_name,
     )
@@ -43,10 +43,10 @@ def update_test_record(db: Session, user: User, record_id: int, payload: TestRec
 
     next_test_type = payload.test_type if payload.test_type is not None else record.test_type
     next_metric_name = payload.metric_name if payload.metric_name is not None else record.metric_name
-    visible_team_id = access_control_service.resolve_visible_team_id(user)
+    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
     test_definition_service.require_visible_metric_definition(
         db,
-        visible_team_id=visible_team_id,
+        visible_sport_id=visible_sport_id,
         test_type_name=next_test_type,
         metric_name=next_metric_name,
     )
@@ -70,13 +70,13 @@ def delete_test_records_batch(db: Session, user: User, record_ids: list[int], *,
         )
         .filter(TestRecord.id.in_(normalized_ids))
     )
-    visible_team_id = access_control_service.resolve_visible_team_id(user)
-    if visible_team_id is not None:
-        query = query.join(TestRecord.athlete).filter(Athlete.team_id == visible_team_id)
+    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
+    if visible_sport_id is not None:
+        query = query.join(TestRecord.athlete).filter(Athlete.sport_id == visible_sport_id)
 
     records = query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc()).all()
     if not records:
-        if visible_team_id is not None:
+        if visible_sport_id is not None:
             existing_any = db.query(TestRecord.id).filter(TestRecord.id.in_(normalized_ids)).first()
             if existing_any:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="包含无权限删除的测试记录。")

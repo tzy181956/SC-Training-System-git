@@ -3,7 +3,7 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
-import { fetchAthletes, fetchTeams, type TeamRead } from '@/api/athletes'
+import { fetchAthletes, fetchSports, fetchTeams, type SportRead, type TeamRead } from '@/api/athletes'
 import {
   createTestMetricDefinition,
   createTestRecord,
@@ -59,13 +59,14 @@ type MetricRangePoint = {
 
 type ManagedMetricDefinition = TestMetricDefinitionRead & {
   test_type_name: string
-  team_id?: number | null
-  team_name?: string | null
+  sport_id?: number | null
+  sport_name?: string | null
   is_system: boolean
 }
 
 const authStore = useAuthStore()
 const athletes = ref<Athlete[]>([])
+const sports = ref<SportRead[]>([])
 const teams = ref<TeamRead[]>([])
 const records = ref<TestRecord[]>([])
 const definitions = ref<TestTypeDefinitionRead[]>([])
@@ -120,7 +121,7 @@ const entryPanelOpen = ref(false)
 
 const typeForm = reactive({
   name: '',
-  team_id: null as number | null,
+  sport_id: null as number | null,
   notes: '',
 })
 
@@ -147,8 +148,8 @@ const metricDefinitions = computed<ManagedMetricDefinition[]>(() =>
     definition.metrics.map((metric) => ({
       ...metric,
       test_type_name: definition.name,
-      team_id: definition.team_id,
-      team_name: definition.team_name,
+      sport_id: definition.sport_id,
+      sport_name: definition.sport_name,
       is_system: definition.is_system,
     })),
   ),
@@ -312,13 +313,15 @@ const entryActiveUnit = computed(() => entryForm.unit || selectedMetricDefinitio
 async function hydrate() {
   loading.value = true
   try {
-    const [athleteData, teamData, recordData, catalog] = await Promise.all([
+    const [athleteData, sportData, teamData, recordData, catalog] = await Promise.all([
       fetchAthletes(),
+      fetchSports(),
       fetchTeams(),
       fetchTestRecords(),
       fetchTestDefinitions(),
     ])
     athletes.value = athleteData
+    sports.value = sportData
     teams.value = teamData
     records.value = recordData
     definitions.value = catalog.types || []
@@ -569,7 +572,7 @@ function openTypeManager() {
   typeManagerError.value = ''
   typeManagerOpen.value = true
   if (!editingTypeId.value && authStore.isAdmin) {
-    typeForm.team_id = null
+    typeForm.sport_id = null
   }
 }
 
@@ -598,7 +601,7 @@ function startEditType(definition: TestTypeDefinitionRead) {
   }
   editingTypeId.value = definition.id
   typeForm.name = definition.name
-  typeForm.team_id = definition.team_id ?? null
+  typeForm.sport_id = definition.sport_id ?? null
   typeForm.notes = definition.notes || ''
   typeManagerError.value = ''
 }
@@ -630,7 +633,7 @@ async function submitType() {
       name: typeForm.name.trim(),
       code: resolveTypeCode(),
       notes: normalizeOptionalText(typeForm.notes),
-      ...(editingTypeId.value ? {} : { team_id: authStore.isAdmin ? typeForm.team_id : undefined }),
+      ...(editingTypeId.value ? {} : { sport_id: authStore.isAdmin ? typeForm.sport_id : undefined }),
     }
     const saved = editingTypeId.value
       ? await updateTestTypeDefinition(editingTypeId.value, payload)
@@ -751,7 +754,7 @@ async function removeMetric(definition: ManagedMetricDefinition) {
 function resetTypeForm() {
   editingTypeId.value = null
   typeForm.name = ''
-  typeForm.team_id = null
+  typeForm.sport_id = null
   typeForm.notes = ''
 }
 
@@ -781,9 +784,9 @@ function canEditMetric(definition: ManagedMetricDefinition) {
   return authStore.isAdmin || !definition.is_system
 }
 
-function resolveDefinitionScopeLabel(definition: { is_system: boolean; team_name?: string | null }) {
+function resolveDefinitionScopeLabel(definition: { is_system: boolean; sport_name?: string | null }) {
   if (definition.is_system) return '系统项目'
-  return definition.team_name ? `${definition.team_name} / 本队项目` : '本队项目'
+  return definition.sport_name ? `${definition.sport_name} / 本项目` : '本项目'
 }
 
 function resolveTypeCode() {
@@ -1398,9 +1401,9 @@ onMounted(hydrate)
             </label>
             <label v-if="authStore.isAdmin" class="field">
               <span>项目范围</span>
-              <select v-model="typeForm.team_id" class="text-input" :disabled="Boolean(editingTypeId)">
+              <select v-model="typeForm.sport_id" class="text-input" :disabled="Boolean(editingTypeId)">
                 <option :value="null">系统项目（所有队伍可见）</option>
-                <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
+                <option v-for="sport in sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
               </select>
             </label>
             <label class="field">

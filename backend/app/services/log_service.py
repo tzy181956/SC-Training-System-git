@@ -46,7 +46,7 @@ def list_logs(
     items.extend(_list_sync_conflict_logs(db, start_at=start_at, end_at=end_at))
     items.extend(_list_dangerous_operation_logs(db, start_at=start_at, end_at=end_at))
 
-    items = _apply_visibility(items, current_user)
+    items = _apply_visibility(db, items, current_user)
 
     actor_filter = (actor_name or "").strip().lower()
     if actor_filter:
@@ -273,7 +273,7 @@ def _list_dangerous_operation_logs(db: Session, *, start_at: datetime | None, en
     return items
 
 
-def _apply_visibility(items: list[LogItemRead], current_user: User | None) -> list[LogItemRead]:
+def _apply_visibility(db: Session, items: list[LogItemRead], current_user: User | None) -> list[LogItemRead]:
     if current_user is None:
         return items
 
@@ -282,11 +282,56 @@ def _apply_visibility(items: list[LogItemRead], current_user: User | None) -> li
         return items
 
     if role_code == "coach":
-        if current_user.team_id is None:
-            return [item for item in items if item.team_id is None]
-        return [item for item in items if item.team_id in {None, current_user.team_id}]
+        sport_id = current_user.sport_id
+        if sport_id is None:
+            return [item for item in items if not _extract_item_team_ids(item)]
+
+        team_ids = {
+            team_id
+            for (team_id,) in db.query(Team.id).filter(Team.sport_id == sport_id).all()
+            if team_id is not None
+        }
+
+        def is_visible(item: LogItemRead) -> bool:
+            scoped_team_ids = _extract_item_team_ids(item)
+            if not scoped_team_ids:
+                return True
+            return bool(scoped_team_ids & team_ids)
+
+        return [item for item in items if is_visible(item)]
 
     return [item for item in items if item.team_id is None]
+
+
+def _extract_item_team_ids(item: LogItemRead) -> set[int]:
+    scoped_team_ids: set[int] = set()
+    if item.team_id is not None:
+        scoped_team_ids.add(item.team_id)
+
+    for payload in (item.before_snapshot, item.after_snapshot, item.extra_context):
+        if not isinstance(payload, dict):
+            continue
+        _collect_team_ids(scoped_team_ids, payload.get("team_id"))
+        _collect_team_ids(scoped_team_ids, payload.get("team_ids"))
+
+    return scoped_team_ids
+
+
+def _collect_team_ids(target: set[int], value) -> None:
+    if value is None:
+        return
+    if isinstance(value, list):
+        for entry in value:
+            _collect_team_ids(target, entry)
+        return
+    if isinstance(value, bool):
+        return
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return
+    if normalized > 0:
+        target.add(normalized)
 
 
 def _resolve_dangerous_operation_context(db: Session, log: DangerousOperationLog) -> dict:

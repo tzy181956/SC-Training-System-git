@@ -31,10 +31,10 @@ def create_user(
         display_name=payload.display_name,
         role_code=payload.role_code,
         password=payload.password,
-        team_id=payload.team_id,
+        sport_id=payload.sport_id,
         is_active=payload.is_active,
         actor_name=current_user.display_name,
-        allow_teamless_role=False,
+        allow_sportless_role=False,
     )
     return _to_user_read(user)
 
@@ -51,7 +51,7 @@ def update_user(
         user_id=user_id,
         display_name=payload.display_name,
         role_code=payload.role_code,
-        team_id=payload.team_id,
+        sport_id=payload.sport_id,
         is_active=payload.is_active,
         actor_name=current_user.display_name,
         acting_user=current_user,
@@ -113,8 +113,8 @@ def _to_user_read(user: User) -> UserManagementRead:
         username=user.username,
         display_name=user.display_name,
         role_code=cast(UserRoleCode, (user.role_code or "").strip().lower()),
-        team_id=user.team_id,
-        team_name=user.team.name if user.team else None,
+        sport_id=user.sport_id,
+        sport_name=user.sport.name if user.sport else None,
         is_active=user.is_active,
         created_at=user.created_at,
         updated_at=user.updated_at,

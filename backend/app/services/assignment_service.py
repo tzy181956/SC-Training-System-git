@@ -93,7 +93,7 @@ def _validate_window(
             raise bad_request("该队员已存在相同模板、时间段和循环星期的有效计划，请勿重复分配。")
 
 
-def list_assignments(db: Session, team_id: int | None = None) -> list[AthletePlanAssignment]:
+def list_assignments(db: Session, sport_id: int | None = None) -> list[AthletePlanAssignment]:
     query = (
         db.query(AthletePlanAssignment)
         .options(
@@ -103,8 +103,8 @@ def list_assignments(db: Session, team_id: int | None = None) -> list[AthletePla
             joinedload(AthletePlanAssignment.overrides),
         )
     )
-    if team_id is not None:
-        query = query.join(Athlete, Athlete.id == AthletePlanAssignment.athlete_id).filter(Athlete.team_id == team_id)
+    if sport_id is not None:
+        query = query.join(Athlete, Athlete.id == AthletePlanAssignment.athlete_id).filter(Athlete.sport_id == sport_id)
     return query.order_by(AthletePlanAssignment.start_date.desc(), AthletePlanAssignment.id.desc()).all()
 
 
@@ -323,7 +323,7 @@ def cancel_batch_assignments(db: Session, payload: BatchAssignmentCancel) -> lis
     return [get_assignment(db, assignment.id) for assignment in assignments]
 
 
-def assignment_overview(db: Session, target_date: date, team_id: int | None = None) -> dict:
+def assignment_overview(db: Session, target_date: date, sport_id: int | None = None) -> dict:
     query = (
         db.query(AthletePlanAssignment)
         .options(
@@ -333,8 +333,8 @@ def assignment_overview(db: Session, target_date: date, team_id: int | None = No
             joinedload(AthletePlanAssignment.overrides),
         )
     )
-    if team_id is not None:
-        query = query.join(Athlete, Athlete.id == AthletePlanAssignment.athlete_id).filter(Athlete.team_id == team_id)
+    if sport_id is not None:
+        query = query.join(Athlete, Athlete.id == AthletePlanAssignment.athlete_id).filter(Athlete.sport_id == sport_id)
     assignments = (
         query.filter(
             AthletePlanAssignment.status == "active",
@@ -394,7 +394,7 @@ def assignment_overview(db: Session, target_date: date, team_id: int | None = No
     assigned_ids = {assignment.athlete_id for assignment in assignments}
     unassigned = [
         athlete
-        for athlete in athlete_service.list_athletes(db, team_id=team_id)
+        for athlete in athlete_service.list_athletes(db, sport_id=sport_id)
         if athlete.is_active and athlete.id not in assigned_ids
     ]
     return {

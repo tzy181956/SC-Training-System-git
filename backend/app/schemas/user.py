@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.schemas.common import ORMModel
 
 
-UserRoleCode = Literal["admin", "coach", "training"]
+UserRoleCode = Literal["admin", "coach"]
 
 
 class UserManagementRead(ORMModel):
@@ -14,8 +14,8 @@ class UserManagementRead(ORMModel):
     username: str
     display_name: str
     role_code: UserRoleCode
-    team_id: int | None = None
-    team_name: str | None = None
+    sport_id: int | None = None
+    sport_name: str | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -25,7 +25,7 @@ class UserCreate(BaseModel):
     username: str
     display_name: str
     role_code: UserRoleCode
-    team_id: int | None = None
+    sport_id: int | None = None
     is_active: bool = True
     password: str = Field(min_length=8)
 
@@ -41,7 +41,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     display_name: str | None = None
     role_code: UserRoleCode | None = None
-    team_id: int | None = None
+    sport_id: int | None = None
     is_active: bool | None = None
 
     @field_validator("display_name")

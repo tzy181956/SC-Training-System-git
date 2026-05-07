@@ -20,7 +20,7 @@ import type { AppMode, UserRoleCode } from '@/types/auth'
 
 const ADMIN_ONLY_ROLES: UserRoleCode[] = ['admin']
 const COACH_AND_ADMIN_ROLES: UserRoleCode[] = ['admin', 'coach']
-const TRAINING_ACCESS_ROLES: UserRoleCode[] = ['admin', 'coach', 'training']
+const TRAINING_ACCESS_ROLES: UserRoleCode[] = ['admin', 'coach']
 
 const router = createRouter({
   history: createWebHistory(),

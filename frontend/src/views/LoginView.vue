@@ -56,7 +56,7 @@ async function handleSubmit() {
       <div class="hero-copy">
         <p class="eyebrow">训练现场稳定优先</p>
         <h1>体能训练管理平台</h1>
-        <p class="hint">请输入管理员、教练或训练端账号登录。系统不开放自助注册。</p>
+        <p class="hint">请输入管理员或教练账号登录。系统不开放自助注册。</p>
       </div>
 
       <form class="login-form" @submit.prevent="handleSubmit">

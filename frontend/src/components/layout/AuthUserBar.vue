@@ -27,7 +27,7 @@ async function handleLogout() {
     <div class="user-copy">
       <strong>{{ authStore.currentUser.display_name }}</strong>
       <span>{{ roleLabel }}</span>
-      <small v-if="authStore.currentUser.team_name">{{ authStore.currentUser.team_name }}</small>
+      <small v-if="authStore.currentUser.sport_name">{{ authStore.currentUser.sport_name }}</small>
     </div>
     <button class="ghost-btn slim logout-btn" type="button" @click="handleLogout">退出登录</button>
   </div>

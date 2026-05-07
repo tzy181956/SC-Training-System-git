@@ -35,6 +35,7 @@ ALERT_LEVEL_PRIORITY = {
 def get_today_monitoring(
     db: Session,
     session_date: date,
+    sport_id: int | None = None,
     team_id: int | None = None,
     include_unassigned: bool = True,
     reference_time: datetime | None = None,
@@ -43,7 +44,7 @@ def get_today_monitoring(
     monitor_now = _resolve_monitor_now(reference_time)
     session_service.close_due_sessions(db, reference_time=monitor_now)
 
-    all_active_athletes = _list_active_athletes(db)
+    all_active_athletes = _list_active_athletes(db, sport_id=sport_id)
     visible_athletes = _filter_athletes(all_active_athletes, team_id, include_unassigned)
     athlete_ids = [athlete.id for athlete in visible_athletes]
     assignments_by_athlete = _get_active_assignments_by_athlete(db, athlete_ids, session_date)
@@ -124,14 +125,16 @@ def get_athlete_monitoring_detail(
     }
 
 
-def _list_active_athletes(db: Session) -> list[Athlete]:
-    return (
+def _list_active_athletes(db: Session, sport_id: int | None = None) -> list[Athlete]:
+    query = (
         db.query(Athlete)
         .options(joinedload(Athlete.team))
         .filter(Athlete.is_active.is_(True))
         .order_by(Athlete.full_name.asc(), Athlete.id.asc())
-        .all()
     )
+    if sport_id is not None:
+        query = query.filter(Athlete.sport_id == sport_id)
+    return query.all()
 
 
 def _filter_athletes(

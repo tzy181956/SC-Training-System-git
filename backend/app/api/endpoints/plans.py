@@ -24,8 +24,8 @@ def list_templates(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    visible_team_id = None if access_control_service.is_admin(current_user) else access_control_service.ensure_team_bound_user(current_user)
-    return plan_service.list_templates(db, visible_team_id=visible_team_id, include_global=True)
+    visible_sport_id = None if access_control_service.is_admin(current_user) else access_control_service.ensure_sport_bound_user(current_user)
+    return plan_service.list_templates(db, visible_sport_id=visible_sport_id, include_global=True)
 
 
 @router.post("", response_model=PlanTemplateRead)
@@ -35,7 +35,9 @@ def create_template(
     current_user: User = Depends(require_roles("coach")),
 ):
     if not access_control_service.is_admin(current_user):
-        payload = payload.model_copy(update={"team_id": access_control_service.ensure_team_bound_user(current_user)})
+        if payload.team_id is not None:
+            access_control_service.get_accessible_team(db, current_user, payload.team_id)
+        payload = payload.model_copy(update={"sport_id": access_control_service.ensure_sport_bound_user(current_user)})
     return plan_service.create_template(db, payload, current_user.id, actor_name=current_user.display_name)
 
 
@@ -58,7 +60,9 @@ def update_template(
 ):
     access_control_service.get_accessible_template(db, current_user, template_id, allow_global_read=False, allow_global_write=False)
     if not access_control_service.is_admin(current_user):
-        payload = payload.model_copy(update={"team_id": access_control_service.ensure_team_bound_user(current_user)})
+        if payload.team_id is not None:
+            access_control_service.get_accessible_team(db, current_user, payload.team_id)
+        payload = payload.model_copy(update={"sport_id": access_control_service.ensure_sport_bound_user(current_user)})
     return plan_service.update_template(db, template_id, payload, actor_name=current_user.display_name)
 
 

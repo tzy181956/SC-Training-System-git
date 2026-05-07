@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.exceptions import not_found
-from app.models import Exercise, TrainingPlanTemplate, TrainingPlanTemplateItem
+from app.core.exceptions import bad_request, not_found
+from app.models import Exercise, Sport, Team, TrainingPlanTemplate, TrainingPlanTemplateItem
 from app.schemas.training_plan import (
     PlanTemplateCreate,
     PlanTemplateItemCreate,
@@ -13,7 +13,7 @@ from app.services import backup_service, content_change_log_service, dangerous_o
 
 def list_templates(
     db: Session,
-    visible_team_id: int | None = None,
+    visible_sport_id: int | None = None,
     *,
     include_global: bool = True,
 ) -> list[TrainingPlanTemplate]:
@@ -22,13 +22,13 @@ def list_templates(
         .options(joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise))
         .order_by(TrainingPlanTemplate.name)
     )
-    if visible_team_id is not None:
+    if visible_sport_id is not None:
         if include_global:
             query = query.filter(
-                (TrainingPlanTemplate.team_id == visible_team_id) | (TrainingPlanTemplate.team_id.is_(None))
+                (TrainingPlanTemplate.sport_id == visible_sport_id) | (TrainingPlanTemplate.sport_id.is_(None))
             )
         else:
-            query = query.filter(TrainingPlanTemplate.team_id == visible_team_id)
+            query = query.filter(TrainingPlanTemplate.sport_id == visible_sport_id)
     return query.all()
 
 
@@ -50,7 +50,7 @@ def create_template(
     created_by: int | None,
     actor_name: str | None = None,
 ) -> TrainingPlanTemplate:
-    template = TrainingPlanTemplate(**payload.model_dump(), created_by=created_by)
+    template = TrainingPlanTemplate(**_normalize_template_scope(db, payload.model_dump()), created_by=created_by)
     db.add(template)
     db.flush()
     content_change_log_service.log_content_change(
@@ -80,7 +80,13 @@ def update_template(
         raise not_found("Training template not found")
 
     before_snapshot = _serialize_template(template)
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    updates = _normalize_template_scope(
+        db,
+        payload.model_dump(exclude_unset=True),
+        current_sport_id=template.sport_id,
+        current_team_id=template.team_id,
+    )
+    for key, value in updates.items():
         setattr(template, key, value)
     db.flush()
     content_change_log_service.log_content_change(
@@ -291,3 +297,37 @@ def _serialize_template_item(item: TrainingPlanTemplateItem, *, exercise_name: s
         "progression_rules": item.progression_rules,
         "ai_adjust_enabled": item.ai_adjust_enabled,
     }
+
+
+def _normalize_template_scope(
+    db: Session,
+    payload_data: dict,
+    *,
+    current_sport_id: int | None = None,
+    current_team_id: int | None = None,
+) -> dict:
+    normalized = dict(payload_data)
+    target_team_id = normalized.get("team_id", current_team_id)
+    target_sport_id = normalized.get("sport_id", current_sport_id)
+
+    if target_team_id is not None:
+        team = db.query(Team).filter(Team.id == target_team_id).first()
+        if not team:
+            raise bad_request("模板关联队伍不存在，请先刷新后重试。")
+        if target_sport_id is not None and target_sport_id != team.sport_id:
+            raise bad_request("模板关联队伍与项目不一致，请重新选择。")
+        normalized["team_id"] = team.id
+        normalized["sport_id"] = team.sport_id
+        return normalized
+
+    if target_sport_id is not None:
+        sport = db.query(Sport).filter(Sport.id == target_sport_id).first()
+        if not sport:
+            raise bad_request("模板归属项目不存在，请先刷新后重试。")
+        normalized["sport_id"] = sport.id
+        normalized["team_id"] = None
+        return normalized
+
+    normalized["sport_id"] = None
+    normalized["team_id"] = None
+    return normalized

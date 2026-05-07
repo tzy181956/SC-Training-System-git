@@ -4,19 +4,19 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
 from app.core.security import get_password_hash
-from app.models import Team, User
+from app.models import Sport, User
 from app.services import content_change_log_service
 from app.services.access_control_service import normalize_role_code
 
 
-ALLOWED_ROLE_CODES = {"admin", "coach", "training"}
+ALLOWED_ROLE_CODES = {"admin", "coach"}
 MIN_PASSWORD_LENGTH = 8
 
 
 def list_users(db: Session) -> list[User]:
     return (
         db.query(User)
-        .options(joinedload(User.team))
+        .options(joinedload(User.sport))
         .order_by(User.role_code.asc(), User.display_name.asc(), User.username.asc())
         .all()
     )
@@ -25,7 +25,7 @@ def list_users(db: Session) -> list[User]:
 def get_user(db: Session, user_id: int) -> User:
     user = (
         db.query(User)
-        .options(joinedload(User.team))
+        .options(joinedload(User.sport))
         .filter(User.id == user_id)
         .first()
     )
@@ -41,20 +41,20 @@ def create_user(
     display_name: str,
     role_code: str,
     password: str,
-    team_id: int | None = None,
+    sport_id: int | None = None,
     is_active: bool = True,
     actor_name: str | None = None,
-    allow_teamless_role: bool = False,
+    allow_sportless_role: bool = False,
 ) -> User:
     normalized_username = _normalize_username(username)
     normalized_display_name = _normalize_display_name(display_name)
     normalized_role_code = _normalize_role_or_raise(role_code)
     _validate_password(password)
-    normalized_team_id = _resolve_team_id(
+    normalized_sport_id = _resolve_sport_id(
         db,
         role_code=normalized_role_code,
-        team_id=team_id,
-        allow_teamless_role=allow_teamless_role,
+        sport_id=sport_id,
+        allow_sportless_role=allow_sportless_role,
     )
 
     existing = db.query(User).filter(User.username == normalized_username).first()
@@ -66,7 +66,8 @@ def create_user(
         display_name=normalized_display_name,
         role_code=normalized_role_code,
         password_hash=get_password_hash(password),
-        team_id=normalized_team_id,
+        sport_id=normalized_sport_id,
+        team_id=None,
         is_active=is_active,
     )
     db.add(user)
@@ -79,7 +80,7 @@ def create_user(
         object_id=user.id,
         object_label=user.display_name,
         actor_name=actor_name,
-        team_id=user.team_id,
+        team_id=None,
         summary=f"新建账号“{user.display_name}”",
         after_snapshot=_serialize_user(user),
     )
@@ -93,7 +94,7 @@ def update_user(
     user_id: int,
     display_name: str | None = None,
     role_code: str | None = None,
-    team_id: int | None = None,
+    sport_id: int | None = None,
     is_active: bool | None = None,
     actor_name: str | None = None,
     acting_user: User,
@@ -104,14 +105,20 @@ def update_user(
     next_role_code = _normalize_role_or_raise(role_code) if role_code is not None else normalize_role_code(user.role_code)
     next_display_name = _normalize_display_name(display_name) if display_name is not None else user.display_name
     next_is_active = is_active if is_active is not None else user.is_active
-    requested_team_id = team_id if role_code is not None or team_id is not None else user.team_id
+    requested_sport_id = sport_id if role_code is not None or sport_id is not None else user.sport_id
 
     _ensure_admin_update_allowed(db, user=user, acting_user=acting_user, next_role_code=next_role_code, next_is_active=next_is_active)
-    next_team_id = _resolve_team_id(db, role_code=next_role_code, team_id=requested_team_id, allow_teamless_role=False)
+    next_sport_id = _resolve_sport_id(
+        db,
+        role_code=next_role_code,
+        sport_id=requested_sport_id,
+        allow_sportless_role=False,
+    )
 
     user.display_name = next_display_name
     user.role_code = next_role_code
-    user.team_id = next_team_id
+    user.sport_id = next_sport_id
+    user.team_id = None
     user.is_active = next_is_active
     db.flush()
 
@@ -122,7 +129,7 @@ def update_user(
         object_id=user.id,
         object_label=user.display_name,
         actor_name=actor_name,
-        team_id=user.team_id,
+        team_id=None,
         summary=f"更新账号“{user.display_name}”",
         before_snapshot=before_snapshot,
         after_snapshot=_serialize_user(user),
@@ -151,7 +158,7 @@ def reset_password(
         object_id=user.id,
         object_label=user.display_name,
         actor_name=actor_name,
-        team_id=user.team_id,
+        team_id=None,
         summary=f"重置账号“{user.display_name}”密码",
         before_snapshot=before_snapshot,
         after_snapshot={"password_updated": True},
@@ -190,25 +197,25 @@ def _validate_password(password: str) -> None:
         raise bad_request(f"密码长度不能少于 {MIN_PASSWORD_LENGTH} 位")
 
 
-def _resolve_team_id(
+def _resolve_sport_id(
     db: Session,
     *,
     role_code: str,
-    team_id: int | None,
-    allow_teamless_role: bool,
+    sport_id: int | None,
+    allow_sportless_role: bool,
 ) -> int | None:
     if role_code == "admin":
         return None
 
-    if team_id is None:
-        if allow_teamless_role:
+    if sport_id is None:
+        if allow_sportless_role:
             return None
-        raise bad_request("教练账号和队伍训练端账号必须绑定队伍")
+        raise bad_request("教练账号必须绑定项目")
 
-    team = db.query(Team).filter(Team.id == team_id).first()
-    if not team:
-        raise bad_request("绑定队伍不存在，请先刷新后重试")
-    return team.id
+    sport = db.query(Sport).filter(Sport.id == sport_id).first()
+    if not sport:
+        raise bad_request("绑定项目不存在，请先刷新后重试")
+    return sport.id
 
 
 def _ensure_admin_update_allowed(
@@ -244,6 +251,6 @@ def _serialize_user(user: User) -> dict:
         "username": user.username,
         "display_name": user.display_name,
         "role_code": normalize_role_code(user.role_code),
-        "team_id": user.team_id,
+        "sport_id": user.sport_id,
         "is_active": user.is_active,
     }

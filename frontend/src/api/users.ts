@@ -6,8 +6,8 @@ export type UserManagementRead = {
   username: string
   display_name: string
   role_code: UserRoleCode
-  team_id: number | null
-  team_name: string | null
+  sport_id: number | null
+  sport_name: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -17,7 +17,7 @@ export type UserCreatePayload = {
   username: string
   display_name: string
   role_code: UserRoleCode
-  team_id: number | null
+  sport_id: number | null
   is_active: boolean
   password: string
 }
@@ -25,7 +25,7 @@ export type UserCreatePayload = {
 export type UserUpdatePayload = {
   display_name?: string
   role_code?: UserRoleCode
-  team_id?: number | null
+  sport_id?: number | null
   is_active?: boolean
 }
 

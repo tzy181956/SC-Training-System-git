@@ -29,8 +29,8 @@ def list_assignments(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    team_id = access_control_service.resolve_visible_team_id(current_user)
-    return assignment_service.list_assignments(db, team_id=team_id)
+    sport_id = access_control_service.resolve_visible_sport_id(current_user)
+    return assignment_service.list_assignments(db, sport_id=sport_id)
 
 
 @router.post("", response_model=AssignmentRead)
@@ -88,7 +88,7 @@ def get_assignment_overview(
     return assignment_service.assignment_overview(
         db,
         target_date,
-        team_id=access_control_service.resolve_visible_team_id(current_user),
+        sport_id=access_control_service.resolve_visible_sport_id(current_user),
     )
 
 

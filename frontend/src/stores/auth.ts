@@ -62,7 +62,6 @@ export const useAuthStore = defineStore('auth', () => {
   const isMonitorMode = computed(() => currentMode.value === 'monitor')
   const isAdmin = computed(() => roleCode.value === 'admin')
   const isCoach = computed(() => roleCode.value === 'coach')
-  const isTraining = computed(() => roleCode.value === 'training')
   const canManageUsers = computed(() => Boolean(currentUser.value?.can_manage_users))
   const canManageSystem = computed(() => Boolean(currentUser.value?.can_manage_system))
   const isManagementUnlocked = computed(() => (
@@ -261,7 +260,6 @@ export const useAuthStore = defineStore('auth', () => {
     isMonitorMode,
     isAdmin,
     isCoach,
-    isTraining,
     isManagementUnlocked,
     needsManagementPassword,
     hasPendingManagementPath,

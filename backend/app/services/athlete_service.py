@@ -37,10 +37,10 @@ def create_sport(db: Session, payload: SportCreate) -> Sport:
     return sport
 
 
-def list_teams(db: Session, team_id: int | None = None) -> list[Team]:
+def list_teams(db: Session, sport_id: int | None = None) -> list[Team]:
     query = db.query(Team).options(joinedload(Team.sport)).order_by(Team.name)
-    if team_id is not None:
-        query = query.filter(Team.id == team_id)
+    if sport_id is not None:
+        query = query.filter(Team.sport_id == sport_id)
     return query.all()
 
 
@@ -65,8 +65,15 @@ def create_team(db: Session, payload: TeamCreate) -> Team:
     )
 
 
-def list_athletes(db: Session, team_id: int | None = None) -> list[Athlete]:
+def list_athletes(
+    db: Session,
+    *,
+    sport_id: int | None = None,
+    team_id: int | None = None,
+) -> list[Athlete]:
     query = db.query(Athlete).options(joinedload(Athlete.sport), joinedload(Athlete.team)).order_by(Athlete.full_name)
+    if sport_id is not None:
+        query = query.filter(Athlete.sport_id == sport_id)
     if team_id is not None:
         query = query.filter(Athlete.team_id == team_id)
     return query.all()
@@ -75,8 +82,15 @@ def list_athletes(db: Session, team_id: int | None = None) -> list[Athlete]:
 def create_athlete(db: Session, payload: AthleteCreate) -> Athlete:
     payload_data = payload.model_dump()
     requested_code = _normalize_optional_code(payload_data.pop("code", None))
+    resolved_sport_id, resolved_team_id = _resolve_athlete_scope(
+        db,
+        sport_id=payload_data.pop("sport_id", None),
+        team_id=payload_data.pop("team_id", None),
+    )
     athlete = Athlete(
         **payload_data,
+        sport_id=resolved_sport_id,
+        team_id=resolved_team_id,
         code=requested_code or _build_temporary_athlete_code(),
     )
     db.add(athlete)
@@ -111,6 +125,15 @@ def update_athlete(db: Session, athlete_id: int, payload: AthleteUpdate) -> Athl
         if not normalized_code:
             raise bad_request("运动员编码不能为空")
         athlete.code = normalized_code
+
+    if "sport_id" in updates or "team_id" in updates:
+        resolved_sport_id, resolved_team_id = _resolve_athlete_scope(
+            db,
+            sport_id=updates.pop("sport_id", athlete.sport_id),
+            team_id=updates.pop("team_id", athlete.team_id),
+        )
+        athlete.sport_id = resolved_sport_id
+        athlete.team_id = resolved_team_id
 
     for key, value in updates.items():
         setattr(athlete, key, value)
@@ -205,12 +228,10 @@ def delete_team(db: Session, team_id: int, *, actor_name: str | None = None) -> 
 
     athlete_refs = db.query(Athlete).filter(Athlete.team_id == team_id).count()
     template_refs = db.query(TrainingPlanTemplate).filter(TrainingPlanTemplate.team_id == team_id).count()
-    user_refs = db.query(User).filter(User.team_id == team_id).count()
     reference_summary = _build_reference_summary(
         [
             (athlete_refs, "名运动员"),
             (template_refs, "个训练模板"),
-            (user_refs, "个用户"),
         ]
     )
     if reference_summary:
@@ -271,3 +292,26 @@ def _commit_or_raise(db: Session, *, conflict_message: str) -> None:
 def _build_reference_summary(reference_pairs: list[tuple[int, str]]) -> str:
     parts = [f"{count}{label}" for count, label in reference_pairs if count]
     return "、".join(parts)
+
+
+def _resolve_athlete_scope(
+    db: Session,
+    *,
+    sport_id: int | None,
+    team_id: int | None,
+) -> tuple[int | None, int | None]:
+    if team_id is not None:
+        team = db.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise bad_request("所属队伍不存在，请先刷新后重试。")
+        if sport_id is not None and sport_id != team.sport_id:
+            raise bad_request("所选队伍与所属项目不一致，请重新选择。")
+        return team.sport_id, team.id
+
+    if sport_id is not None:
+        sport = db.query(Sport).filter(Sport.id == sport_id).first()
+        if not sport:
+            raise bad_request("所属项目不存在，请先刷新后重试。")
+        return sport.id, None
+
+    return None, None

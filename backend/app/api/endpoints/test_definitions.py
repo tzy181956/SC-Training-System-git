@@ -28,7 +28,7 @@ def get_test_definition_catalog(
     return {
         "types": test_definition_service.list_test_type_definitions(
             db,
-            visible_team_id=access_control_service.resolve_visible_team_id(current_user),
+            visible_sport_id=access_control_service.resolve_visible_sport_id(current_user),
         )
     }
 

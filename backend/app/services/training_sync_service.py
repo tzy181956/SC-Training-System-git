@@ -14,7 +14,7 @@ def list_sync_issues(
     db: Session,
     *,
     athlete_id: int | None = None,
-    team_id: int | None = None,
+    sport_id: int | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     issue_status: str = "manual_retry_required",
@@ -23,8 +23,8 @@ def list_sync_issues(
     query = db.query(TrainingSyncIssue).filter(TrainingSyncIssue.issue_status == issue_status)
     if athlete_id is not None:
         query = query.filter(TrainingSyncIssue.athlete_id == athlete_id)
-    if team_id is not None:
-        query = query.join(Athlete, Athlete.id == TrainingSyncIssue.athlete_id).filter(Athlete.team_id == team_id)
+    if sport_id is not None:
+        query = query.join(Athlete, Athlete.id == TrainingSyncIssue.athlete_id).filter(Athlete.sport_id == sport_id)
     if date_from is not None:
         query = query.filter(TrainingSyncIssue.session_date >= date_from)
     if date_to is not None:

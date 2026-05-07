@@ -56,9 +56,9 @@ class TestRecordImportSummary:
 
 
 def build_import_template_workbook(db: Session, user: User) -> bytes:
-    visible_team_id = access_control_service.resolve_visible_team_id(user)
-    athletes = _query_visible_athletes(db, visible_team_id)
-    definitions = test_definition_service.list_test_type_definitions(db, visible_team_id=visible_team_id)
+    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
+    athletes = _query_visible_athletes(db, visible_sport_id)
+    definitions = test_definition_service.list_test_type_definitions(db, visible_sport_id=visible_sport_id)
     example_rows = _build_example_rows(definitions)
 
     workbook = Workbook()
@@ -99,13 +99,13 @@ def build_import_template_workbook(db: Session, user: User) -> bytes:
         )
 
     definition_sheet = workbook.create_sheet("测试项目参考")
-    definition_sheet.append([TEST_TYPE_HEADER, METRIC_NAME_HEADER, "默认单位", "范围", "队伍", NOTES_HEADER])
+    definition_sheet.append([TEST_TYPE_HEADER, METRIC_NAME_HEADER, "默认单位", "范围", "项目", NOTES_HEADER])
     _style_bold_row(definition_sheet)
     for definition in definitions:
-        scope_label = "系统" if definition.team_id is None else "本队"
-        team_name = definition.team_name or ""
+        scope_label = "系统" if definition.sport_id is None else "本项目"
+        sport_name = definition.sport_name or ""
         if not definition.metrics:
-            definition_sheet.append([definition.name, "", "", scope_label, team_name, definition.notes or ""])
+            definition_sheet.append([definition.name, "", "", scope_label, sport_name, definition.notes or ""])
             continue
         for metric in definition.metrics:
             definition_sheet.append(
@@ -114,7 +114,7 @@ def build_import_template_workbook(db: Session, user: User) -> bytes:
                     metric.name,
                     metric.default_unit or "",
                     scope_label,
-                    team_name,
+                    sport_name,
                     metric.notes or "",
                 ]
             )
@@ -132,13 +132,13 @@ def build_import_template_workbook(db: Session, user: User) -> bytes:
     instruction_sheet.append([RESULT_TEXT_HEADER, "选填；用于展示原始文本结果，例如 13'2''。"])
     instruction_sheet.append([UNIT_HEADER, "必填；例如 kg / cm / s / 次 / RSI。"])
     instruction_sheet.append([NOTES_HEADER, "选填。"])
-    instruction_sheet.append(["权限提醒", "队伍账号只能导入本队运动员，并且只能使用系统项目和本队私有项目。"])
+    instruction_sheet.append(["权限提醒", "教练账号只能导入本项目运动员，并且只能使用系统项目和本项目私有项目。"])
 
     return _workbook_to_bytes(workbook)
 
 
 def build_test_record_library_workbook(db: Session, user: User) -> bytes:
-    visible_team_id = access_control_service.resolve_visible_team_id(user)
+    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
     query = (
         db.query(TestRecord)
         .options(
@@ -146,8 +146,8 @@ def build_test_record_library_workbook(db: Session, user: User) -> bytes:
             joinedload(TestRecord.athlete).joinedload(Athlete.sport),
         )
     )
-    if visible_team_id is not None:
-        query = query.join(TestRecord.athlete).filter(Athlete.team_id == visible_team_id)
+    if visible_sport_id is not None:
+        query = query.join(TestRecord.athlete).filter(Athlete.sport_id == visible_sport_id)
     records = query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc()).all()
 
     workbook = Workbook()
@@ -204,8 +204,8 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
     if missing_headers:
         raise ValueError(f"导入模板缺少列：{', '.join(missing_headers)}")
 
-    visible_team_id = access_control_service.resolve_visible_team_id(user)
-    visible_athletes = _query_visible_athletes(db, visible_team_id)
+    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
+    visible_athletes = _query_visible_athletes(db, visible_sport_id)
     all_athletes = db.query(Athlete).all()
     visible_athletes_by_code = {
         athlete.code.strip().upper(): athlete
@@ -225,8 +225,8 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
     for athlete in all_athletes:
         all_athletes_by_name.setdefault(athlete.full_name, []).append(athlete)
 
-    visible_definitions = test_definition_service.list_test_type_definitions(db, visible_team_id=visible_team_id)
-    all_definitions = test_definition_service.list_test_type_definitions(db, visible_team_id=None)
+    visible_definitions = test_definition_service.list_test_type_definitions(db, visible_sport_id=visible_sport_id)
+    all_definitions = test_definition_service.list_test_type_definitions(db, visible_sport_id=None)
     visible_pairs = {
         (definition.name, metric.name)
         for definition in visible_definitions
@@ -239,8 +239,8 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
     }
 
     existing_query = db.query(TestRecord)
-    if visible_team_id is not None:
-        existing_query = existing_query.join(TestRecord.athlete).filter(Athlete.team_id == visible_team_id)
+    if visible_sport_id is not None:
+        existing_query = existing_query.join(TestRecord.athlete).filter(Athlete.sport_id == visible_sport_id)
     existing_keys = {
         (
             record.athlete_id,
@@ -278,7 +278,7 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
                 visible_athletes_by_name=visible_athletes_by_name,
                 all_athletes_by_code=all_athletes_by_code,
                 all_athletes_by_name=all_athletes_by_name,
-                visible_team_id=visible_team_id,
+                visible_sport_id=visible_sport_id,
             )
 
             record_date = _parse_date(row_values[header_index[TEST_DATE_HEADER]])
@@ -289,7 +289,7 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
                 metric_name=metric_name,
                 visible_pairs=visible_pairs,
                 all_pairs=all_pairs,
-                visible_team_id=visible_team_id,
+                visible_sport_id=visible_sport_id,
             )
             result_value = _float_cell(row_values[header_index[RESULT_VALUE_HEADER]])
             result_text = _optional_string_cell(row_values[header_index[RESULT_TEXT_HEADER]]) if RESULT_TEXT_HEADER in header_index else None
@@ -361,7 +361,7 @@ def _resolve_athlete(
     visible_athletes_by_name: dict[str, list[Athlete]],
     all_athletes_by_code: dict[str, Athlete],
     all_athletes_by_name: dict[str, list[Athlete]],
-    visible_team_id: int | None,
+    visible_sport_id: int | None,
 ) -> Athlete:
     normalized_code = _normalize_optional_code(athlete_code)
     if normalized_code:
@@ -372,8 +372,8 @@ def _resolve_athlete(
                     f"运动员编码 {normalized_code} 与姓名“{athlete_name}”不匹配，系统记录为“{athlete.full_name}”。"
                 )
             return athlete
-        if normalized_code in all_athletes_by_code and visible_team_id is not None:
-            raise ValueError(f"运动员编码 {normalized_code} 不在当前账号可管理队伍内。")
+        if normalized_code in all_athletes_by_code and visible_sport_id is not None:
+            raise ValueError(f"运动员编码 {normalized_code} 不在当前账号可管理项目内。")
         raise ValueError(f"系统中不存在运动员编码：{normalized_code}")
 
     visible_matches = visible_athletes_by_name.get(athlete_name, [])
@@ -382,8 +382,8 @@ def _resolve_athlete(
             raise ValueError(f"运动员姓名“{athlete_name}”存在重名，请填写运动员编码后重试。")
         return visible_matches[0]
 
-    if visible_team_id is not None and all_athletes_by_name.get(athlete_name):
-        raise ValueError(f"运动员“{athlete_name}”不在当前账号可管理队伍内。")
+    if visible_sport_id is not None and all_athletes_by_name.get(athlete_name):
+        raise ValueError(f"运动员“{athlete_name}”不在当前账号可管理项目内。")
     raise ValueError(f"系统中不存在运动员：{athlete_name}")
 
 
@@ -393,24 +393,24 @@ def _ensure_visible_definition_pair(
     metric_name: str,
     visible_pairs: set[tuple[str, str]],
     all_pairs: set[tuple[str, str]],
-    visible_team_id: int | None,
+    visible_sport_id: int | None,
 ) -> None:
     pair = (test_type, metric_name)
     if pair in visible_pairs:
         return
-    if visible_team_id is not None and pair in all_pairs:
+    if visible_sport_id is not None and pair in all_pairs:
         raise ValueError(f"测试项目“{test_type} / {metric_name}”不在当前账号可用目录内。")
     raise ValueError(f"测试项目“{test_type} / {metric_name}”不存在，请先在测试项目目录中创建。")
 
 
-def _query_visible_athletes(db: Session, visible_team_id: int | None) -> list[Athlete]:
+def _query_visible_athletes(db: Session, visible_sport_id: int | None) -> list[Athlete]:
     query = (
         db.query(Athlete)
         .options(joinedload(Athlete.team), joinedload(Athlete.sport))
         .order_by(Athlete.full_name.asc(), Athlete.id.asc())
     )
-    if visible_team_id is not None:
-        query = query.filter(Athlete.team_id == visible_team_id)
+    if visible_sport_id is not None:
+        query = query.filter(Athlete.sport_id == visible_sport_id)
     return query.all()
 
 
