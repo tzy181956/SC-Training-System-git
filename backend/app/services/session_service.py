@@ -7,6 +7,9 @@ from app.models import (
     Athlete,
     AthletePlanAssignment,
     SetRecord,
+    TrainingPlanTemplate,
+    TrainingPlanTemplateItem,
+    TrainingPlanTemplateModule,
     TrainingSession,
     TrainingSessionEditLog,
     TrainingSessionItem,
@@ -41,6 +44,15 @@ from app.services.session_state_utils import (
     serialize_session_snapshot,
 )
 DEFAULT_POST_CLASS_ACTOR = "管理端"
+
+SESSION_DETAIL_OPTIONS = (
+    joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
+    joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
+    joinedload(TrainingSession.items)
+    .joinedload(TrainingSessionItem.template_item)
+    .joinedload(TrainingPlanTemplateItem.module)
+    .joinedload(TrainingPlanTemplateModule.items),
+)
 
 
 def get_or_create_today_session(db: Session, athlete_id: int, session_date: date) -> TrainingSession:
@@ -97,10 +109,7 @@ def get_or_create_session_for_assignment(db: Session, assignment_id: int, sessio
 def _find_session_by_assignment_and_date(db: Session, assignment_id: int, session_date: date) -> TrainingSession | None:
     return (
         db.query(TrainingSession)
-        .options(
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
-        )
+        .options(*SESSION_DETAIL_OPTIONS)
         .filter(TrainingSession.assignment_id == assignment_id, TrainingSession.session_date == session_date)
         .first()
     )
@@ -140,6 +149,29 @@ def _prepare_session_for_assignment(db: Session, assignment, session_date: date)
 
 def _build_session_preview(assignment, session_date: date) -> dict:
     override_map = {override.template_item_id: override.initial_load_override for override in assignment.overrides}
+    items = [
+        {
+            "id": template_item.id,
+            "template_item_id": template_item.id,
+            "module_id": template_item.module_id,
+            "module_code": template_item.module_code,
+            "module_title": template_item.module_title,
+            "module_note": template_item.module.note if template_item.module else None,
+            "display_index": template_item.display_index,
+            "display_code": template_item.display_code,
+            "sort_order": template_item.sort_order,
+            "prescribed_sets": template_item.prescribed_sets,
+            "prescribed_reps": template_item.prescribed_reps,
+            "target_note": template_item.target_note,
+            "is_main_lift": template_item.is_main_lift,
+            "enable_auto_load": template_item.enable_auto_load,
+            "initial_load": override_map.get(template_item.id, template_item.initial_load_value),
+            "status": "pending",
+            "exercise": template_item.exercise,
+            "records": [],
+        }
+        for template_item in assignment.template.items
+    ]
     return {
         "id": None,
         "athlete_id": assignment.athlete_id,
@@ -155,23 +187,8 @@ def _build_session_preview(assignment, session_date: date) -> dict:
         "session_feedback": None,
         "coach_note": None,
         "athlete_note": None,
-        "items": [
-            {
-                "id": template_item.id,
-                "template_item_id": template_item.id,
-                "sort_order": template_item.sort_order,
-                "prescribed_sets": template_item.prescribed_sets,
-                "prescribed_reps": template_item.prescribed_reps,
-                "target_note": template_item.target_note,
-                "is_main_lift": template_item.is_main_lift,
-                "enable_auto_load": template_item.enable_auto_load,
-                "initial_load": override_map.get(template_item.id, template_item.initial_load_value),
-                "status": "pending",
-                "exercise": template_item.exercise,
-                "records": [],
-            }
-            for template_item in assignment.template.items
-        ],
+        "modules": _build_session_module_payloads(items),
+        "items": items,
     }
 
 
@@ -195,14 +212,32 @@ def _build_session_items_from_assignment(assignment, session_id: int) -> list[Tr
     ]
 
 
+def _build_session_module_payloads(items: list[dict]) -> list[dict]:
+    grouped: dict[int | str, dict] = {}
+    ordered_modules: list[dict] = []
+    for item in sorted(items, key=lambda current: (current["sort_order"], current["template_item_id"])):
+        module_key: int | str = item.get("module_id") or f"ungrouped-{item['template_item_id']}"
+        if module_key not in grouped:
+            module_code = item.get("module_code") or "A"
+            grouped[module_key] = {
+                "id": item.get("module_id"),
+                "sort_order": len(ordered_modules) + 1,
+                "module_code": module_code,
+                "title": item.get("module_title"),
+                "note": item.get("module_note"),
+                "display_label": f"模块 {module_code}",
+                "items": [],
+            }
+            ordered_modules.append(grouped[module_key])
+        grouped[module_key]["items"].append(item)
+    return ordered_modules
+
+
 def get_session(db: Session, session_id: int) -> TrainingSession:
     close_due_sessions(db)
     session = (
         db.query(TrainingSession)
-        .options(
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
-        )
+        .options(*SESSION_DETAIL_OPTIONS)
         .filter(TrainingSession.id == session_id)
         .first()
     )
@@ -619,6 +654,9 @@ def _get_session_item(db: Session, item_id: int) -> TrainingSessionItem:
             joinedload(TrainingSessionItem.exercise),
             joinedload(TrainingSessionItem.records),
             joinedload(TrainingSessionItem.session),
+            joinedload(TrainingSessionItem.template_item)
+            .joinedload(TrainingPlanTemplateItem.module)
+            .joinedload(TrainingPlanTemplateModule.items),
         )
         .filter(TrainingSessionItem.id == item_id)
         .first()
@@ -635,6 +673,10 @@ def _get_set_record(db: Session, record_id: int) -> SetRecord:
             joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.exercise),
             joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.records),
             joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.session),
+            joinedload(SetRecord.session_item)
+            .joinedload(TrainingSessionItem.template_item)
+            .joinedload(TrainingPlanTemplateItem.module)
+            .joinedload(TrainingPlanTemplateModule.items),
         )
         .filter(SetRecord.id == record_id)
         .first()
@@ -1098,7 +1140,17 @@ def _get_active_assignments_by_athlete(db: Session, athlete_ids: list[int], sess
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
-            joinedload(AthletePlanAssignment.template),
+            joinedload(AthletePlanAssignment.template)
+            .joinedload(TrainingPlanTemplate.modules)
+            .joinedload(TrainingPlanTemplateModule.items)
+            .joinedload(TrainingPlanTemplateItem.exercise),
+            joinedload(AthletePlanAssignment.template)
+            .joinedload(TrainingPlanTemplate.items)
+            .joinedload(TrainingPlanTemplateItem.exercise),
+            joinedload(AthletePlanAssignment.template)
+            .joinedload(TrainingPlanTemplate.items)
+            .joinedload(TrainingPlanTemplateItem.module)
+            .joinedload(TrainingPlanTemplateModule.items),
             joinedload(AthletePlanAssignment.overrides),
         )
         .filter(

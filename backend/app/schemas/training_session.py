@@ -158,6 +158,11 @@ class SetRecordRead(ORMModel):
 class SessionItemSnapshotRead(ORMModel):
     id: int | None = None
     template_item_id: int
+    module_id: int | None = None
+    module_code: str | None = None
+    module_title: str | None = None
+    display_index: int | None = None
+    display_code: str | None = None
     sort_order: int
     prescribed_sets: int
     prescribed_reps: int
@@ -168,6 +173,16 @@ class SessionItemSnapshotRead(ORMModel):
     status: str
     exercise: ExerciseRead
     records: list[SetRecordRead] = []
+
+
+class SessionModuleRead(BaseModel):
+    id: int | None = None
+    sort_order: int
+    module_code: str
+    title: str | None = None
+    note: str | None = None
+    display_label: str
+    items: list[SessionItemSnapshotRead] = []
 
 
 class SessionSnapshotRead(ORMModel):
@@ -185,6 +200,7 @@ class SessionSnapshotRead(ORMModel):
     session_feedback: str | None = None
     coach_note: str | None = None
     athlete_note: str | None = None
+    modules: list[SessionModuleRead] = []
     items: list[SessionItemSnapshotRead] = []
 
 

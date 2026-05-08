@@ -15,6 +15,7 @@ from app.models import (
     TestTypeDefinition,
     TrainingPlanTemplate,
     TrainingPlanTemplateItem,
+    TrainingPlanTemplateModule,
     TrainingSession,
     TrainingSessionItem,
     TrainingSyncIssue,
@@ -128,7 +129,12 @@ def get_accessible_template(
 ) -> TrainingPlanTemplate:
     template = (
         db.query(TrainingPlanTemplate)
-        .options(joinedload(TrainingPlanTemplate.sport), joinedload(TrainingPlanTemplate.team), joinedload(TrainingPlanTemplate.items))
+        .options(
+            joinedload(TrainingPlanTemplate.sport),
+            joinedload(TrainingPlanTemplate.team),
+            joinedload(TrainingPlanTemplate.modules),
+            joinedload(TrainingPlanTemplate.items),
+        )
         .filter(TrainingPlanTemplate.id == template_id)
         .first()
     )
@@ -216,6 +222,41 @@ def get_accessible_template_item(
     if template.sport_id != scoped_sport_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
     return item
+
+
+def get_accessible_template_module(
+    db: Session,
+    user: User,
+    module_id: int,
+    *,
+    allow_global_read: bool = True,
+    allow_global_write: bool = False,
+) -> TrainingPlanTemplateModule:
+    module = (
+        db.query(TrainingPlanTemplateModule)
+        .options(
+            joinedload(TrainingPlanTemplateModule.template).joinedload(TrainingPlanTemplate.sport),
+            joinedload(TrainingPlanTemplateModule.items),
+        )
+        .filter(TrainingPlanTemplateModule.id == module_id)
+        .first()
+    )
+    if not module:
+        raise not_found("Template module not found")
+    template = module.template
+    if template is None:
+        raise not_found("Training template not found")
+    if is_admin(user):
+        return module
+
+    scoped_sport_id = ensure_sport_bound_user(user)
+    if template.sport_id is None:
+        if allow_global_write or allow_global_read:
+            return module
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
+    if template.sport_id != scoped_sport_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
+    return module
 
 
 def get_accessible_override(db: Session, user: User, override_id: int) -> AssignmentItemOverride:

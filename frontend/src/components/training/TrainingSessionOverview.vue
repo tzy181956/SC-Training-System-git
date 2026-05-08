@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 
+import { resolveTemplateModules } from '@/utils/templateModules'
+
 const props = defineProps<{
   assignment?: any | null
   session?: any | null
@@ -10,6 +12,11 @@ const props = defineProps<{
 }>()
 
 const items = computed(() => props.session?.items || props.assignment?.template?.items || [])
+const modules = computed(() => {
+  if (props.session?.modules?.length) return props.session.modules
+  if (props.assignment?.template) return resolveTemplateModules(props.assignment.template)
+  return []
+})
 const showCurrentAthlete = computed(() => !props.session)
 const itemListRef = ref<HTMLElement | null>(null)
 
@@ -82,7 +89,7 @@ watch(
         <p v-if="showCurrentAthlete" class="current-athlete">当前队员：{{ athleteName || '未选择队员' }}</p>
       </div>
       <div class="meta">
-        <span>{{ items.length }} 个动作</span>
+        <span>{{ modules.length || 0 }} 个模块 / {{ items.length }} 个动作</span>
         <span>{{ assignment?.notes || session?.coach_note || '按动作顺序完成即可' }}</span>
       </div>
     </div>
@@ -93,22 +100,34 @@ watch(
     </div>
 
     <div v-if="items.length" ref="itemListRef" class="item-list">
-      <button
-        v-for="item in items"
-        :key="item.id"
-        :data-item-id="item.id"
-        class="item-card"
-        :class="{
-          active: session && item.id === activeItemId,
-          'item-card--interactive': Boolean(session && onSelectItem),
-        }"
-        type="button"
-        @click="session && onSelectItem && onSelectItem(item.id)"
-      >
-        <strong class="item-title" :title="item.exercise.name">{{ item.exercise.name }}</strong>
-        <span class="prescription-summary" :title="buildPrescriptionSummary(item)">{{ buildPrescriptionSummary(item) }}</span>
-        <em v-if="session" class="progress-summary">{{ buildProgressSummary(item) }}</em>
-      </button>
+      <section v-for="module in modules" :key="module.id || module.module_code" class="module-block">
+        <header class="module-head">
+          <div class="heading-copy">
+            <p class="section-title">{{ module.display_label }}</p>
+            <strong>{{ module.title || `${module.display_label}（未命名）` }}</strong>
+            <span v-if="module.note" class="module-note">{{ module.note }}</span>
+          </div>
+        </header>
+
+        <button
+          v-for="item in module.items"
+          :key="item.id"
+          :data-item-id="item.id"
+          class="item-card"
+          :class="{
+            active: session && item.id === activeItemId,
+            'item-card--interactive': Boolean(session && onSelectItem),
+          }"
+          type="button"
+          @click="session && onSelectItem && onSelectItem(item.id)"
+        >
+          <strong class="item-title" :title="item.exercise.name">
+            {{ item.display_code ? `${item.display_code} ${item.exercise.name}` : item.exercise.name }}
+          </strong>
+          <span class="prescription-summary" :title="buildPrescriptionSummary(item)">{{ buildPrescriptionSummary(item) }}</span>
+          <em v-if="session" class="progress-summary">{{ buildProgressSummary(item) }}</em>
+        </button>
+      </section>
     </div>
   </section>
 </template>
@@ -117,6 +136,7 @@ watch(
 .overview,
 .heading,
 .item-list,
+.module-block,
 .empty-state {
   display: grid;
   gap: 12px;
@@ -161,6 +181,23 @@ watch(
   padding-right: 6px;
   scrollbar-gutter: stable;
   align-content: start;
+}
+
+.module-block {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.module-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.module-note {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .item-card {

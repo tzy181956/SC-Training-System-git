@@ -1,14 +1,45 @@
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
-from app.models import Exercise, Sport, Team, TrainingPlanTemplate, TrainingPlanTemplateItem
+from app.models import (
+    Exercise,
+    Sport,
+    Team,
+    TrainingPlanTemplate,
+    TrainingPlanTemplateItem,
+    TrainingPlanTemplateModule,
+)
 from app.schemas.training_plan import (
     PlanTemplateCreate,
     PlanTemplateItemCreate,
     PlanTemplateItemUpdate,
+    PlanTemplateModuleCreate,
+    PlanTemplateModuleUpdate,
     PlanTemplateUpdate,
 )
 from app.services import backup_service, content_change_log_service, dangerous_operation_service
+
+
+TEMPLATE_DETAIL_OPTIONS = (
+    joinedload(TrainingPlanTemplate.modules)
+    .joinedload(TrainingPlanTemplateModule.items)
+    .joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(TrainingPlanTemplate.items)
+    .joinedload(TrainingPlanTemplateItem.module)
+    .joinedload(TrainingPlanTemplateModule.items),
+)
+
+ITEM_DETAIL_OPTIONS = (
+    joinedload(TrainingPlanTemplateItem.template),
+    joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(TrainingPlanTemplateItem.module).joinedload(TrainingPlanTemplateModule.items),
+)
+
+MODULE_DETAIL_OPTIONS = (
+    joinedload(TrainingPlanTemplateModule.template).joinedload(TrainingPlanTemplate.items),
+    joinedload(TrainingPlanTemplateModule.items).joinedload(TrainingPlanTemplateItem.exercise),
+)
 
 
 def list_templates(
@@ -17,11 +48,7 @@ def list_templates(
     *,
     include_global: bool = True,
 ) -> list[TrainingPlanTemplate]:
-    query = (
-        db.query(TrainingPlanTemplate)
-        .options(joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise))
-        .order_by(TrainingPlanTemplate.name)
-    )
+    query = db.query(TrainingPlanTemplate).options(*TEMPLATE_DETAIL_OPTIONS).order_by(TrainingPlanTemplate.name)
     if visible_sport_id is not None:
         if include_global:
             query = query.filter(
@@ -33,12 +60,7 @@ def list_templates(
 
 
 def get_template(db: Session, template_id: int) -> TrainingPlanTemplate:
-    template = (
-        db.query(TrainingPlanTemplate)
-        .options(joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise))
-        .filter(TrainingPlanTemplate.id == template_id)
-        .first()
-    )
+    template = db.query(TrainingPlanTemplate).options(*TEMPLATE_DETAIL_OPTIONS).filter(TrainingPlanTemplate.id == template_id).first()
     if not template:
         raise not_found("Training template not found")
     return template
@@ -105,6 +127,117 @@ def update_template(
     return get_template(db, template_id)
 
 
+def add_template_module(
+    db: Session,
+    template_id: int,
+    payload: PlanTemplateModuleCreate,
+    actor_name: str | None = None,
+) -> TrainingPlanTemplateModule:
+    template = db.query(TrainingPlanTemplate).filter(TrainingPlanTemplate.id == template_id).first()
+    if not template:
+        raise not_found("Training template not found")
+
+    module = TrainingPlanTemplateModule(template_id=template_id, **payload.model_dump())
+    db.add(module)
+    db.flush()
+    content_change_log_service.log_content_change(
+        db,
+        action_type="create",
+        object_type="training_plan_template_module",
+        object_id=module.id,
+        object_label=f"{template.name} / {module.display_label}",
+        actor_name=actor_name,
+        team_id=template.team_id,
+        summary=f"模板“{template.name}”新增{module.display_label}",
+        after_snapshot=_serialize_template_module(module),
+        extra_context={
+            "template_id": template.id,
+            "template_name": template.name,
+        },
+    )
+    db.commit()
+    return get_template_module(db, module.id)
+
+
+def update_template_module(
+    db: Session,
+    module_id: int,
+    payload: PlanTemplateModuleUpdate,
+    actor_name: str | None = None,
+) -> TrainingPlanTemplateModule:
+    module = (
+        db.query(TrainingPlanTemplateModule)
+        .options(*MODULE_DETAIL_OPTIONS)
+        .filter(TrainingPlanTemplateModule.id == module_id)
+        .first()
+    )
+    if not module:
+        raise not_found("Template module not found")
+
+    before_snapshot = _serialize_template_module(module)
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(module, key, value)
+
+    db.flush()
+    refreshed_module = get_template_module(db, module_id)
+    template = refreshed_module.template
+    content_change_log_service.log_content_change(
+        db,
+        action_type="update",
+        object_type="training_plan_template_module",
+        object_id=refreshed_module.id,
+        object_label=f"{template.name if template else refreshed_module.template_id} / {refreshed_module.display_label}",
+        actor_name=actor_name,
+        team_id=template.team_id if template else None,
+        summary=f"模板“{template.name if template else refreshed_module.template_id}”更新{refreshed_module.display_label}",
+        before_snapshot=before_snapshot,
+        after_snapshot=_serialize_template_module(refreshed_module),
+        extra_context={
+            "template_id": template.id if template else refreshed_module.template_id,
+            "template_name": template.name if template else None,
+        },
+    )
+    db.commit()
+    return get_template_module(db, module_id)
+
+
+def delete_template_module(db: Session, module_id: int, *, actor_name: str | None = None) -> None:
+    module = (
+        db.query(TrainingPlanTemplateModule)
+        .options(*MODULE_DETAIL_OPTIONS)
+        .filter(TrainingPlanTemplateModule.id == module_id)
+        .first()
+    )
+    if not module:
+        raise not_found("Template module not found")
+
+    template = module.template
+    template_name = template.name if template else f"模板 {module.template_id}"
+    deleted_item_count = len(module.items or [])
+    backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"delete_template_module_{module_id}")
+
+    db.delete(module)
+    dangerous_operation_service.log_dangerous_operation(
+        db,
+        operation_key="delete_template_module",
+        object_type="training_plan_template_module",
+        object_id=module_id,
+        actor_name=actor_name,
+        summary=f"从模板“{template_name}”删除{module.display_label}",
+        impact_scope={
+            "template_id": module.template_id,
+            "template_name": template_name,
+            "team_id": template.team_id if template else None,
+            "module_sort_order": module.sort_order,
+            "module_code": module.module_code,
+            "module_title": module.title,
+            "deleted_item_count": deleted_item_count,
+        },
+        backup_path=backup_result.backup_path,
+    )
+    db.commit()
+
+
 def add_template_item(
     db: Session,
     template_id: int,
@@ -115,6 +248,7 @@ def add_template_item(
     if not template:
         raise not_found("Training template not found")
 
+    module = _get_template_module_for_template(db, template_id, payload.module_id)
     item = TrainingPlanTemplateItem(template_id=template_id, **payload.model_dump())
     db.add(item)
     db.flush()
@@ -125,14 +259,16 @@ def add_template_item(
         action_type="create",
         object_type="training_plan_template_item",
         object_id=item.id,
-        object_label=f"{template.name} / {exercise_label}",
+        object_label=f"{template.name} / {module.display_label} / {exercise_label}",
         actor_name=actor_name,
         team_id=template.team_id,
-        summary=f"模板“{template.name}”新增动作“{exercise_label}”",
+        summary=f"模板“{template.name}”在{module.display_label}新增动作“{exercise_label}”",
         after_snapshot=_serialize_template_item(item, exercise_name=exercise.name if exercise else None),
         extra_context={
             "template_id": template.id,
             "template_name": template.name,
+            "module_id": module.id,
+            "module_code": module.module_code,
         },
     )
     db.commit()
@@ -147,32 +283,22 @@ def update_template_item(
 ) -> TrainingPlanTemplateItem:
     item = (
         db.query(TrainingPlanTemplateItem)
-        .options(
-            joinedload(TrainingPlanTemplateItem.template),
-            joinedload(TrainingPlanTemplateItem.exercise),
-        )
+        .options(*ITEM_DETAIL_OPTIONS)
         .filter(TrainingPlanTemplateItem.id == item_id)
         .first()
     )
     if not item:
         raise not_found("Template item not found")
 
+    if payload.module_id is not None:
+        _get_template_module_for_template(db, item.template_id, payload.module_id)
+
     before_snapshot = _serialize_template_item(item, exercise_name=item.exercise.name if item.exercise else None)
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
 
     db.flush()
-    refreshed_item = (
-        db.query(TrainingPlanTemplateItem)
-        .options(
-            joinedload(TrainingPlanTemplateItem.template),
-            joinedload(TrainingPlanTemplateItem.exercise),
-        )
-        .filter(TrainingPlanTemplateItem.id == item_id)
-        .first()
-    )
-    if not refreshed_item:
-        raise not_found("Template item not found after update")
+    refreshed_item = get_template_item(db, item_id)
 
     exercise_label = refreshed_item.exercise.name if refreshed_item.exercise else f"动作 {refreshed_item.exercise_id}"
     template = refreshed_item.template
@@ -181,34 +307,34 @@ def update_template_item(
         action_type="update",
         object_type="training_plan_template_item",
         object_id=refreshed_item.id,
-        object_label=f"{template.name if template else refreshed_item.template_id} / {exercise_label}",
+        object_label=(
+            f"{template.name if template else refreshed_item.template_id} / "
+            f"{refreshed_item.module.display_label if refreshed_item.module else '模块'} / "
+            f"{exercise_label}"
+        ),
         actor_name=actor_name,
         team_id=template.team_id if template else None,
-        summary=f"模板“{template.name if template else refreshed_item.template_id}”更新动作“{exercise_label}”配置",
+        summary=(
+            f"模板“{template.name if template else refreshed_item.template_id}”更新动作“{exercise_label}”配置"
+        ),
         before_snapshot=before_snapshot,
-        after_snapshot=_serialize_template_item(refreshed_item, exercise_name=refreshed_item.exercise.name if refreshed_item.exercise else None),
+        after_snapshot=_serialize_template_item(
+            refreshed_item,
+            exercise_name=refreshed_item.exercise.name if refreshed_item.exercise else None,
+        ),
         extra_context={
             "template_id": template.id if template else refreshed_item.template_id,
             "template_name": template.name if template else None,
+            "module_id": refreshed_item.module_id,
+            "module_code": refreshed_item.module_code,
         },
     )
     db.commit()
-    db.refresh(refreshed_item)
-    return refreshed_item
+    return get_template_item(db, item_id)
 
 
 def delete_template_item(db: Session, item_id: int, *, actor_name: str | None = None) -> None:
-    item = (
-        db.query(TrainingPlanTemplateItem)
-        .options(
-            joinedload(TrainingPlanTemplateItem.template),
-            joinedload(TrainingPlanTemplateItem.exercise),
-        )
-        .filter(TrainingPlanTemplateItem.id == item_id)
-        .first()
-    )
-    if not item:
-        raise not_found("Template item not found")
+    item = get_template_item(db, item_id)
 
     backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"delete_template_item_{item_id}")
     template_name = item.template.name if item.template else f"模板 {item.template_id}"
@@ -228,6 +354,8 @@ def delete_template_item(db: Session, item_id: int, *, actor_name: str | None = 
             "template_name": template_name,
             "team_id": item.template.team_id if item.template else None,
             "team_name": team.name if team else None,
+            "module_id": item.module_id,
+            "module_code": item.module_code,
             "exercise_id": item.exercise_id,
             "exercise_name": exercise_name,
             "sort_order": item.sort_order,
@@ -240,7 +368,7 @@ def delete_template_item(db: Session, item_id: int, *, actor_name: str | None = 
 def delete_template(db: Session, template_id: int, *, actor_name: str | None = None) -> None:
     template = (
         db.query(TrainingPlanTemplate)
-        .options(joinedload(TrainingPlanTemplate.items))
+        .options(joinedload(TrainingPlanTemplate.items), joinedload(TrainingPlanTemplate.modules))
         .filter(TrainingPlanTemplate.id == template_id)
         .first()
     )
@@ -248,6 +376,7 @@ def delete_template(db: Session, template_id: int, *, actor_name: str | None = N
         raise not_found("Training template not found")
 
     item_count = len(template.items or [])
+    module_count = len(template.modules or [])
     backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"delete_template_{template_id}")
 
     db.delete(template)
@@ -261,11 +390,31 @@ def delete_template(db: Session, template_id: int, *, actor_name: str | None = N
         impact_scope={
             "template_name": template.name,
             "team_id": template.team_id,
+            "template_module_count": module_count,
             "template_item_count": item_count,
         },
         backup_path=backup_result.backup_path,
     )
     db.commit()
+
+
+def get_template_module(db: Session, module_id: int) -> TrainingPlanTemplateModule:
+    module = (
+        db.query(TrainingPlanTemplateModule)
+        .options(*MODULE_DETAIL_OPTIONS)
+        .filter(TrainingPlanTemplateModule.id == module_id)
+        .first()
+    )
+    if not module:
+        raise not_found("Template module not found")
+    return module
+
+
+def get_template_item(db: Session, item_id: int) -> TrainingPlanTemplateItem:
+    item = db.query(TrainingPlanTemplateItem).options(*ITEM_DETAIL_OPTIONS).filter(TrainingPlanTemplateItem.id == item_id).first()
+    if not item:
+        raise not_found("Template item not found")
+    return item
 
 
 def _serialize_template(template: TrainingPlanTemplate) -> dict:
@@ -279,10 +428,26 @@ def _serialize_template(template: TrainingPlanTemplate) -> dict:
     }
 
 
+def _serialize_template_module(module: TrainingPlanTemplateModule) -> dict:
+    return {
+        "id": module.id,
+        "template_id": module.template_id,
+        "sort_order": module.sort_order,
+        "module_code": module.module_code,
+        "title": module.title,
+        "note": module.note,
+        "display_label": module.display_label,
+        "item_count": len(module.items or []),
+    }
+
+
 def _serialize_template_item(item: TrainingPlanTemplateItem, *, exercise_name: str | None) -> dict:
     return {
         "id": item.id,
         "template_id": item.template_id,
+        "module_id": item.module_id,
+        "module_code": item.module_code,
+        "display_code": item.display_code,
         "exercise_id": item.exercise_id,
         "exercise_name": exercise_name,
         "sort_order": item.sort_order,
@@ -331,3 +496,17 @@ def _normalize_template_scope(
     normalized["sport_id"] = None
     normalized["team_id"] = None
     return normalized
+
+
+def _get_template_module_for_template(db: Session, template_id: int, module_id: int) -> TrainingPlanTemplateModule:
+    module = (
+        db.query(TrainingPlanTemplateModule)
+        .filter(
+            TrainingPlanTemplateModule.id == module_id,
+            TrainingPlanTemplateModule.template_id == template_id,
+        )
+        .first()
+    )
+    if not module:
+        raise bad_request("模板模块不存在，请先刷新后重试。")
+    return module

@@ -42,13 +42,28 @@ export async function addPlanTemplateItem(templateId: number, payload: Record<st
   return data
 }
 
+export async function addPlanTemplateModule(templateId: number, payload: Record<string, unknown>) {
+  const { data } = await client.post(`/plan-templates/${templateId}/modules`, payload)
+  return data
+}
+
 export async function updatePlanTemplateItem(itemId: number, payload: Record<string, unknown>) {
   const { data } = await client.patch(`/plan-templates/items/${itemId}`, payload)
   return data
 }
 
+export async function updatePlanTemplateModule(moduleId: number, payload: Record<string, unknown>) {
+  const { data } = await client.patch(`/plan-templates/modules/${moduleId}`, payload)
+  return data
+}
+
 export async function deletePlanTemplateItem(itemId: number, payload: DangerousActionPayload) {
   const { data } = await client.delete(`/plan-templates/items/${itemId}`, { data: payload })
+  return data
+}
+
+export async function deletePlanTemplateModule(moduleId: number, payload: DangerousActionPayload) {
+  const { data } = await client.delete(`/plan-templates/modules/${moduleId}`, { data: payload })
   return data
 }
 

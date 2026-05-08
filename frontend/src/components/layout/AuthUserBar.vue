@@ -38,7 +38,9 @@ async function handleLogout() {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 8px 12px;
   border-radius: 16px;
 }
 
@@ -55,13 +57,16 @@ async function handleLogout() {
   display: grid;
   gap: 2px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .user-copy strong,
 .user-copy span,
 .user-copy small {
   min-width: 0;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .auth-user-bar--light .user-copy span,
@@ -75,6 +80,7 @@ async function handleLogout() {
 }
 
 .logout-btn {
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 </style>

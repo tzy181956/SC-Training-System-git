@@ -4,7 +4,24 @@ from app.schemas.common import ORMModel
 from app.schemas.exercise import ExerciseRead
 
 
+class PlanTemplateModuleBase(BaseModel):
+    sort_order: int
+    title: str | None = None
+    note: str | None = None
+
+
+class PlanTemplateModuleCreate(PlanTemplateModuleBase):
+    pass
+
+
+class PlanTemplateModuleUpdate(BaseModel):
+    sort_order: int | None = None
+    title: str | None = None
+    note: str | None = None
+
+
 class PlanTemplateItemBase(BaseModel):
+    module_id: int
     exercise_id: int
     sort_order: int
     prescribed_sets: int
@@ -24,6 +41,7 @@ class PlanTemplateItemCreate(PlanTemplateItemBase):
 
 
 class PlanTemplateItemUpdate(BaseModel):
+    module_id: int | None = None
     exercise_id: int | None = None
     sort_order: int | None = None
     prescribed_sets: int | None = None
@@ -60,10 +78,22 @@ class PlanTemplateUpdate(BaseModel):
 
 class PlanTemplateItemRead(ORMModel, PlanTemplateItemBase):
     id: int
+    module_code: str | None = None
+    module_title: str | None = None
+    display_index: int | None = None
+    display_code: str | None = None
     exercise: ExerciseRead
+
+
+class PlanTemplateModuleRead(ORMModel, PlanTemplateModuleBase):
+    id: int
+    module_code: str
+    display_label: str
+    items: list[PlanTemplateItemRead] = []
 
 
 class PlanTemplateRead(ORMModel, PlanTemplateBase):
     id: int
     created_by: int | None = None
+    modules: list[PlanTemplateModuleRead] = []
     items: list[PlanTemplateItemRead] = []

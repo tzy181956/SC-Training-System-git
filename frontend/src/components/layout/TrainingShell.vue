@@ -1,28 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useSlots } from 'vue'
+import { computed, useSlots } from 'vue'
 
 import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
-import RuntimeAccessCard from '@/components/layout/RuntimeAccessCard.vue'
 import '@/components/training/trainingLayout.css'
-import { fetchRuntimeAccessInfo, type RuntimeAccessInfo } from '@/api/runtimeAccess'
 import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 
 const slots = useSlots()
-const runtimeAccess = ref<RuntimeAccessInfo>({
-  accessUrl: new URL('/', window.location.origin).toString(),
-  host: window.location.hostname,
-  port: Number(window.location.port || (window.location.protocol === 'https:' ? 443 : 80)),
-  generatedAt: '',
-  source: 'fallback',
-})
 
 const hasHeaderFilters = computed(() => Boolean(slots['header-filters']))
 const trainingModeLabel = getAppModeDisplayLabel('training')
-
-onMounted(async () => {
-  runtimeAccess.value = await fetchRuntimeAccessInfo()
-})
 </script>
 
 <template>
@@ -41,7 +28,6 @@ onMounted(async () => {
       </div>
 
       <div class="topbar-actions">
-        <RuntimeAccessCard class="topbar-action secondary-action" :info="runtimeAccess" />
         <AuthUserBar class="topbar-action" />
         <AppModeSwitch class="mode-switcher" />
       </div>
@@ -77,7 +63,7 @@ onMounted(async () => {
   column-gap: 12px;
   min-width: 0;
   min-height: var(--training-topbar-height);
-  height: var(--training-topbar-height);
+  height: auto;
   padding: 8px 12px;
   border-radius: var(--training-topbar-radius);
   background: rgba(255, 255, 255, 0.96);
@@ -139,6 +125,12 @@ onMounted(async () => {
   justify-self: end;
 }
 
+.topbar-actions :deep(.auth-user-bar) {
+  flex: 0 1 240px;
+  min-width: 0;
+  max-width: 240px;
+}
+
 .topbar-actions :deep(.mode-switch) {
   flex: 0 0 auto;
 }
@@ -173,6 +165,11 @@ onMounted(async () => {
   .topbar-actions {
     gap: 6px;
   }
+
+  .topbar-actions :deep(.auth-user-bar) {
+    flex-basis: 212px;
+    max-width: 212px;
+  }
 }
 
 @media (min-width: 768px) and (max-width: 1050px) {
@@ -185,23 +182,9 @@ onMounted(async () => {
     gap: 4px;
   }
 
-  .topbar-actions :deep(.access-trigger) {
-    max-width: 56px;
-    min-height: 32px;
-    padding: 0 8px;
-    font-size: 0.78rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-}
-
-@media (min-width: 768px) and (max-width: 1080px) {
-  .topbar-actions .secondary-action {
-    display: none;
-  }
-
-  .training-topbar {
-    grid-template-columns: auto minmax(308px, 1fr) auto;
+  .topbar-actions :deep(.auth-user-bar) {
+    flex-basis: 192px;
+    max-width: 192px;
   }
 }
 
@@ -227,6 +210,11 @@ onMounted(async () => {
   .topbar-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .topbar-actions :deep(.auth-user-bar) {
+    flex-basis: auto;
+    max-width: 100%;
   }
 
   .topbar-filters {

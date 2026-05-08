@@ -4,6 +4,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 const props = defineProps<{
   item: any
   exercises: any[]
+  moduleOptions?: Array<{ id: number; label: string }>
+  itemLabel?: string
+  moveUpDisabled?: boolean
+  moveDownDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -110,6 +114,7 @@ const searchableExercises = computed(() => {
 function buildDraft(item: any) {
   const rules = item.progression_rules || {}
   return {
+    module_id: item.module_id ?? 0,
     exercise_id: item.exercise_id,
     sort_order: item.sort_order,
     prescribed_sets: item.prescribed_sets,
@@ -133,6 +138,7 @@ function buildDraft(item: any) {
 
 function serializeDraft() {
   return {
+    module_id: draft.module_id,
     exercise_id: draft.exercise_id,
     sort_order: draft.sort_order,
     prescribed_sets: draft.prescribed_sets,
@@ -235,18 +241,24 @@ onBeforeUnmount(() => {
   <article class="item-card">
     <header class="item-header">
       <div class="item-copy adaptive-card">
-        <p class="item-index">模板动作</p>
+        <p class="item-index">{{ itemLabel || '模板动作' }}</p>
         <h4 class="adaptive-card-title">{{ selectedExercise?.name || item.exercise?.name || '未选择动作' }}</h4>
         <span class="muted adaptive-card-subtitle adaptive-card-clamp-2">{{ loadModeLabel }}</span>
       </div>
       <div class="header-actions">
-        <button class="slim-btn" type="button" @click="emit('move', item.id, 'up')">上移</button>
-        <button class="slim-btn" type="button" @click="emit('move', item.id, 'down')">下移</button>
+        <button class="slim-btn" type="button" :disabled="moveUpDisabled" @click="emit('move', item.id, 'up')">上移</button>
+        <button class="slim-btn" type="button" :disabled="moveDownDisabled" @click="emit('move', item.id, 'down')">下移</button>
         <button class="ghost-btn slim-btn danger" type="button" @click="emit('remove', item.id)">删除</button>
       </div>
     </header>
 
     <div class="picker-row">
+      <label class="field module-field">
+        <span>所属模块</span>
+        <select v-model.number="draft.module_id" class="text-input">
+          <option v-for="option in moduleOptions || []" :key="option.id" :value="option.id">{{ option.label }}</option>
+        </select>
+      </label>
       <label class="field">
         <span>一级分类</span>
         <select :value="level1Category" class="text-input" @change="handleLevel1Change(($event.target as HTMLSelectElement).value)">
@@ -438,6 +450,10 @@ onBeforeUnmount(() => {
   color: var(--text-soft);
 }
 
+.module-field {
+  flex: 0 0 170px;
+}
+
 .search-field {
   flex: 1 1 0;
   min-width: 320px;
@@ -536,11 +552,11 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
-.picker-row > .field:nth-child(1) {
+.picker-row > .field:nth-child(2) {
   flex: 0 0 190px;
 }
 
-.picker-row > .field:nth-child(2) {
+.picker-row > .field:nth-child(3) {
   flex: 0 0 220px;
 }
 
@@ -581,6 +597,11 @@ onBeforeUnmount(() => {
 .slim-btn {
   min-height: 40px;
   padding: 0 14px;
+}
+
+.slim-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .danger {

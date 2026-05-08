@@ -10,6 +10,9 @@ from app.schemas.training_plan import (
     PlanTemplateItemCreate,
     PlanTemplateItemRead,
     PlanTemplateItemUpdate,
+    PlanTemplateModuleCreate,
+    PlanTemplateModuleRead,
+    PlanTemplateModuleUpdate,
     PlanTemplateRead,
     PlanTemplateUpdate,
 )
@@ -77,6 +80,17 @@ def add_item(
     return plan_service.add_template_item(db, template_id, payload, actor_name=current_user.display_name)
 
 
+@router.post("/{template_id}/modules", response_model=PlanTemplateModuleRead)
+def add_module(
+    template_id: int,
+    payload: PlanTemplateModuleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    access_control_service.get_accessible_template(db, current_user, template_id, allow_global_read=False, allow_global_write=False)
+    return plan_service.add_template_module(db, template_id, payload, actor_name=current_user.display_name)
+
+
 @router.patch("/items/{item_id}", response_model=PlanTemplateItemRead)
 def update_item(
     item_id: int,
@@ -86,6 +100,17 @@ def update_item(
 ):
     access_control_service.get_accessible_template_item(db, current_user, item_id, allow_global_read=False, allow_global_write=False)
     return plan_service.update_template_item(db, item_id, payload, actor_name=current_user.display_name)
+
+
+@router.patch("/modules/{module_id}", response_model=PlanTemplateModuleRead)
+def update_module(
+    module_id: int,
+    payload: PlanTemplateModuleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    access_control_service.get_accessible_template_module(db, current_user, module_id, allow_global_read=False, allow_global_write=False)
+    return plan_service.update_template_module(db, module_id, payload, actor_name=current_user.display_name)
 
 
 @router.delete("/items/{item_id}", response_model=dict[str, str])
@@ -98,6 +123,19 @@ def delete_item(
     dangerous_operation_service.require_confirmation(payload, action_label="删除模板动作")
     access_control_service.get_accessible_template_item(db, current_user, item_id, allow_global_read=False, allow_global_write=False)
     plan_service.delete_template_item(db, item_id, actor_name=payload.actor_name or current_user.display_name)
+    return {"message": "deleted"}
+
+
+@router.delete("/modules/{module_id}", response_model=dict[str, str])
+def delete_module(
+    module_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="删除模板模块")
+    access_control_service.get_accessible_template_module(db, current_user, module_id, allow_global_read=False, allow_global_write=False)
+    plan_service.delete_template_module(db, module_id, actor_name=payload.actor_name or current_user.display_name)
     return {"message": "deleted"}
 
 

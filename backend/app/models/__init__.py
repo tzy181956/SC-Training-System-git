@@ -8,7 +8,7 @@ from app.models.organization import Sport, Team
 from app.models.tag import Tag
 from app.models.test_record import TestRecord
 from app.models.test_definition import TestMetricDefinition, TestTypeDefinition
-from app.models.training_plan import TrainingPlanTemplate, TrainingPlanTemplateItem
+from app.models.training_plan import TrainingPlanTemplate, TrainingPlanTemplateItem, TrainingPlanTemplateModule
 from app.models.training_edit_log import TrainingSessionEditLog
 from app.models.training_load import AthleteDailyTrainingLoad
 from app.models.training_session import SetRecord, TrainingSession, TrainingSessionItem
@@ -34,6 +34,7 @@ __all__ = [
     "AthleteDailyTrainingLoad",
     "TrainingPlanTemplate",
     "TrainingPlanTemplateItem",
+    "TrainingPlanTemplateModule",
     "TrainingSessionEditLog",
     "TrainingSession",
     "TrainingSessionItem",

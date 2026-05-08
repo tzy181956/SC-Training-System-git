@@ -12,7 +12,7 @@ from app.core.database import SessionLocal, engine
 from app.core.exceptions import bad_request, not_found
 
 
-BACKUP_KEEP_DAYS = 7
+BACKUP_KEEP_DAYS = 14
 BACKUP_KEEP_WEEKS = 8
 MANAGED_BACKUP_PATTERN = re.compile(
     r"^(?P<stem>.+)-(?P<timestamp>\d{8}-\d{6})-(?P<trigger>[a-z0-9_]+)(?:-(?P<label>[a-z0-9_]+))?\.db$"

@@ -5,7 +5,14 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
-from app.models import Athlete, AssignmentItemOverride, AthletePlanAssignment, TrainingPlanTemplate, TrainingPlanTemplateItem
+from app.models import (
+    Athlete,
+    AssignmentItemOverride,
+    AthletePlanAssignment,
+    TrainingPlanTemplate,
+    TrainingPlanTemplateItem,
+    TrainingPlanTemplateModule,
+)
 from app.schemas.assignment import (
     DEFAULT_REPEAT_WEEKDAYS,
     AssignmentCreate,
@@ -17,6 +24,21 @@ from app.schemas.assignment import (
 )
 from app.services import athlete_service
 from app.services.load_prescription_service import build_assignment_item_override, describe_load_mode
+
+
+ASSIGNMENT_TEMPLATE_LOAD_OPTIONS = (
+    joinedload(AthletePlanAssignment.template)
+    .joinedload(TrainingPlanTemplate.modules)
+    .joinedload(TrainingPlanTemplateModule.items)
+    .joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(AthletePlanAssignment.template)
+    .joinedload(TrainingPlanTemplate.items)
+    .joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(AthletePlanAssignment.template)
+    .joinedload(TrainingPlanTemplate.items)
+    .joinedload(TrainingPlanTemplateItem.module)
+    .joinedload(TrainingPlanTemplateModule.items),
+)
 
 
 def _normalize_repeat_weekdays(value: list[int] | tuple[int, ...] | None) -> list[int]:
@@ -99,7 +121,7 @@ def list_assignments(db: Session, sport_id: int | None = None) -> list[AthletePl
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
-            joinedload(AthletePlanAssignment.template).joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+            *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
             joinedload(AthletePlanAssignment.overrides),
         )
     )
@@ -114,7 +136,7 @@ def get_assignment(db: Session, assignment_id: int) -> AthletePlanAssignment:
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
-            joinedload(AthletePlanAssignment.template).joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+            *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
             joinedload(AthletePlanAssignment.overrides),
         )
         .filter(AthletePlanAssignment.id == assignment_id)
@@ -214,7 +236,7 @@ def list_active_assignments_for_date(db: Session, athlete_id: int, target_date: 
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
-            joinedload(AthletePlanAssignment.template).joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+            *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
             joinedload(AthletePlanAssignment.overrides),
         )
         .filter(
@@ -241,6 +263,11 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
             items.append(
                 {
                     "template_item_id": item.id,
+                    "module_id": item.module_id,
+                    "module_code": item.module_code,
+                    "module_title": item.module_title,
+                    "display_index": item.display_index,
+                    "display_code": item.display_code,
                     "exercise_name": item.exercise.name,
                     "load_mode_label": describe_load_mode(item),
                     "computed_load": override["initial_load_override"] if override else None,
@@ -329,7 +356,7 @@ def assignment_overview(db: Session, target_date: date, sport_id: int | None = N
         .options(
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
-            joinedload(AthletePlanAssignment.template).joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+            *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
             joinedload(AthletePlanAssignment.overrides),
         )
     )
@@ -409,7 +436,15 @@ def assignment_overview(db: Session, target_date: date, sport_id: int | None = N
 def _get_template_for_assignment(db: Session, template_id: int) -> TrainingPlanTemplate:
     template = (
         db.query(TrainingPlanTemplate)
-        .options(joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise))
+        .options(
+            joinedload(TrainingPlanTemplate.modules)
+            .joinedload(TrainingPlanTemplateModule.items)
+            .joinedload(TrainingPlanTemplateItem.exercise),
+            joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+            joinedload(TrainingPlanTemplate.items)
+            .joinedload(TrainingPlanTemplateItem.module)
+            .joinedload(TrainingPlanTemplateModule.items),
+        )
         .filter(TrainingPlanTemplate.id == template_id)
         .first()
     )

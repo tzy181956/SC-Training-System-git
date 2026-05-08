@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 
 import { formatRepeatWeekdays } from '@/constants/repeatWeekdays'
+import { resolveTemplateModules } from '@/utils/templateModules'
 
 const props = defineProps<{
   preview: any | null
@@ -19,21 +20,23 @@ const athleteSummaries = computed(() =>
   })),
 )
 
-const previewItems = computed(() => {
-  const templateItems = displayTemplate.value?.items ?? []
+const displayModules = computed(() => {
   const firstRowItems = new Map<number, any>(
     (props.preview?.rows?.[0]?.items ?? []).map((item: any) => [item.template_item_id, item]),
   )
 
-  return templateItems.map((item: any) => {
-    const previewItem = firstRowItems.get(item.id)
-    return {
-      id: item.id,
-      exerciseName: item.exercise?.name || previewItem?.exercise_name || '未命名动作',
-      loadModeLabel: buildLoadRuleLabel(item, previewItem),
-      detailText: buildLoadDetailText(item),
-    }
-  })
+  return resolveTemplateModules(displayTemplate.value).map((module: any) => ({
+    ...module,
+    items: (module.items || []).map((item: any) => {
+      const previewItem = firstRowItems.get(item.id)
+      return {
+        ...item,
+        exerciseName: item.exercise?.name || previewItem?.exercise_name || '未命名动作',
+        loadModeLabel: buildLoadRuleLabel(item, previewItem),
+        detailText: buildLoadDetailText(item),
+      }
+    }),
+  }))
 })
 
 const missingBasisGroups = computed(() =>
@@ -128,16 +131,27 @@ function formatNumber(value: number) {
           </div>
         </div>
         <p v-if="displayTemplate.description" class="template-description">{{ displayTemplate.description }}</p>
-        <div class="item-grid">
-          <div v-for="item in previewItems" :key="item.id" class="item-row">
-            <div>
-              <strong>{{ item.exerciseName }}</strong>
-              <p>{{ item.loadModeLabel }}</p>
+        <div class="module-grid">
+          <section v-for="module in displayModules" :key="module.id || module.module_code" class="module-block">
+            <header class="module-head">
+              <div>
+                <p class="eyebrow">{{ module.display_label }}</p>
+                <h5>{{ module.title || `${module.display_label}（未命名）` }}</h5>
+                <p v-if="module.note" class="module-note">{{ module.note }}</p>
+              </div>
+            </header>
+            <div class="item-grid">
+              <div v-for="item in module.items" :key="item.id" class="item-row">
+                <div>
+                  <strong>{{ item.display_code }} {{ item.exerciseName }}</strong>
+                  <p>{{ item.loadModeLabel }}</p>
+                </div>
+                <div class="item-side">
+                  <span>{{ item.detailText }}</span>
+                </div>
+              </div>
             </div>
-            <div class="item-side">
-              <span>{{ item.detailText }}</span>
-            </div>
-          </div>
+          </section>
         </div>
       </article>
 
@@ -176,6 +190,8 @@ function formatNumber(value: number) {
 .preview-panel,
 .preview-body,
 .preview-card,
+.module-grid,
+.module-block,
 .item-grid,
 .athlete-list,
 .warning-list {
@@ -214,6 +230,22 @@ function formatNumber(value: number) {
   padding: 16px;
   border-radius: 18px;
   background: var(--panel-soft);
+}
+
+.module-block {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.module-head h5,
+.module-note {
+  margin: 0;
+}
+
+.module-note {
+  color: var(--text-soft);
+  font-size: 13px;
 }
 
 .template-description {

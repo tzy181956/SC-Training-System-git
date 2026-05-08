@@ -4,12 +4,15 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchExercises } from '@/api/exercises'
 import {
   addPlanTemplateItem,
+  addPlanTemplateModule,
   createPlanTemplate,
   deletePlanTemplate,
   deletePlanTemplateItem,
+  deletePlanTemplateModule,
   fetchPlanTemplates,
   updatePlanTemplate,
   updatePlanTemplateItem,
+  updatePlanTemplateModule,
 } from '@/api/plans'
 import AppShell from '@/components/layout/AppShell.vue'
 import TemplateBuilder from '@/components/plan/TemplateBuilder.vue'
@@ -51,23 +54,51 @@ function createDraftTemplate() {
 
 async function saveTemplate(payload: Record<string, any>) {
   const templatePayload = payload.template || {}
+  const modulesPayload = (payload.modules || []) as Record<string, any>[]
   const itemsPayload = (payload.items || []) as Record<string, any>[]
   const removedItemIds = (payload.removedItemIds || []) as number[]
+  const removedModuleIds = (payload.removedModuleIds || []) as number[]
 
-  if (selectedTemplate.value?.id) {
-    await updatePlanTemplate(selectedTemplate.value.id, templatePayload)
+  async function persistTemplateGraph(templateId: number) {
+    const moduleIdMap = new Map<number, number>()
+
+    for (const module of modulesPayload) {
+      const normalized: Record<string, any> = { ...module }
+      delete normalized.id
+      if (module.id > 0) {
+        const updated = await updatePlanTemplateModule(module.id, normalized)
+        moduleIdMap.set(module.id, updated.id)
+      } else {
+        const created = await addPlanTemplateModule(templateId, normalized)
+        moduleIdMap.set(module.id, created.id)
+      }
+    }
+
     for (const itemId of removedItemIds) {
       await deletePlanTemplateItem(itemId, { confirmed: true, actor_name: '管理端' })
     }
+
     for (const item of itemsPayload) {
-      const normalized = { ...item }
+      const normalized: Record<string, any> = {
+        ...item,
+        module_id: moduleIdMap.get(item.module_id) ?? item.module_id,
+      }
       delete normalized.id
       if (item.id > 0) {
         await updatePlanTemplateItem(item.id, normalized)
       } else {
-        await addPlanTemplateItem(selectedTemplate.value.id, normalized)
+        await addPlanTemplateItem(templateId, normalized)
       }
     }
+
+    for (const moduleId of removedModuleIds) {
+      await deletePlanTemplateModule(moduleId, { confirmed: true, actor_name: '管理端' })
+    }
+  }
+
+  if (selectedTemplate.value?.id) {
+    await updatePlanTemplate(selectedTemplate.value.id, templatePayload)
+    await persistTemplateGraph(selectedTemplate.value.id)
     await hydrate(selectedTemplate.value.id)
     saveNoticeKey.value += 1
     return
@@ -78,11 +109,7 @@ async function saveTemplate(payload: Record<string, any>) {
     sport_id: null,
     team_id: null,
   })
-  for (const item of itemsPayload) {
-    const normalized = { ...item }
-    delete normalized.id
-    await addPlanTemplateItem(created.id, normalized)
-  }
+  await persistTemplateGraph(created.id)
   await hydrate(created.id)
   saveNoticeKey.value += 1
 }
@@ -125,7 +152,7 @@ onMounted(() => hydrate())
             >
               <strong>{{ template.name }}</strong>
               <span>{{ template.description || '暂无说明' }}</span>
-              <small>{{ template.items.length }} 个动作</small>
+              <small>{{ template.modules?.length || 0 }} 个模块 / {{ template.items.length }} 个动作</small>
             </button>
           </div>
         </div>

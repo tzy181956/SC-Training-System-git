@@ -150,7 +150,7 @@ function handleUnlockCancel() {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px;
+  padding: 4px;
   border-radius: 999px;
   background: rgba(14, 116, 144, 0.08);
   flex-wrap: nowrap;
@@ -158,8 +158,8 @@ function handleUnlockCancel() {
 }
 
 .mode-btn {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 34px;
+  padding: 0 13px;
   border-radius: 999px;
   border: 0;
   background: transparent;

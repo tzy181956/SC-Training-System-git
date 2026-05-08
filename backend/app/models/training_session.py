@@ -35,6 +35,28 @@ class TrainingSession(BaseModel):
         cascade="all, delete-orphan",
     )
 
+    @property
+    def modules(self) -> list[dict]:
+        grouped: dict[int | str, dict] = {}
+        ordered_modules: list[dict] = []
+        ordered_items = sorted(self.items or [], key=lambda item: (item.sort_order, item.id or 0))
+        for item in ordered_items:
+            module = item.template_item.module if item.template_item and item.template_item.module else None
+            module_key: int | str = module.id if module else f"ungrouped-{item.template_item_id}"
+            if module_key not in grouped:
+                grouped[module_key] = {
+                    "id": module.id if module else None,
+                    "sort_order": module.sort_order if module else len(ordered_modules) + 1,
+                    "module_code": item.module_code or "A",
+                    "title": item.module_title,
+                    "note": getattr(module, "note", None),
+                    "display_label": module.display_label if module else f"模块 {item.module_code or 'A'}",
+                    "items": [],
+                }
+                ordered_modules.append(grouped[module_key])
+            grouped[module_key]["items"].append(item)
+        return ordered_modules
+
 
 class TrainingSessionItem(BaseModel):
     __tablename__ = "training_session_items"
@@ -60,6 +82,26 @@ class TrainingSessionItem(BaseModel):
         cascade="all, delete-orphan",
         order_by="SetRecord.set_number",
     )
+
+    @property
+    def module_id(self) -> int | None:
+        return self.template_item.module_id if self.template_item else None
+
+    @property
+    def module_code(self) -> str | None:
+        return self.template_item.module_code if self.template_item else None
+
+    @property
+    def module_title(self) -> str | None:
+        return self.template_item.module_title if self.template_item else None
+
+    @property
+    def display_index(self) -> int | None:
+        return self.template_item.display_index if self.template_item else None
+
+    @property
+    def display_code(self) -> str | None:
+        return self.template_item.display_code if self.template_item else None
 
 
 class SetRecord(BaseModel):

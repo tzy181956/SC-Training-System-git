@@ -113,6 +113,11 @@ class BatchAssignmentCreate(BaseModel):
 
 class AssignmentPreviewItemRead(BaseModel):
     template_item_id: int
+    module_id: int | None = None
+    module_code: str | None = None
+    module_title: str | None = None
+    display_index: int | None = None
+    display_code: str | None = None
     exercise_name: str
     load_mode_label: str
     computed_load: float | None = None
