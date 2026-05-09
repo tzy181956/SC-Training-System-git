@@ -19,7 +19,9 @@ const currentSetError = ref('')
 const currentSetFeedback = ref('')
 const RIR_OPTIONS = [0, 1, 2, 3, 4] as const
 
+const historyPanelOpen = ref(false)
 const savingRecordId = ref<number | null>(null)
+const expandedRecordId = ref<number | null>(null)
 const recordError = ref('')
 const recordDrafts = reactive<Record<number, { weight: string; reps: string; rir: string; dirty: boolean }>>({})
 
@@ -34,6 +36,8 @@ const latestRecord = computed(() => {
 })
 
 const currentSetNumber = computed(() => Math.min((props.item?.records?.length || 0) + 1, props.item?.prescribed_sets || 1))
+const hasSelectedCurrentRir = computed(() => currentDraft.rir.trim() !== '')
+const canSubmitCurrentSet = computed(() => !currentSetSaving.value && !isCompleted.value && hasSelectedCurrentRir.value)
 
 const currentSetButtonLabel = computed(() => {
   if (!props.item) return '确认提交当前组'
@@ -74,6 +78,8 @@ watch(
   () => props.item?.records,
   (records) => {
     recordError.value = ''
+    historyPanelOpen.value = false
+    expandedRecordId.value = null
     for (const key of Object.keys(recordDrafts)) {
       delete recordDrafts[Number(key)]
     }
@@ -105,14 +111,14 @@ function applyCurrentDraftDefaults() {
     const inheritedWeight = latestRecord.value.actual_weight ?? latestRecord.value.final_weight
     currentDraft.weight = inheritedWeight === null || inheritedWeight === undefined ? '' : formatWeight(inheritedWeight)
     currentDraft.reps = String(latestRecord.value.actual_reps ?? props.item.prescribed_reps ?? 5)
-    currentDraft.rir = String(latestRecord.value.actual_rir ?? 2)
+    currentDraft.rir = ''
     return
   }
 
   currentDraft.weight =
     props.item.initial_load === null || props.item.initial_load === undefined ? '' : formatWeight(props.item.initial_load)
   currentDraft.reps = String(props.item.prescribed_reps || 5)
-  currentDraft.rir = '2'
+  currentDraft.rir = ''
 }
 
 function onCurrentInput() {
@@ -172,6 +178,27 @@ function setRecordRirValue(recordId: number, value: number) {
   draft.dirty = true
 }
 
+function toggleRecordExpanded(recordId: number) {
+  expandedRecordId.value = expandedRecordId.value === recordId ? null : recordId
+}
+
+function isRecordExpanded(recordId: number) {
+  return expandedRecordId.value === recordId
+}
+
+function toggleHistoryPanel() {
+  historyPanelOpen.value = !historyPanelOpen.value
+  if (!historyPanelOpen.value) {
+    expandedRecordId.value = null
+  }
+}
+
+function formatRecordSummary(recordId: number) {
+  const draft = recordDrafts[recordId]
+  if (!draft) return ''
+  return `${draft.weight || '-'} 公斤 · ${draft.reps || '-'} 次 · RIR ${draft.rir || '-'}`
+}
+
 function validateCurrentDraft() {
   const weight = Number(currentDraft.weight.trim())
   const reps = Number(currentDraft.reps.trim())
@@ -182,6 +209,9 @@ function validateCurrentDraft() {
   }
   if (!Number.isInteger(reps) || reps <= 0) {
     return { error: '当前组次数必须是正整数。' }
+  }
+  if (!currentDraft.rir.trim()) {
+    return { error: '请先手动选择当前组 RIR。' }
   }
   if (!Number.isInteger(rir) || rir < 0 || rir > 4) {
     return { error: '当前组 RIR 请输入 0 到 4。' }
@@ -333,7 +363,14 @@ function resetRecordDraft(record: any) {
 
           <label class="field">
             <span>RIR</span>
-            <input v-model="currentDraft.rir" class="text-input current-input" type="number" step="1" min="0" max="4" @input="onCurrentInput" />
+            <input
+              v-model="currentDraft.rir"
+              class="text-input current-input readonly-input"
+              type="text"
+              readonly
+              placeholder="请选择 RIR"
+              @click.prevent
+            />
             <div class="step-row rir-step-row">
               <button
                 v-for="rirValue in RIR_OPTIONS"
@@ -346,12 +383,13 @@ function resetRecordDraft(record: any) {
                 {{ rirValue === 4 ? '4+' : rirValue }}
               </button>
             </div>
+            <span v-if="!hasSelectedCurrentRir" class="field-hint warning">RIR 必须手动选择后才能提交</span>
           </label>
         </div>
 
         <p v-if="currentSetError" class="error-text">{{ currentSetError }}</p>
         <p v-else-if="currentSetFeedback" class="success-text">{{ currentSetFeedback }}</p>
-        <button class="primary-btn confirm-btn" :disabled="currentSetSaving || isCompleted" @click="saveCurrentSet">
+        <button class="primary-btn confirm-btn" :disabled="!canSubmitCurrentSet" @click="saveCurrentSet">
           {{ currentSetButtonLabel }}
         </button>
       </div>
@@ -363,27 +401,47 @@ function resetRecordDraft(record: any) {
       </div>
 
       <div v-if="item.records?.length" class="history-block">
-        <div class="history-head">
-          <strong>已提交组数据</strong>
-          <span>直接修改输入框，离开这一组后自动保存。</span>
-        </div>
-        <p v-if="recordError" class="error-text">{{ recordError }}</p>
+        <button class="history-panel-toggle" type="button" @click="toggleHistoryPanel">
+          <div class="history-head">
+            <strong>已提交组数据</strong>
+            <span>{{ historyPanelOpen ? '收起历史组编辑' : '展开后选择具体组进行修改' }}</span>
+          </div>
+          <span class="history-row-caret history-panel-caret" :class="{ expanded: historyPanelOpen }">▾</span>
+        </button>
 
-        <div class="history-table">
+        <div v-if="historyPanelOpen" class="history-panel-body">
+          <div class="history-selector">
+            <button
+              v-for="record in item.records"
+              :key="`record-select-${record.id}`"
+              class="secondary-btn touch-btn history-selector-btn"
+              :class="{ active: isRecordExpanded(record.id) }"
+              type="button"
+              @click="toggleRecordExpanded(record.id)"
+            >
+              <strong>第 {{ record.set_number }} 组</strong>
+              <span>{{ formatRecordSummary(record.id) }}</span>
+            </button>
+          </div>
+
+          <p v-if="recordError" class="error-text">{{ recordError }}</p>
+
           <div
             v-for="record in item.records"
+            v-show="isRecordExpanded(record.id)"
             :key="record.id"
             class="history-row"
-            :class="{ saving: savingRecordId === record.id }"
-            tabindex="-1"
-            @focusout="saveRecord(record, $event)"
+            :class="{ saving: savingRecordId === record.id, expanded: isRecordExpanded(record.id) }"
           >
             <div class="history-row-head">
               <strong class="set-label">第 {{ record.set_number }} 组</strong>
-              <span class="row-status">{{ savingRecordId === record.id ? '保存中...' : '已同步' }}</span>
+              <span class="row-status">{{ savingRecordId === record.id ? '保存中...' : '离开当前区域后自动保存' }}</span>
+            </div>
+            <div class="history-row-summary static">
+              <span>{{ formatRecordSummary(record.id) }}</span>
             </div>
 
-            <div class="history-stack">
+            <div class="history-stack" tabindex="-1" @focusout="saveRecord(record, $event)">
               <label class="history-field">
                 <span>重量</span>
                 <input
@@ -499,6 +557,14 @@ span {
   color: var(--muted);
 }
 
+.field-hint {
+  font-size: 12px;
+}
+
+.field-hint.warning {
+  color: #92400e;
+}
+
 .field input {
   min-height: 52px;
 }
@@ -527,11 +593,74 @@ span {
 
 .history-row {
   display: grid;
-  gap: 14px;
-  padding: 14px;
+  gap: 12px;
+  padding: 12px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.7);
   min-width: 0;
+}
+
+.history-row.expanded {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.14);
+}
+
+.history-panel-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-panel-body {
+  display: grid;
+  gap: 12px;
+}
+
+.history-selector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.history-selector-btn {
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.history-selector-btn strong,
+.history-selector-btn span {
+  margin: 0;
+}
+
+.history-selector-btn strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.history-selector-btn span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.history-selector-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: transparent;
+}
+
+.history-selector-btn.active span {
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .history-row.saving {
@@ -544,6 +673,40 @@ span {
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+.history-row-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.history-row-summary.static {
+  justify-content: flex-start;
+}
+
+.history-row-summary span:first-child {
+  min-width: 0;
+}
+
+.history-row-caret {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.history-row-caret.expanded {
+  transform: rotate(180deg);
+}
+
+.history-panel-caret {
+  align-self: flex-start;
+  margin-top: 2px;
 }
 
 .history-stack {
