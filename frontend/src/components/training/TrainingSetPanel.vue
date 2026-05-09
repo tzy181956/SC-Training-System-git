@@ -196,7 +196,7 @@ function toggleHistoryPanel() {
 function formatRecordSummary(recordId: number) {
   const draft = recordDrafts[recordId]
   if (!draft) return ''
-  return `${draft.weight || '-'} 公斤 · ${draft.reps || '-'} 次 · RIR ${draft.rir || '-'}`
+  return `${draft.weight || '-'} 千克 · ${draft.reps || '-'} 次 · RIR ${draft.rir || '-'}`
 }
 
 function validateCurrentDraft() {
@@ -343,7 +343,7 @@ function resetRecordDraft(record: any) {
 
         <div class="current-stack">
           <label class="field">
-            <span>重量 (公斤)</span>
+            <span>重量 (千克)</span>
             <input v-model="currentDraft.weight" class="text-input current-input" type="number" step="0.1" min="0" @input="onCurrentInput" />
             <div class="step-row">
               <button v-for="step in [-5, -2.5, 2.5, 5]" :key="`current-weight-${step}`" class="secondary-btn touch-btn step-btn" @click="bumpWeight(step)">
@@ -396,7 +396,7 @@ function resetRecordDraft(record: any) {
 
       <div v-if="suggestion" class="suggestion-card">
         <p class="section-title">下一组建议</p>
-        <strong>{{ suggestion.suggestion_weight }} 公斤 / {{ item.prescribed_reps }} 次</strong>
+        <strong>{{ suggestion.suggestion_weight }} 千克 / {{ item.prescribed_reps }} 次</strong>
         <span>{{ suggestion.reason_text }}</span>
       </div>
 

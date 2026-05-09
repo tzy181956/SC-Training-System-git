@@ -86,7 +86,7 @@ def describe_load_mode(item: TrainingPlanTemplateItem) -> str:
             return f"按“{metric_name}”最近测试的 {item.initial_load_value or 0:.0f}% 计算"
         return f"按最近测试的 {item.initial_load_value or 0:.0f}% 计算"
     if item.initial_load_mode == "fixed_weight":
-        return f"固定重量 {item.initial_load_value or 0:g} 公斤"
+        return f"固定重量 {item.initial_load_value or 0:g} 千克"
     return "分配时设置"
 
 

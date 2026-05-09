@@ -74,7 +74,7 @@ function buildLoadDetailText(templateItem: any, previewItem?: any) {
   }
   const value = templateItem.initial_load_value
   if (templateItem.initial_load_mode === 'fixed_weight') {
-    return value === null || value === undefined ? '固定重量未设置' : `${formatNumber(value)} 公斤`
+    return value === null || value === undefined ? '固定重量未设置' : `${formatNumber(value)} 千克`
   }
   if (templateItem.initial_load_mode === 'percent_1rm') {
     if (value === null || value === undefined) {

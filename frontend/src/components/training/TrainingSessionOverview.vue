@@ -34,17 +34,17 @@ function findAssignmentOverride(item: any) {
 function buildLoadText(item: any) {
   const override = findAssignmentOverride(item)
   if (override?.initial_load_override !== null && override?.initial_load_override !== undefined) {
-    return `${formatNumber(Number(override.initial_load_override))} 公斤`
+    return `${formatNumber(Number(override.initial_load_override))} 千克`
   }
 
   if (item.initial_load !== null && item.initial_load !== undefined) {
-    return `${formatNumber(Number(item.initial_load))} 公斤`
+    return `${formatNumber(Number(item.initial_load))} 千克`
   }
 
   if (item.initial_load_mode === 'fixed_weight') {
     return item.initial_load_value === null || item.initial_load_value === undefined
       ? ''
-      : `${formatNumber(Number(item.initial_load_value))} 公斤`
+      : `${formatNumber(Number(item.initial_load_value))} 千克`
   }
 
   return ''

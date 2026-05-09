@@ -380,11 +380,11 @@ onBeforeUnmount(() => {
           <input v-model.number="draft.progression_rules.target_rir" type="number" min="0" max="5" class="text-input" />
         </label>
         <label class="field">
-          <span>加重步长（公斤）</span>
+          <span>加重步长（千克）</span>
           <input v-model.number="draft.progression_rules.up_step" type="number" step="0.5" class="text-input" />
         </label>
         <label class="field">
-          <span>降重步长（公斤）</span>
+          <span>降重步长（千克）</span>
           <input v-model.number="draft.progression_rules.down_step" type="number" step="0.5" class="text-input" />
         </label>
         <label class="field">

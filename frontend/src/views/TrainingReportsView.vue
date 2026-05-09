@@ -88,7 +88,7 @@ function renderCharts() {
       legend: { top: 0 },
       grid: { left: 48, right: 24, top: 42, bottom: 24 },
       xAxis: { type: 'category' },
-      yAxis: { type: 'value', name: '重量（公斤）' },
+      yAxis: { type: 'value', name: '重量（千克）' },
       series: (report.value.trend.main_lift_series || []).map((item: any) => ({
         name: item.exercise_name,
         type: 'line',
