@@ -22,11 +22,18 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     existing_columns = {column["name"] for column in inspector.get_columns("test_type_definitions")}
+    is_sqlite = bind.dialect.name == "sqlite"
 
     if "team_id" not in existing_columns:
+        column = sa.Column("team_id", sa.Integer(), nullable=True) if is_sqlite else sa.Column(
+            "team_id",
+            sa.Integer(),
+            sa.ForeignKey("teams.id"),
+            nullable=True,
+        )
         op.add_column(
             "test_type_definitions",
-            sa.Column("team_id", sa.Integer(), sa.ForeignKey("teams.id"), nullable=True),
+            column,
         )
 
     op.execute("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_team_id ON test_type_definitions(team_id)")

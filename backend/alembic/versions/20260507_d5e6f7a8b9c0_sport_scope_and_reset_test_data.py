@@ -43,20 +43,33 @@ RESET_TABLES = [
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    is_sqlite = bind.dialect.name == "sqlite"
     has_sqlite_sequence = bool(
         bind.execute(sa.text("SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'")).fetchone()
     )
 
     user_columns = {column["name"] for column in inspector.get_columns("users")}
     if "sport_id" not in user_columns:
-        op.add_column("users", sa.Column("sport_id", sa.Integer(), sa.ForeignKey("sports.id"), nullable=True))
+        user_sport_column = sa.Column("sport_id", sa.Integer(), nullable=True) if is_sqlite else sa.Column(
+            "sport_id",
+            sa.Integer(),
+            sa.ForeignKey("sports.id"),
+            nullable=True,
+        )
+        op.add_column("users", user_sport_column)
     op.execute("CREATE INDEX IF NOT EXISTS ix_users_sport_id ON users(sport_id)")
 
     definition_columns = {column["name"] for column in inspector.get_columns("test_type_definitions")}
     if "sport_id" not in definition_columns:
+        definition_sport_column = sa.Column("sport_id", sa.Integer(), nullable=True) if is_sqlite else sa.Column(
+            "sport_id",
+            sa.Integer(),
+            sa.ForeignKey("sports.id"),
+            nullable=True,
+        )
         op.add_column(
             "test_type_definitions",
-            sa.Column("sport_id", sa.Integer(), sa.ForeignKey("sports.id"), nullable=True),
+            definition_sport_column,
         )
     op.execute("CREATE INDEX IF NOT EXISTS ix_test_type_definitions_sport_id ON test_type_definitions(sport_id)")
 
