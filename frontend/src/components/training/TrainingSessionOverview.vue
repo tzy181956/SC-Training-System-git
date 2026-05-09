@@ -104,7 +104,7 @@ watch(
         <header class="module-head">
           <div class="heading-copy">
             <p class="section-title">{{ module.display_label }}</p>
-            <strong>{{ module.title || `${module.display_label}（未命名）` }}</strong>
+            <strong v-if="module.title">{{ module.title }}</strong>
             <span v-if="module.note" class="module-note">{{ module.note }}</span>
           </div>
         </header>
@@ -121,9 +121,11 @@ watch(
           type="button"
           @click="session && onSelectItem && onSelectItem(item.id)"
         >
-          <strong class="item-title" :title="item.exercise.name">
-            {{ item.display_code ? `${item.display_code} ${item.exercise.name}` : item.exercise.name }}
-          </strong>
+          <div class="item-main">
+            <span v-if="item.display_code" class="item-code">{{ item.display_code }}</span>
+            <strong class="item-title" :title="item.exercise.name">{{ item.exercise.name }}</strong>
+            <span v-if="session && item.id === activeItemId" class="active-flag">当前动作</span>
+          </div>
           <span class="prescription-summary" :title="buildPrescriptionSummary(item)">{{ buildPrescriptionSummary(item) }}</span>
           <em v-if="session" class="progress-summary">{{ buildProgressSummary(item) }}</em>
         </button>
@@ -201,23 +203,75 @@ watch(
 }
 
 .item-card {
-  background: var(--panel-soft);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.96));
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 16px;
-  padding: 13px 16px;
+  padding: 15px 16px;
   display: flex;
   align-items: center;
   gap: 14px;
-  min-height: 56px;
+  min-height: 68px;
   text-align: left;
   cursor: default;
+  box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.22);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.item-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent) 0, transparent 46%);
+  opacity: 0.75;
 }
 
 .item-card--interactive {
   cursor: pointer;
 }
 
+.item-card--interactive:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary) 22%, rgba(148, 163, 184, 0.24));
+  box-shadow: 0 18px 28px -24px rgba(37, 99, 235, 0.24);
+}
+
 .item-card.active {
-  background: #dbeafe;
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, rgba(223, 236, 255, 0.98), rgba(239, 246, 255, 0.98));
+  border-color: color-mix(in srgb, var(--primary) 55%, white);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent),
+    0 22px 34px -24px rgba(37, 99, 235, 0.38);
+}
+
+.item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.item-code {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, white);
+  color: var(--primary);
+  font-size: 1rem;
+  line-height: 1;
+  font-weight: 900;
 }
 
 .item-title {
@@ -231,6 +285,21 @@ watch(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.active-flag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 18%, white);
+  color: color-mix(in srgb, var(--primary) 88%, black 10%);
+  font-size: 0.8rem;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0.02em;
 }
 
 .prescription-summary {
@@ -257,6 +326,18 @@ watch(
   white-space: nowrap;
 }
 
+.item-card.active .item-code {
+  background: color-mix(in srgb, var(--primary) 22%, white);
+}
+
+.item-card.active .item-title {
+  color: color-mix(in srgb, var(--primary) 38%, var(--text));
+}
+
+.item-card.active .progress-summary {
+  color: color-mix(in srgb, var(--primary) 90%, black 6%);
+}
+
 @media (min-width: 768px) and (max-width: 1199px) {
   .overview {
     gap: 12px;
@@ -281,8 +362,24 @@ watch(
 
   .item-card {
     gap: 12px;
-    padding: 11px 14px;
+    padding: 12px 14px;
     border-radius: 14px;
+    min-height: 62px;
+  }
+
+  .item-main {
+    gap: 10px;
+  }
+
+  .item-code {
+    min-width: 52px;
+    padding: 6px 10px;
+    font-size: 0.92rem;
+  }
+
+  .active-flag {
+    padding: 5px 8px;
+    font-size: 0.74rem;
   }
 
   .item-title {

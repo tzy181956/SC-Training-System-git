@@ -1,21 +1,7 @@
-﻿Training Platform launcher failure summary
-Time: 2026-05-09 16:15:35
+﻿Training Platform launcher success summary
+Time: 2026-05-09 16:42:33
 Mode: start
-Failed step: Database migration check
-Error type: Database migration failed
-Error code: database_migration_failed
-Most likely cause: A migration script failed while applying schema changes.
-Suggested fix: Check the summary log excerpt for the failing migration.
-Failure detail: Alembic database migration check did not complete successfully.
-Failed command: C:\Users\Tian Ziyu\Documents\New project\backend\.venv\Scripts\python.exe scripts\migrate_db.py ensure
+Result: Startup finish
+Detail: Browser entry prepared at http://192.168.1.12:5173/
+Access URL: http://192.168.1.12:5173/
 Detailed log: C:\Users\Tian Ziyu\Documents\New project\logs\startup\last-launcher-detail.log
-Troubleshooting doc: C:\Users\Tian Ziyu\Documents\New project\docs\phase1-launcher-failure-summary.md (see section/code: database_migration_failed)
-Recent log lines:
- -     cursor.execute(statement, parameters)
- - sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: test_type_definitions.sport_id
- - [SQL: SELECT test_type_definitions.name AS test_type_definitions_name, test_type_definitions.code AS test_type_definitions_code, test_type_definitions.sport_id AS test_type_definitions_sport_id, test_type_definitions.team_id AS test_type_definitions_team_id, test_type_definitions.notes AS test_type_definitions_notes, test_type_definitions.id AS test_type_definitions_id, test_type_definitions.created_at AS test_type_definitions_created_at, test_type_definitions.updated_at AS test_type_definitions_updated_at 
- - FROM test_type_definitions 
- - WHERE test_type_definitions.name = ? OR test_type_definitions.code = ?
- -  LIMIT ? OFFSET ?]
- - [parameters: ('基础身体', 'basic-body', 1, 0)]
- - (Background on this error at: https://sqlalche.me/e/20/e3q8)
