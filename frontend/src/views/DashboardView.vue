@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { fetchTrainingSyncIssues, retryTrainingSyncIssue } from '@/api/sessions'
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
+import { getTrainingSyncIssueLabel, isTrainingSyncConflictSummary } from '@/constants/trainingSync'
 import { useAuthStore } from '@/stores/auth'
 import { useAthletesStore } from '@/stores/athletes'
 import { usePlansStore } from '@/stores/plans'
@@ -100,6 +101,9 @@ async function retrySyncIssue(issueId: number) {
         <article v-for="issue in syncIssues" :key="issue.id" class="sync-issue-card">
           <div class="sync-issue-copy">
             <strong>{{ issue.athlete_name || `运动员 ${issue.athlete_id}` }} · {{ issue.session_date }}</strong>
+            <span class="sync-issue-tag" :class="{ conflict: isTrainingSyncConflictSummary(issue.summary) }">
+              {{ getTrainingSyncIssueLabel(issue.summary) }}
+            </span>
             <span>{{ issue.summary }}</span>
             <span v-if="issue.last_error" class="sync-issue-error">最近错误：{{ issue.last_error }}</span>
           </div>
@@ -243,6 +247,24 @@ async function retrySyncIssue(issueId: number) {
 .sync-issue-copy {
   display: grid;
   gap: 6px;
+}
+
+.sync-issue-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sync-issue-tag.conflict {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
 }
 
 .sync-issue-copy span {

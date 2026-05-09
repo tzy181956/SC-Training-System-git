@@ -5,9 +5,13 @@ from datetime import date, datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Athlete, TrainingSyncIssue
+from app.models import Athlete, TrainingSession, TrainingSyncConflict, TrainingSyncIssue
 from app.schemas.training_session import SessionFullSyncPayload, TrainingSyncIssueReportPayload
 from app.services import session_service
+from app.services.session_state_utils import serialize_full_sync_payload, serialize_session_snapshot
+
+
+CONFLICT_HANDOFF_SUMMARY = "服务器已在本地最后确认同步后发生变化，当前设备继续本地记录，待教练处理"
 
 
 def list_sync_issues(
@@ -36,6 +40,9 @@ def list_sync_issues(
 
 def report_sync_issue(db: Session, payload: TrainingSyncIssueReportPayload) -> dict:
     issue = db.query(TrainingSyncIssue).filter(TrainingSyncIssue.session_key == payload.session_key).first()
+    should_log_conflict_handoff = payload.summary == CONFLICT_HANDOFF_SUMMARY and (
+        issue is None or issue.summary != payload.summary or issue.issue_status != "manual_retry_required"
+    )
     if issue is None:
         issue = TrainingSyncIssue(
             athlete_id=payload.athlete_id,
@@ -62,6 +69,9 @@ def report_sync_issue(db: Session, payload: TrainingSyncIssueReportPayload) -> d
         issue.last_error = payload.last_error
         issue.sync_payload = payload.sync_payload.model_dump(mode="json")
         issue.resolved_at = None
+
+    if should_log_conflict_handoff:
+        _log_conflict_handoff(db, payload)
 
     db.commit()
     db.refresh(issue)
@@ -128,3 +138,25 @@ def _serialize_issue(db: Session, issue: TrainingSyncIssue) -> dict:
         "updated_at": issue.updated_at,
         "resolved_at": issue.resolved_at,
     }
+
+
+def _log_conflict_handoff(db: Session, payload: TrainingSyncIssueReportPayload) -> None:
+    remote_snapshot = None
+    if payload.session_id is not None:
+        remote_session = db.get(TrainingSession, payload.session_id)
+        if remote_session is not None:
+            remote_snapshot = serialize_session_snapshot(remote_session)
+
+    db.add(
+        TrainingSyncConflict(
+            athlete_id=payload.athlete_id,
+            assignment_id=payload.assignment_id,
+            session_id=payload.session_id,
+            session_date=payload.session_date,
+            trigger_reason="manual",
+            conflict_type="remote_changed_since_last_sync_handoff",
+            summary=CONFLICT_HANDOFF_SUMMARY,
+            local_snapshot=serialize_full_sync_payload(payload.sync_payload),
+            remote_snapshot=remote_snapshot,
+        )
+    )

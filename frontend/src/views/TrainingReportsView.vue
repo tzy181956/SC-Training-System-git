@@ -9,6 +9,7 @@ import { fetchTrainingReport, type TrainingReportResponse } from '@/api/training
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import TrainingSessionCard from '@/components/report/TrainingSessionCard.vue'
+import { getTrainingSyncIssueLabel, isTrainingSyncConflictSummary } from '@/constants/trainingSync'
 import { getTrainingStatusLabel } from '@/constants/trainingStatus'
 import { todayString } from '@/utils/date'
 
@@ -218,7 +219,10 @@ function parseStringQuery(value: unknown) {
             <div v-if="report.sync_issues?.length" class="sync-issue-list">
               <article v-for="issue in report.sync_issues" :key="issue.id" class="sync-issue-card">
                 <div class="sync-issue-copy">
-                  <strong>{{ issue.session_date }} 需人工补传</strong>
+                  <strong>{{ issue.session_date }} {{ getTrainingSyncIssueLabel(issue.summary) }}</strong>
+                  <p class="sync-issue-tag" :class="{ conflict: isTrainingSyncConflictSummary(issue.summary) }">
+                    {{ getTrainingSyncIssueLabel(issue.summary) }}
+                  </p>
                   <p>{{ issue.summary }}</p>
                   <p v-if="issue.last_error" class="sync-issue-error">最近错误：{{ issue.last_error }}</p>
                 </div>
@@ -382,6 +386,24 @@ function parseStringQuery(value: unknown) {
 .sync-issue-copy {
   display: grid;
   gap: 6px;
+}
+
+.sync-issue-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sync-issue-tag.conflict {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
 }
 
 .sync-issue-copy strong,

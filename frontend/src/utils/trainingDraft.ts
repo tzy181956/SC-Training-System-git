@@ -8,6 +8,17 @@ export const TRAINING_DRAFT_SYNC_STATUS = {
 } as const
 
 export type TrainingDraftSyncStatus = (typeof TRAINING_DRAFT_SYNC_STATUS)[keyof typeof TRAINING_DRAFT_SYNC_STATUS]
+export type TrainingManualRetryReason = 'conflict' | 'retry_failed'
+
+export const TRAINING_DRAFT_REMOTE_RELATION = {
+  IDENTICAL: 'identical',
+  REMOTE_AHEAD_NO_LOCAL_CHANGES: 'remote_ahead_no_local_changes',
+  LOCAL_AHEAD: 'local_ahead',
+  DIVERGED: 'diverged',
+  OFFLINE_RECOVERABLE: 'offline_recoverable',
+} as const
+
+export type DraftRemoteRelation = (typeof TRAINING_DRAFT_REMOTE_RELATION)[keyof typeof TRAINING_DRAFT_REMOTE_RELATION]
 
 export type TrainingDraftSetPayload = {
   actual_weight: number
@@ -72,6 +83,7 @@ export type TrainingLocalDraft = {
   incremental_failure_count: number
   last_sync_attempt_at: string | null
   sync_issue_id: number | null
+  manual_retry_reason: TrainingManualRetryReason | null
   last_modified_at: string
   latest_suggestion: any | null
   pending_operations: TrainingDraftSyncOperation[]
@@ -111,6 +123,7 @@ export function createTrainingLocalDraft(params: {
   incrementalFailureCount?: number
   lastSyncAttemptAt?: string | null
   syncIssueId?: number | null
+  manualRetryReason?: TrainingManualRetryReason | null
   pendingOperations?: TrainingDraftSyncOperation[]
 }): TrainingLocalDraft {
   const {
@@ -127,6 +140,7 @@ export function createTrainingLocalDraft(params: {
     incrementalFailureCount = 0,
     lastSyncAttemptAt = null,
     syncIssueId = null,
+    manualRetryReason = null,
     pendingOperations = [],
   } = params
   const activeItem = session?.items?.find((item: any) => item.id === currentItemId) || null
@@ -150,6 +164,7 @@ export function createTrainingLocalDraft(params: {
     incremental_failure_count: incrementalFailureCount,
     last_sync_attempt_at: lastSyncAttemptAt,
     sync_issue_id: syncIssueId,
+    manual_retry_reason: manualRetryReason,
     last_modified_at: new Date().toISOString(),
     latest_suggestion: latestSuggestion || null,
     pending_operations: pendingOperations,
@@ -207,7 +222,57 @@ export function listTrainingLocalDrafts() {
 export function shouldOfferDraftRestore(draft: TrainingLocalDraft | null) {
   if (!draft) return false
   if (!draft.recorded_sets) return false
-  return draft.sync_status === TRAINING_DRAFT_SYNC_STATUS.PENDING || !FINAL_SESSION_STATUSES.has(draft.session_snapshot?.status)
+  return hasUnsyncedLocalDraftChanges(draft)
+}
+
+export function isRecoverableTrainingDraft(draft: TrainingLocalDraft | null) {
+  if (!draft) return false
+  if (!draft.recorded_sets) return false
+  return hasUnsyncedLocalDraftChanges(draft) || !FINAL_SESSION_STATUSES.has(draft.session_snapshot?.status)
+}
+
+export function hasUnsyncedLocalDraftChanges(draft: TrainingLocalDraft | null) {
+  if (!draft) return false
+  if (!draft.recorded_sets) return false
+  if (draft.sync_status === TRAINING_DRAFT_SYNC_STATUS.PENDING) return true
+  if (draft.sync_status === TRAINING_DRAFT_SYNC_STATUS.MANUAL_REQUIRED) return true
+  if (draft.pending_sync) return true
+  if (Array.isArray(draft.pending_operations) && draft.pending_operations.length > 0) return true
+  if (draft.session_id === null && !FINAL_SESSION_STATUSES.has(draft.session_snapshot?.status)) return true
+  return false
+}
+
+export function matchesRemoteSessionSnapshot(draft: TrainingLocalDraft | null, remoteSession: any | null | undefined) {
+  if (!draft || !remoteSession) return false
+  if (!draft.session_id || !remoteSession.id) return false
+  if (draft.session_id !== remoteSession.id) return false
+  if (!draft.last_server_signature || !remoteSession.server_signature) return false
+  return draft.last_server_signature === remoteSession.server_signature
+}
+
+export function classifyTrainingDraftAgainstRemote(
+  draft: TrainingLocalDraft | null,
+  remoteSession: any | null | undefined,
+): DraftRemoteRelation | null {
+  if (!draft) return null
+  if (!remoteSession) {
+    return isRecoverableTrainingDraft(draft) ? TRAINING_DRAFT_REMOTE_RELATION.OFFLINE_RECOVERABLE : null
+  }
+
+  const localHasUnsyncedChanges = hasUnsyncedLocalDraftChanges(draft)
+  const matchesRemote = matchesRemoteSessionSnapshot(draft, remoteSession)
+
+  if (!localHasUnsyncedChanges) {
+    return matchesRemote
+      ? TRAINING_DRAFT_REMOTE_RELATION.IDENTICAL
+      : TRAINING_DRAFT_REMOTE_RELATION.REMOTE_AHEAD_NO_LOCAL_CHANGES
+  }
+
+  if (matchesRemote || (!draft.last_server_signature && !remoteSession.server_signature)) {
+    return TRAINING_DRAFT_REMOTE_RELATION.LOCAL_AHEAD
+  }
+
+  return TRAINING_DRAFT_REMOTE_RELATION.DIVERGED
 }
 
 export function createCreateSetSyncOperation(params: {
@@ -297,6 +362,8 @@ function normalizeTrainingLocalDraft(raw: any): TrainingLocalDraft | null {
     incremental_failure_count: Number(raw.incremental_failure_count ?? 0),
     last_sync_attempt_at: raw.last_sync_attempt_at ?? null,
     sync_issue_id: raw.sync_issue_id ?? null,
+    manual_retry_reason:
+      raw.manual_retry_reason === 'conflict' || raw.manual_retry_reason === 'retry_failed' ? raw.manual_retry_reason : null,
     last_modified_at: raw.last_modified_at ?? new Date().toISOString(),
     latest_suggestion: raw.latest_suggestion ?? null,
     pending_operations: pendingOperations,

@@ -10,6 +10,7 @@ import {
   loadTrainingLocalDraft,
   saveTrainingLocalDraft,
   TRAINING_DRAFT_SYNC_STATUS,
+  type TrainingManualRetryReason,
   type TrainingDraftSetPayload,
   type TrainingDraftSyncOperation,
   type TrainingDraftSyncStatus,
@@ -43,6 +44,7 @@ export type PersistTrainingDraftOptions = DraftUiState & {
   lastSyncAttemptAt?: string | null
   syncStatus?: TrainingDraftSyncStatus
   syncIssueId?: number | null
+  manualRetryReason?: TrainingManualRetryReason | null
 }
 
 export type PersistTrainingDraftResult = {
@@ -126,6 +128,7 @@ export function persistTrainingLocalDraftState(params: {
     incrementalFailureCount: options.incrementalFailureCount ?? existingDraft?.incremental_failure_count ?? 0,
     lastSyncAttemptAt: options.lastSyncAttemptAt ?? existingDraft?.last_sync_attempt_at ?? null,
     syncIssueId: options.syncIssueId ?? existingDraft?.sync_issue_id ?? syncIssueId ?? null,
+    manualRetryReason: options.manualRetryReason ?? existingDraft?.manual_retry_reason ?? null,
     pendingOperations: options.pendingOperations ?? getPendingTrainingOperations(sessionKey),
   })
 

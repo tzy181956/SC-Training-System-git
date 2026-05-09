@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TrainingShell from '@/components/layout/TrainingShell.vue'
-import TrainingDraftRestoreModal from '@/components/training/TrainingDraftRestoreModal.vue'
 import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
 import TrainingModeSidebar from '@/components/training/TrainingModeSidebar.vue'
 import { useTeamFilter } from '@/composables/useTeamFilter'
@@ -15,8 +14,6 @@ const router = useRouter()
 const route = useRoute()
 const trainingStore = useTrainingStore()
 const loading = ref(false)
-const restoreDraft = ref<any | null>(null)
-const restoreBusy = ref(false)
 const selectedAthleteIdRef = computed({
   get: () => trainingStore.selectedAthleteId,
   set: (value: number) => {
@@ -59,7 +56,6 @@ async function hydrate() {
   if (trainingStore.selectedAthleteId) {
     await loadPlans()
   }
-  maybePromptDraftRestore()
 }
 
 async function loadPlans() {
@@ -96,55 +92,6 @@ async function openPlanById(assignmentId: number) {
       sessionDate: trainingStore.sessionDate,
     },
   })
-}
-
-function maybePromptDraftRestore() {
-  restoreDraft.value = trainingStore.getLatestRecoverableDraft()
-}
-
-async function continueDraftRestore() {
-  if (!restoreDraft.value) return
-
-  const draft = restoreDraft.value
-  restoreBusy.value = true
-  try {
-    trainingStore.selectedAthleteId = draft.athlete_id
-    trainingStore.sessionDate = draft.session_date
-    trainingStore.setPreviewAssignment(draft.assignment_id)
-
-    if (draft.session_id) {
-      await router.push({
-        name: 'training-session',
-        params: { sessionId: draft.session_id },
-        query: {
-          resumeDraft: '1',
-          resumeTarget: 'overview',
-          draftSessionKey: draft.session_key,
-        },
-      })
-      return
-    }
-
-    await router.push({
-      name: 'training-session',
-      query: {
-        assignmentId: String(draft.assignment_id),
-        athleteId: String(draft.athlete_id),
-        sessionDate: draft.session_date,
-        resumeDraft: '1',
-        resumeTarget: 'overview',
-        draftSessionKey: draft.session_key,
-      },
-    })
-  } finally {
-    restoreBusy.value = false
-  }
-}
-
-function discardDraftRestore() {
-  if (!restoreDraft.value) return
-  trainingStore.discardDraft(restoreDraft.value.session_key)
-  maybePromptDraftRestore()
 }
 
 function handleDateInput(value: string) {
@@ -213,14 +160,6 @@ onMounted(hydrate)
 
 <template>
   <TrainingShell>
-    <TrainingDraftRestoreModal
-      :open="!!restoreDraft"
-      :draft="restoreDraft"
-      :busy="restoreBusy"
-      @continue-restore="continueDraftRestore"
-      @discard-restore="discardDraftRestore"
-    />
-
     <template #header-filters>
       <TrainingHeaderFilters
         :session-date="trainingStore.sessionDate"

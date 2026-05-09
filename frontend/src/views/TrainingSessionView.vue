@@ -3,17 +3,18 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TrainingShell from '@/components/layout/TrainingShell.vue'
-import TrainingDraftRestoreModal from '@/components/training/TrainingDraftRestoreModal.vue'
 import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
 import SessionRpeModal from '@/components/training/SessionRpeModal.vue'
 import TrainingModeSidebar from '@/components/training/TrainingModeSidebar.vue'
 import TrainingSessionOverview from '@/components/training/TrainingSessionOverview.vue'
 import TrainingSetPanel from '@/components/training/TrainingSetPanel.vue'
+import { TRAINING_SYNC_NOTICE_TEXT } from '@/constants/trainingSync'
 import { getSessionRpeHelp, getSessionRpeLabel } from '@/constants/sessionRpe'
 import { getTrainingStatusLabel, getTrainingStatusTone, isFinalTrainingStatus } from '@/constants/trainingStatus'
 import { useTeamFilter } from '@/composables/useTeamFilter'
 import { useTrainingStore } from '@/stores/training'
 import { todayString } from '@/utils/date'
+import { TRAINING_DRAFT_REMOTE_RELATION } from '@/utils/trainingDraft'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,8 +29,6 @@ const sessionRpeModalOpen = ref(false)
 const sessionRpeDeferred = ref(false)
 const sessionRpeSubmitting = ref(false)
 const sessionRpeError = ref('')
-const restorePromptDraft = ref<any | null>(null)
-const restorePromptResolver = ref<((accepted: boolean) => void) | null>(null)
 const restoreToActionList = ref(false)
 let noticeTimer: number | null = null
 const selectedAthleteIdRef = computed({
@@ -47,10 +46,20 @@ const activeItem = computed(
 )
 const sessionStatusText = computed(() => getTrainingStatusLabel(trainingStore.session?.status))
 const sessionStatusTone = computed(() => getTrainingStatusTone(trainingStore.session?.status))
-const syncIndicatorLabel = computed(() => (trainingStore.syncStatus === 'synced' ? '正常' : '有未同步数据'))
-const syncIndicatorTone = computed(() => (trainingStore.syncStatus === 'synced' ? 'success' : 'warning'))
+const syncIndicatorLabel = computed(() => {
+  if (trainingStore.syncStatus === 'manual_retry_required') return '待教练处理'
+  return trainingStore.syncStatus === 'synced' ? '正常' : '正在同步'
+})
+const syncIndicatorTone = computed(() => {
+  if (trainingStore.syncStatus === 'manual_retry_required') return 'danger'
+  return trainingStore.syncStatus === 'synced' ? 'success' : 'warning'
+})
 const manualRetryHint = computed(() =>
-  trainingStore.syncStatus === 'manual_retry_required' ? '自动重试已暂停，需教练手动补传。' : '',
+  trainingStore.syncStatus === 'manual_retry_required'
+    ? trainingStore.manualRetryReason === 'conflict'
+      ? TRAINING_SYNC_NOTICE_TEXT.conflictHandoff
+      : '自动重试已暂停，需教练手动补传。'
+    : '',
 )
 const canTriggerManualSync = computed(() => {
   if (!trainingStore.session) return false
@@ -158,34 +167,11 @@ function applyRestoredDraft(draft: any, options: { focusActionList?: boolean; sh
   latestSuggestion.value = draft.latest_suggestion ?? null
   restoreToActionList.value = !!options.focusActionList
   if (options.showNotice) {
-    showSessionNotice('已恢复本地草稿，请从动作列表继续录课。', 'success')
+    showSessionNotice(TRAINING_SYNC_NOTICE_TEXT.offlineRecoverable, 'warning', 4200)
   }
 }
 
-function openRestorePrompt(draft: any) {
-  restorePromptDraft.value = draft
-  return new Promise<boolean>((resolve) => {
-    restorePromptResolver.value = resolve
-  })
-}
-
-function handleRestorePromptDecision(accepted: boolean) {
-  if (!restorePromptResolver.value) return
-  const resolve = restorePromptResolver.value
-  restorePromptResolver.value = null
-  restorePromptDraft.value = null
-  resolve(accepted)
-}
-
-async function confirmRestoreDraft(draft: any) {
-  if (isExplicitResumeRequest(draft)) {
-    return true
-  }
-
-  return openRestorePrompt(draft)
-}
-
-function showSessionNotice(message: string, tone: 'success' | 'warning' | 'error' = 'success') {
+function showSessionNotice(message: string, tone: 'success' | 'warning' | 'error' = 'success', durationMs = 2500) {
   sessionNotice.value = message
   sessionNoticeTone.value = tone
   if (noticeTimer !== null) {
@@ -194,7 +180,7 @@ function showSessionNotice(message: string, tone: 'success' | 'warning' | 'error
   noticeTimer = window.setTimeout(() => {
     sessionNotice.value = ''
     noticeTimer = null
-  }, 2500)
+  }, durationMs)
 }
 
 function formatDateTime(value?: string | null) {
@@ -246,38 +232,56 @@ async function maybeRestoreDraftForSession(nextSession: any) {
     }
     return false
   }
-  if (!draft.recorded_sets || (!draft.pending_sync && draft.session_snapshot?.status === 'completed')) return false
 
-  if (await confirmRestoreDraft(draft)) {
-    applyRestoredDraft(draft, {
-      focusActionList: true,
-      showNotice: true,
+  const relation = trainingStore.classifyDraftRelation(nextSession)
+  if (!relation) {
+    if (isExplicitResumeRequest(draft)) {
+      await clearResumeQuery()
+    }
+    return false
+  }
+
+  if (relation === TRAINING_DRAFT_REMOTE_RELATION.IDENTICAL) {
+    trainingStore.replaceSessionFromRemote(nextSession, {
+      activeItemId: activeItemId.value,
+      latestSuggestion: null,
     })
     if (isExplicitResumeRequest(draft)) {
       await clearResumeQuery()
     }
-    return true
+    return false
   }
 
-  trainingStore.discardDraft(draft.session_key)
+  if (relation === TRAINING_DRAFT_REMOTE_RELATION.REMOTE_AHEAD_NO_LOCAL_CHANGES) {
+    trainingStore.replaceSessionFromRemote(nextSession, {
+      activeItemId: activeItemId.value,
+      latestSuggestion: null,
+    })
+    if (isExplicitResumeRequest(draft)) {
+      await clearResumeQuery()
+    }
+    return false
+  }
+
+  applyRestoredDraft(draft, { focusActionList: true })
+
+  if (relation === TRAINING_DRAFT_REMOTE_RELATION.LOCAL_AHEAD) {
+    showSessionNotice(TRAINING_SYNC_NOTICE_TEXT.localAhead, 'warning', 3200)
+    void trainingStore.syncPendingOperations()
+  } else if (relation === TRAINING_DRAFT_REMOTE_RELATION.DIVERGED) {
+    await trainingStore.handoffConflictToCoach(draft)
+    showSessionNotice(TRAINING_SYNC_NOTICE_TEXT.conflictHandoff, 'warning', 5200)
+  }
+
   if (isExplicitResumeRequest(draft)) {
     await clearResumeQuery()
   }
-  return false
+  return true
 }
 
 async function maybeRecoverDraftWithoutBackend(sessionId: number) {
   const draft = trainingStore.getDraftBySessionId(sessionId)
   if (!draft) return false
-
-  if (!(await confirmRestoreDraft(draft))) {
-    trainingStore.discardDraft(draft.session_key)
-    if (isExplicitResumeRequest(draft)) {
-      await clearResumeQuery()
-    }
-    await router.replace({ name: 'training-mode' })
-    return true
-  }
 
   applyRestoredDraft(draft, {
     focusActionList: true,
@@ -300,15 +304,6 @@ async function maybeRecoverDraftWithoutBackend(sessionId: number) {
 async function maybeRecoverDraftByContext(assignmentId: number, athleteId: number, targetDate: string) {
   const draft = trainingStore.getDraftByContext(athleteId, assignmentId, targetDate)
   if (!draft) return false
-
-  if (!(await confirmRestoreDraft(draft))) {
-    trainingStore.discardDraft(draft.session_key)
-    if (isExplicitResumeRequest(draft)) {
-      await clearResumeQuery()
-    }
-    await router.replace({ name: 'training-mode' })
-    return true
-  }
 
   applyRestoredDraft(draft, {
     focusActionList: true,
@@ -656,12 +651,6 @@ onMounted(hydrate)
 
 <template>
   <TrainingShell>
-    <TrainingDraftRestoreModal
-      :open="!!restorePromptDraft"
-      :draft="restorePromptDraft"
-      @continue-restore="handleRestorePromptDecision(true)"
-      @discard-restore="handleRestorePromptDecision(false)"
-    />
     <SessionRpeModal
       :open="sessionRpeModalOpen"
       :initial-rpe="trainingStore.session?.session_rpe ?? null"
@@ -1016,6 +1005,11 @@ onMounted(hydrate)
 .sync-indicator.warning {
   background: #fef3c7;
   color: #92400e;
+}
+
+.sync-indicator.danger {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .hero-actions {
