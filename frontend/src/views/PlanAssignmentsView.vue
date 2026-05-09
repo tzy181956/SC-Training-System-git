@@ -105,8 +105,8 @@ const assignedEntriesByAthleteId = computed(() => {
   })
   return map
 })
-const previewHasMissingBasis = computed(() =>
-  Boolean(preview.value?.rows.some((row: any) => row.items.some((item: any) => item.status === 'missing_basis'))),
+const previewHasManualControl = computed(() =>
+  Boolean(preview.value?.rows.some((row: any) => row.items.some((item: any) => item.status === 'manual_control'))),
 )
 const hasSelectedRepeatWeekdays = computed(() => form.repeat_weekdays.length > 0)
 const repeatWeekdaySummary = computed(() => formatRepeatWeekdays(form.repeat_weekdays))
@@ -248,7 +248,7 @@ async function generatePreview() {
 }
 
 async function submitAssignments() {
-  if (!preview.value || previewHasMissingBasis.value || !hasSelectedRepeatWeekdays.value) return
+  if (!preview.value || !hasSelectedRepeatWeekdays.value) return
   submitting.value = true
   try {
     await createBatchAssignments({
@@ -528,14 +528,14 @@ onMounted(hydrate)
                 <button
                   class="primary-btn"
                   type="button"
-                  :disabled="!preview || previewHasMissingBasis || !hasSelectedRepeatWeekdays || submitting"
+                  :disabled="!preview || !hasSelectedRepeatWeekdays || submitting"
                   @click="submitAssignments"
                 >
                   {{ submitting ? '正在提交...' : '确认分配计划' }}
                 </button>
               </div>
               <p v-if="!hasSelectedRepeatWeekdays" class="warning-text">至少选择一个循环星期后才能预览和提交。</p>
-              <p v-else-if="previewHasMissingBasis" class="warning-text">当前预览中存在缺少测试基准的动作，请先补全测试数据或改用固定重量。</p>
+              <p v-else-if="previewHasManualControl" class="warning-text">部分队员缺少对应测试结果，这些动作会在训练时显示为空值，由教练现场控制。</p>
               <p v-else-if="loadingPreview" class="muted">正在生成分配预览...</p>
             </div>
           </div>

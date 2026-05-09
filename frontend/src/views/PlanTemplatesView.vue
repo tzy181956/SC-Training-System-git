@@ -14,11 +14,13 @@ import {
   updatePlanTemplateItem,
   updatePlanTemplateModule,
 } from '@/api/plans'
+import { fetchTestDefinitions } from '@/api/testRecords'
 import AppShell from '@/components/layout/AppShell.vue'
 import TemplateBuilder from '@/components/plan/TemplateBuilder.vue'
 
 const templates = ref<any[]>([])
 const exercises = ref<any[]>([])
+const testMetricOptions = ref<any[]>([])
 const selectedTemplateId = ref<number | null>(null)
 const keyword = ref('')
 const saveNoticeKey = ref(0)
@@ -35,10 +37,29 @@ const filteredTemplates = computed(() => {
   )
 })
 
+function normalizeTestMetricOptions(catalog: any): any[] {
+  const types = Array.isArray(catalog?.types) ? catalog.types : []
+  return types.flatMap((type: any) => {
+    const metrics = Array.isArray(type?.metrics) ? type.metrics : Array.isArray(type?.items) ? type.items : []
+    return metrics.map((metric: any) => ({
+      id: metric.id,
+      name: metric.name,
+      test_type_id: type.id,
+      test_type_name: type.name,
+      label: `${type.name} / ${metric.name}`,
+    }))
+  })
+}
+
 async function hydrate(preferredTemplateId?: number | null) {
-  const [templateData, exerciseData] = await Promise.all([fetchPlanTemplates(), fetchExercises()])
+  const [templateData, exerciseData, testDefinitionCatalog] = await Promise.all([
+    fetchPlanTemplates(),
+    fetchExercises(),
+    fetchTestDefinitions(),
+  ])
   templates.value = templateData
   exercises.value = exerciseData
+  testMetricOptions.value = normalizeTestMetricOptions(testDefinitionCatalog)
   if (preferredTemplateId && templates.value.some((template) => template.id === preferredTemplateId)) {
     selectedTemplateId.value = preferredTemplateId
     return
@@ -162,6 +183,7 @@ onMounted(() => hydrate())
         class="builder-panel"
         :template="selectedTemplate"
         :exercises="exercises"
+        :test-metric-options="testMetricOptions"
         :save-notice-key="saveNoticeKey"
         @save-template="saveTemplate"
         @delete-template="removeTemplate"

@@ -103,6 +103,14 @@ class TrainingSessionItem(BaseModel):
     def display_code(self) -> str | None:
         return self.template_item.display_code if self.template_item else None
 
+    @property
+    def initial_load_mode(self) -> str | None:
+        return self.template_item.initial_load_mode if self.template_item else None
+
+    @property
+    def initial_load_value(self) -> float | None:
+        return self.template_item.initial_load_value if self.template_item else None
+
 
 class SetRecord(BaseModel):
     __tablename__ = "set_records"

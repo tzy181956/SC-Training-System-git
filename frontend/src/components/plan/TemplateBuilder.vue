@@ -7,6 +7,7 @@ import { confirmDangerousAction } from '@/utils/dangerousAction'
 
 const props = defineProps<{
   exercises: any[]
+  testMetricOptions?: Array<{ id: number; label: string; name?: string; test_type_name?: string }>
   template: any | null
   saveNoticeKey?: number
 }>()
@@ -142,6 +143,7 @@ function buildNewItemDraft(moduleId: number) {
     enable_auto_load: false,
     initial_load_mode: 'fixed_weight',
     initial_load_value: 60,
+    initial_load_test_metric_definition_id: null,
     progression_goal: '',
     progression_rules: {
       target_rir: 2,
@@ -356,6 +358,8 @@ function saveTemplate() {
       enable_auto_load: item.enable_auto_load,
       initial_load_mode: item.initial_load_mode,
       initial_load_value: item.initial_load_value,
+      initial_load_test_metric_definition_id:
+        item.initial_load_mode === 'percent_1rm' ? item.initial_load_test_metric_definition_id : null,
       progression_goal: item.progression_goal,
       progression_rules: { ...(item.progression_rules || {}) },
       ai_adjust_enabled: item.ai_adjust_enabled,
@@ -487,6 +491,7 @@ function removeTemplate() {
             :move-up-disabled="itemIndex === 0"
             :move-down-disabled="itemIndex === module.items.length - 1"
             :exercises="exercises"
+            :test-metric-options="testMetricOptions || []"
             @change="updateItemDraft"
             @remove="removeItemDraft"
             @move="moveItemDraft"

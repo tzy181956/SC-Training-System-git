@@ -601,13 +601,21 @@ def _serialize_template_item_detail(
         "sort_order": item.sort_order,
         "prescribed_sets": item.prescribed_sets,
         "prescribed_reps": item.prescribed_reps,
-        "target_weight": override_map.get(item.id, item.initial_load_value),
+        "target_weight": _resolve_template_item_target_weight(item, override_map),
         "target_note": item.target_note,
         "is_main_lift": item.is_main_lift,
         "status": "pending",
         "completed_sets": 0,
         "records": [],
     }
+
+
+def _resolve_template_item_target_weight(item: TrainingPlanTemplateItem, override_map: dict[int, float]) -> float | None:
+    if item.id in override_map:
+        return override_map[item.id]
+    if item.initial_load_mode == "fixed_weight":
+        return item.initial_load_value
+    return None
 
 
 def _serialize_set_record_detail(record: SetRecord) -> dict:

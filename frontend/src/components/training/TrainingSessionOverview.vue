@@ -43,21 +43,19 @@ function buildLoadText(item: any) {
 
   if (item.initial_load_mode === 'fixed_weight') {
     return item.initial_load_value === null || item.initial_load_value === undefined
-      ? '训练时设置'
+      ? ''
       : `${formatNumber(Number(item.initial_load_value))} 公斤`
   }
 
-  if (item.initial_load_mode === 'percent_1rm') {
-    return item.initial_load_value === null || item.initial_load_value === undefined
-      ? '按最近测试百分比'
-      : `${formatNumber(Number(item.initial_load_value))}%`
-  }
-
-  return '训练时设置'
+  return ''
 }
 
 function buildPrescriptionSummary(item: any) {
-  return `${item.prescribed_sets} 组 × ${item.prescribed_reps} 次 × ${buildLoadText(item)}`
+  const loadText = buildLoadText(item)
+  if (!loadText) {
+    return `${item.prescribed_sets} 组 × ${item.prescribed_reps} 次 ×`
+  }
+  return `${item.prescribed_sets} 组 × ${item.prescribed_reps} 次 × ${loadText}`
 }
 
 function buildProgressSummary(item: any) {

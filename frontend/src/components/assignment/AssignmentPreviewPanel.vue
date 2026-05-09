@@ -33,7 +33,7 @@ const displayModules = computed(() => {
         ...item,
         exerciseName: item.exercise?.name || previewItem?.exercise_name || '未命名动作',
         loadModeLabel: buildLoadRuleLabel(item, previewItem),
-        detailText: buildLoadDetailText(item),
+        detailText: buildLoadDetailText(item, previewItem),
       }
     }),
   }))
@@ -42,7 +42,7 @@ const displayModules = computed(() => {
 const missingBasisGroups = computed(() =>
   (props.preview?.rows ?? [])
     .map((row: any) => {
-      const missingItems = (row.items ?? []).filter((item: any) => item.status === 'missing_basis')
+      const missingItems = (row.items ?? []).filter((item: any) => item.status === 'manual_control')
       if (!missingItems.length) {
         return null
       }
@@ -63,18 +63,26 @@ function buildLoadRuleLabel(templateItem: any, previewItem?: any) {
     return '固定重量'
   }
   if (templateItem.initial_load_mode === 'percent_1rm') {
-    return '按最近测试百分比'
+    return previewItem?.status === 'manual_control' ? '训练时控制' : previewItem?.load_mode_label || '按最近测试百分比'
   }
   return previewItem?.load_mode_label || '训练时设置'
 }
 
-function buildLoadDetailText(templateItem: any) {
+function buildLoadDetailText(templateItem: any, previewItem?: any) {
+  if (previewItem?.status === 'manual_control') {
+    return '控制'
+  }
   const value = templateItem.initial_load_value
   if (templateItem.initial_load_mode === 'fixed_weight') {
     return value === null || value === undefined ? '固定重量未设置' : `${formatNumber(value)} 公斤`
   }
   if (templateItem.initial_load_mode === 'percent_1rm') {
-    return value === null || value === undefined ? '按最近测试结果计算' : `按最近测试的 ${formatNumber(value)}%`
+    if (value === null || value === undefined) {
+      return '按最近测试结果计算'
+    }
+    return previewItem?.basis_label
+      ? `${formatNumber(value)}% · ${previewItem.basis_label}`
+      : `按最近测试的 ${formatNumber(value)}%`
   }
   return '训练时设置'
 }
@@ -168,8 +176,8 @@ function formatNumber(value: number) {
       <article v-if="hasGeneratedPreview && missingBasisGroups.length" class="preview-card warning-panel">
         <div class="card-head">
           <div>
-            <p class="eyebrow">需要先补齐的测试基准</p>
-            <h4>{{ missingBasisCount }} 名队员存在缺失项</h4>
+            <p class="eyebrow">训练时需现场控制</p>
+            <h4>{{ missingBasisCount }} 名队员缺少对应测试结果</h4>
           </div>
         </div>
         <div class="warning-list">

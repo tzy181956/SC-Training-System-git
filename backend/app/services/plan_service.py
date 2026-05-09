@@ -5,6 +5,7 @@ from app.models import (
     Exercise,
     Sport,
     Team,
+    TestMetricDefinition,
     TrainingPlanTemplate,
     TrainingPlanTemplateItem,
     TrainingPlanTemplateModule,
@@ -24,7 +25,14 @@ TEMPLATE_DETAIL_OPTIONS = (
     joinedload(TrainingPlanTemplate.modules)
     .joinedload(TrainingPlanTemplateModule.items)
     .joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(TrainingPlanTemplate.modules)
+    .joinedload(TrainingPlanTemplateModule.items)
+    .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
+    .joinedload(TestMetricDefinition.test_type),
     joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(TrainingPlanTemplate.items)
+    .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
+    .joinedload(TestMetricDefinition.test_type),
     joinedload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.module)
     .joinedload(TrainingPlanTemplateModule.items),
@@ -33,6 +41,7 @@ TEMPLATE_DETAIL_OPTIONS = (
 ITEM_DETAIL_OPTIONS = (
     joinedload(TrainingPlanTemplateItem.template),
     joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition).joinedload(TestMetricDefinition.test_type),
     joinedload(TrainingPlanTemplateItem.module).joinedload(TrainingPlanTemplateModule.items),
 )
 
@@ -458,6 +467,9 @@ def _serialize_template_item(item: TrainingPlanTemplateItem, *, exercise_name: s
         "enable_auto_load": item.enable_auto_load,
         "initial_load_mode": item.initial_load_mode,
         "initial_load_value": item.initial_load_value,
+        "initial_load_test_metric_definition_id": item.initial_load_test_metric_definition_id,
+        "initial_load_test_metric_definition_name": item.initial_load_test_metric_definition_name,
+        "initial_load_test_type_name": item.initial_load_test_type_name,
         "progression_goal": item.progression_goal,
         "progression_rules": item.progression_rules,
         "ai_adjust_enabled": item.ai_adjust_enabled,

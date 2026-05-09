@@ -169,6 +169,8 @@ class SessionItemSnapshotRead(ORMModel):
     target_note: str | None = None
     is_main_lift: bool
     enable_auto_load: bool
+    initial_load_mode: str | None = None
+    initial_load_value: float | None = None
     initial_load: float | None = None
     status: str
     exercise: ExerciseRead

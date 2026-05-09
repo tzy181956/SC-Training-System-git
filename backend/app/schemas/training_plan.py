@@ -31,6 +31,7 @@ class PlanTemplateItemBase(BaseModel):
     enable_auto_load: bool = False
     initial_load_mode: str = "fixed_weight"
     initial_load_value: float | None = None
+    initial_load_test_metric_definition_id: int | None = None
     progression_goal: str | None = None
     progression_rules: dict | None = None
     ai_adjust_enabled: bool = False
@@ -51,6 +52,7 @@ class PlanTemplateItemUpdate(BaseModel):
     enable_auto_load: bool | None = None
     initial_load_mode: str | None = None
     initial_load_value: float | None = None
+    initial_load_test_metric_definition_id: int | None = None
     progression_goal: str | None = None
     progression_rules: dict | None = None
     ai_adjust_enabled: bool | None = None
@@ -82,6 +84,8 @@ class PlanTemplateItemRead(ORMModel, PlanTemplateItemBase):
     module_title: str | None = None
     display_index: int | None = None
     display_code: str | None = None
+    initial_load_test_metric_definition_name: str | None = None
+    initial_load_test_type_name: str | None = None
     exercise: ExerciseRead
 
 

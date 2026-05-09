@@ -165,7 +165,9 @@ def _build_session_preview(assignment, session_date: date) -> dict:
             "target_note": template_item.target_note,
             "is_main_lift": template_item.is_main_lift,
             "enable_auto_load": template_item.enable_auto_load,
-            "initial_load": override_map.get(template_item.id, template_item.initial_load_value),
+            "initial_load_mode": template_item.initial_load_mode,
+            "initial_load_value": template_item.initial_load_value,
+            "initial_load": _resolve_assignment_initial_load(template_item, override_map),
             "status": "pending",
             "exercise": template_item.exercise,
             "records": [],
@@ -205,11 +207,19 @@ def _build_session_items_from_assignment(assignment, session_id: int) -> list[Tr
             target_note=template_item.target_note,
             is_main_lift=template_item.is_main_lift,
             enable_auto_load=template_item.enable_auto_load,
-            initial_load=override_map.get(template_item.id, template_item.initial_load_value),
+            initial_load=_resolve_assignment_initial_load(template_item, override_map),
             status="pending",
         )
         for template_item in assignment.template.items
     ]
+
+
+def _resolve_assignment_initial_load(template_item, override_map: dict[int, float]) -> float | None:
+    if template_item.id in override_map:
+        return override_map[template_item.id]
+    if template_item.initial_load_mode == "fixed_weight":
+        return template_item.initial_load_value
+    return None
 
 
 def _build_session_module_payloads(items: list[dict]) -> list[dict]:

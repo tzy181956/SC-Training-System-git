@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 const props = defineProps<{
   item: any
   exercises: any[]
+  testMetricOptions?: Array<{ id: number; label: string; name?: string; test_type_name?: string }>
   moduleOptions?: Array<{ id: number; label: string }>
   itemLabel?: string
   moveUpDisabled?: boolean
@@ -58,6 +59,10 @@ watch(
 
 const selectedExercise = computed(() => props.exercises.find((exercise) => exercise.id === draft.exercise_id))
 const loadModeLabel = computed(() => (draft.initial_load_mode === 'percent_1rm' ? '按最近测试百分比' : '固定重量'))
+const selectedTestMetricLabel = computed(() => {
+  const matched = (props.testMetricOptions || []).find((option) => option.id === draft.initial_load_test_metric_definition_id)
+  return matched?.label || ''
+})
 
 const level1Options = computed(() =>
   Array.from(new Set(props.exercises.map((exercise) => normalizeString(exercise.level1_category)).filter(Boolean))).sort((left, right) =>
@@ -124,6 +129,7 @@ function buildDraft(item: any) {
     enable_auto_load: item.enable_auto_load,
     initial_load_mode: item.initial_load_mode || 'fixed_weight',
     initial_load_value: item.initial_load_value ?? 0,
+    initial_load_test_metric_definition_id: item.initial_load_test_metric_definition_id ?? null,
     progression_goal: item.progression_goal || '',
     progression_rules: {
       target_rir: rules.target_rir ?? 2,
@@ -148,6 +154,8 @@ function serializeDraft() {
     enable_auto_load: draft.enable_auto_load,
     initial_load_mode: draft.initial_load_mode,
     initial_load_value: draft.initial_load_value,
+    initial_load_test_metric_definition_id:
+      draft.initial_load_mode === 'percent_1rm' ? draft.initial_load_test_metric_definition_id : null,
     progression_goal: draft.progression_goal,
     progression_rules: { ...draft.progression_rules },
     ai_adjust_enabled: draft.ai_adjust_enabled,
@@ -328,6 +336,16 @@ onBeforeUnmount(() => {
           <option value="fixed_weight">固定重量</option>
           <option value="percent_1rm">按最近测试的 1RM 百分比</option>
         </select>
+      </label>
+      <label v-if="draft.initial_load_mode === 'percent_1rm'" class="field metric metric--goal">
+        <span>关联测试项目</span>
+        <select v-model="draft.initial_load_test_metric_definition_id" class="text-input">
+          <option :value="null">请选择测试项目</option>
+          <option v-for="option in testMetricOptions || []" :key="option.id" :value="option.id">{{ option.label }}</option>
+        </select>
+        <small class="field-hint">
+          {{ selectedTestMetricLabel || '按指定测试项目匹配最近一次结果，不再依赖动作名称完全一致。' }}
+        </small>
       </label>
       <label class="field metric metric--goal">
         <span>训练目标</span>
@@ -579,6 +597,13 @@ onBeforeUnmount(() => {
 .metric--goal {
   flex: 1 1 0;
   min-width: 180px;
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .progress-panel {

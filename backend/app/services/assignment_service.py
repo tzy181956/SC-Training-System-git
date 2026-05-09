@@ -9,6 +9,7 @@ from app.models import (
     Athlete,
     AssignmentItemOverride,
     AthletePlanAssignment,
+    TestMetricDefinition,
     TrainingPlanTemplate,
     TrainingPlanTemplateItem,
     TrainingPlanTemplateModule,
@@ -32,8 +33,17 @@ ASSIGNMENT_TEMPLATE_LOAD_OPTIONS = (
     .joinedload(TrainingPlanTemplateModule.items)
     .joinedload(TrainingPlanTemplateItem.exercise),
     joinedload(AthletePlanAssignment.template)
+    .joinedload(TrainingPlanTemplate.modules)
+    .joinedload(TrainingPlanTemplateModule.items)
+    .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
+    .joinedload(TestMetricDefinition.test_type),
+    joinedload(AthletePlanAssignment.template)
     .joinedload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.exercise),
+    joinedload(AthletePlanAssignment.template)
+    .joinedload(TrainingPlanTemplate.items)
+    .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
+    .joinedload(TestMetricDefinition.test_type),
     joinedload(AthletePlanAssignment.template)
     .joinedload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.module)
@@ -271,8 +281,8 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
                     "exercise_name": item.exercise.name,
                     "load_mode_label": describe_load_mode(item),
                     "computed_load": override["initial_load_override"] if override else None,
-                    "basis_label": "训练时录入" if is_manual_load else (override["basis_label"] if override else None),
-                    "status": "missing_basis" if is_manual_load else "assignable",
+                    "basis_label": "控制" if is_manual_load else (override["basis_label"] if override else None),
+                    "status": "manual_control" if is_manual_load else "assignable",
                 }
             )
         rows.append({"athlete": athlete, "items": items})
@@ -440,7 +450,14 @@ def _get_template_for_assignment(db: Session, template_id: int) -> TrainingPlanT
             joinedload(TrainingPlanTemplate.modules)
             .joinedload(TrainingPlanTemplateModule.items)
             .joinedload(TrainingPlanTemplateItem.exercise),
+            joinedload(TrainingPlanTemplate.modules)
+            .joinedload(TrainingPlanTemplateModule.items)
+            .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
+            .joinedload(TestMetricDefinition.test_type),
             joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+            joinedload(TrainingPlanTemplate.items)
+            .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
+            .joinedload(TestMetricDefinition.test_type),
             joinedload(TrainingPlanTemplate.items)
             .joinedload(TrainingPlanTemplateItem.module)
             .joinedload(TrainingPlanTemplateModule.items),

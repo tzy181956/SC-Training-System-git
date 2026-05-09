@@ -80,6 +80,7 @@ class TrainingPlanTemplateItem(BaseModel):
     enable_auto_load: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     initial_load_mode: Mapped[str] = mapped_column(String(30), default="fixed_weight", nullable=False)
     initial_load_value: Mapped[float | None] = mapped_column(Float)
+    initial_load_test_metric_definition_id: Mapped[int | None] = mapped_column(ForeignKey("test_metric_definitions.id"))
     progression_goal: Mapped[str | None] = mapped_column(String(30))
     progression_rules: Mapped[dict | None] = mapped_column(JSON)
     ai_adjust_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -87,6 +88,7 @@ class TrainingPlanTemplateItem(BaseModel):
     template = relationship("TrainingPlanTemplate", back_populates="items", overlaps="items,module")
     module = relationship("TrainingPlanTemplateModule", back_populates="items", overlaps="template,items")
     exercise = relationship("Exercise")
+    initial_load_test_metric_definition = relationship("TestMetricDefinition")
 
     @property
     def module_code(self) -> str | None:
@@ -117,3 +119,13 @@ class TrainingPlanTemplateItem(BaseModel):
         if display_index is None:
             return None
         return f"{self.module_code}.{display_index}"
+
+    @property
+    def initial_load_test_metric_definition_name(self) -> str | None:
+        return self.initial_load_test_metric_definition.name if self.initial_load_test_metric_definition else None
+
+    @property
+    def initial_load_test_type_name(self) -> str | None:
+        if not self.initial_load_test_metric_definition or not self.initial_load_test_metric_definition.test_type:
+            return None
+        return self.initial_load_test_metric_definition.test_type.name
