@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
-import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { fetchAthletes } from '@/api/athletes'
+import { fetchAthletes, fetchTeams } from '@/api/athletes'
 import { retryTrainingSyncIssue } from '@/api/sessions'
 import { fetchTrainingReport, type TrainingReportResponse } from '@/api/trainingReports'
 import StatCard from '@/components/common/StatCard.vue'
@@ -15,6 +15,7 @@ import { todayString } from '@/utils/date'
 
 const route = useRoute()
 const athletes = ref<any[]>([])
+const teams = ref<any[]>([])
 const loading = ref(false)
 const report = ref<TrainingReportResponse | null>(null)
 const reportNotice = ref('')
@@ -27,6 +28,7 @@ let completionChart: echarts.ECharts | null = null
 const completedStatusLabel = getTrainingStatusLabel('completed')
 
 const filters = reactive({
+  teamId: parseNumberQuery(route.query.teamId),
   athleteId: parseNumberQuery(route.query.athleteId),
   dateFrom: parseStringQuery(route.query.dateFrom) || getDateBefore(29),
   dateTo: parseStringQuery(route.query.dateTo) || todayString(),
@@ -34,10 +36,38 @@ const filters = reactive({
   onlyMainLift: false,
 })
 
+const visibleTeams = computed(() => {
+  const athleteTeamIds = new Set(
+    athletes.value
+      .map((athlete) => athlete.team_id)
+      .filter((teamId): teamId is number => typeof teamId === 'number' && teamId > 0),
+  )
+  return teams.value.filter((team) => athleteTeamIds.has(team.id))
+})
+
+const availableAthletes = computed(() => {
+  if (!filters.teamId) return athletes.value
+  return athletes.value.filter((athlete) => athlete.team_id === filters.teamId)
+})
+
 async function hydrate() {
-  athletes.value = await fetchAthletes()
-  if (!filters.athleteId && athletes.value[0]) {
-    filters.athleteId = athletes.value[0].id
+  const [athleteData, teamData] = await Promise.all([
+    fetchAthletes(),
+    fetchTeams(),
+  ])
+  athletes.value = athleteData
+  teams.value = teamData
+
+  if (filters.athleteId) {
+    const matchedAthlete = athletes.value.find((athlete) => athlete.id === filters.athleteId)
+    if (matchedAthlete?.team_id && !filters.teamId) {
+      filters.teamId = matchedAthlete.team_id
+    }
+  }
+
+  syncAthleteSelection()
+  if (!filters.athleteId && availableAthletes.value[0]) {
+    filters.athleteId = availableAthletes.value[0].id
   }
   if (filters.athleteId) {
     await loadReport()
@@ -80,6 +110,18 @@ function showNotice(payload: { message: string; tone: 'success' | 'warning' | 'e
   reportNoticeTone.value = payload.tone
 }
 
+function syncAthleteSelection() {
+  if (!availableAthletes.value.length) {
+    filters.athleteId = 0
+    return
+  }
+
+  const athleteStillVisible = availableAthletes.value.some((athlete) => athlete.id === filters.athleteId)
+  if (athleteStillVisible) return
+
+  filters.athleteId = availableAthletes.value[0].id
+}
+
 function renderCharts() {
   if (mainLiftChartRef.value && report.value) {
     mainLiftChart ||= echarts.init(mainLiftChartRef.value)
@@ -119,11 +161,20 @@ function renderCharts() {
 }
 
 watch(
+  () => filters.teamId,
+  () => {
+    syncAthleteSelection()
+  },
+)
+
+watch(
   () => [filters.athleteId, filters.dateFrom, filters.dateTo],
   () => {
     if (filters.athleteId) {
       loadReport()
+      return
     }
+    report.value = null
   },
 )
 
@@ -159,9 +210,19 @@ function parseStringQuery(value: unknown) {
         </div>
 
         <label class="field">
+          <span>队伍</span>
+          <select v-model.number="filters.teamId" class="text-input">
+            <option :value="0">全部队伍</option>
+            <option v-for="team in visibleTeams" :key="team.id" :value="team.id">
+              {{ team.name }}
+            </option>
+          </select>
+        </label>
+
+        <label class="field">
           <span>运动员</span>
           <select v-model.number="filters.athleteId" class="text-input">
-            <option v-for="athlete in athletes" :key="athlete.id" :value="athlete.id">
+            <option v-for="athlete in availableAthletes" :key="athlete.id" :value="athlete.id">
               {{ athlete.full_name }}
             </option>
           </select>

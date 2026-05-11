@@ -1591,17 +1591,17 @@ onBeforeUnmount(() => {
     <div class="page-grid">
       <div class="split-view">
         <div class="panel form-panel">
-          <div class="section-head">
+          <div class="section-head test-toolbar-head">
             <div class="section-head-copy">
               <p class="eyebrow">趋势筛选</p>
               <h3>测试趋势筛选与补录</h3>
             </div>
-            <div class="action-stack">
-              <div class="action-row">
+            <div class="action-stack test-toolbar-actions">
+              <div class="action-row test-toolbar-grid">
                 <button class="ghost-btn slim" type="button" @click="openTypeManager">管理测试类型</button>
                 <button class="ghost-btn slim" type="button" @click="openMetricManager">管理测试项目</button>
               </div>
-              <div class="action-row">
+              <div class="action-row test-toolbar-grid">
                 <button class="ghost-btn" :disabled="templateBusy" @click="handleTemplateDownload">
                   {{ templateBusy ? '下载中...' : '下载导入模板' }}
                 </button>
@@ -2358,26 +2358,38 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.test-toolbar-actions {
+  width: 100%;
+  min-width: 0;
+}
+
 .action-row {
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.ghost-btn {
-  min-height: 44px;
-  border-radius: 14px;
-  padding: 0 14px;
-  background: #e2e8f0;
-  color: #0f172a;
-  font-weight: 600;
+.test-toolbar-head {
+  display: grid;
+  gap: 14px;
 }
 
-.ghost-btn.slim {
-  min-height: 38px;
+.test-toolbar-head .section-head-copy {
+  min-width: 0;
 }
 
-.danger-btn {
-  color: #b91c1c;
+.test-toolbar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.test-toolbar-grid > button {
+  width: 100%;
+  justify-content: center;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .hidden-input {
@@ -2810,6 +2822,15 @@ onBeforeUnmount(() => {
 
   .detail-section .manager-form-actions > * {
     width: 100%;
+  }
+
+  .test-toolbar-actions {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .test-toolbar-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -34,6 +34,12 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
 
 <style scoped>
 .monitor-shell {
+  --training-filter-width: 160px;
+  --training-filter-width-triple: 146px;
+  --training-filter-height: 34px;
+  --training-filter-padding-inline: 12px;
+  --training-filter-font-size: 14px;
+  --training-filter-gap: 8px;
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -59,6 +65,17 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
 .monitor-filters,
 .monitor-actions {
   min-width: 0;
+}
+
+.monitor-filters {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.monitor-filters :deep(.training-header-filters) {
+  justify-content: flex-end;
+  overflow: visible;
 }
 
 .monitor-copy {
@@ -94,6 +111,10 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
 
 @media (max-width: 1180px) {
   .monitor-shell {
+    --training-filter-width: 155px;
+    --training-filter-width-triple: 138px;
+    --training-filter-height: 32px;
+    --training-filter-padding-inline: 10px;
     padding: 14px;
     gap: 14px;
   }
@@ -104,6 +125,14 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
   }
 
   .monitor-actions {
+    justify-content: flex-start;
+  }
+
+  .monitor-filters {
+    justify-content: flex-start;
+  }
+
+  .monitor-filters :deep(.training-header-filters) {
     justify-content: flex-start;
   }
 }

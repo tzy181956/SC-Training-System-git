@@ -439,7 +439,6 @@ function sessionSrpeLoadText() {
 .field span{font-size:13px;color:var(--text-soft)}
 .notes-field{grid-column:span 1}
 .editor-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
-.small-btn{min-height:36px;padding:0 14px;border-radius:12px}
 .inline-panel{border:1px dashed rgba(15,118,110,.28);border-radius:16px;padding:14px;background:rgba(255,255,255,.7)}
 .log-panel{border-top:1px solid var(--line);padding-top:12px;display:grid;gap:10px}
 .log-head{display:flex;justify-content:space-between;gap:12px;align-items:center}

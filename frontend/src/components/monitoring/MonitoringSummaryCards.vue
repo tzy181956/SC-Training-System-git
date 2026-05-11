@@ -22,6 +22,8 @@ const summary = computed(() => {
     absent: athletes.filter((athlete) => athlete.session_status === 'absent').length,
     noPlan: athletes.filter((athlete) => athlete.session_status === 'no_plan').length,
     alerts: athletes.filter((athlete) => athlete.has_alert || athlete.sync_status !== 'synced').length,
+    completedSets,
+    totalSets,
     completionRate: totalSets ? Math.round((completedSets / totalSets) * 100) : 0,
   }
 })
@@ -42,7 +44,7 @@ const summary = computed(() => {
     <article class="summary-card success">
       <span>已完成</span>
       <strong>{{ summary.completed }}</strong>
-      <p>完成率 {{ summary.completionRate }}%</p>
+      <p>{{ summary.totalSets ? `总组进度 ${summary.completedSets}/${summary.totalSets} · ${summary.completionRate}%` : '暂无组计划' }}</p>
     </article>
     <article class="summary-card partial">
       <span>已结束未完成</span>

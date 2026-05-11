@@ -442,11 +442,6 @@ function selectedCount(group: any) {
   color: #b91c1c;
 }
 
-.danger-btn {
-  background: #b91c1c;
-  color: white;
-}
-
 .overview-empty {
   display: grid;
   gap: 10px;

@@ -112,11 +112,11 @@ function handleTeamInput(event: Event) {
 
 <style scoped>
 .training-header-filters {
-  --training-header-filter-current-width: var(--training-filter-width);
+  --training-header-filter-current-width: var(--training-filter-width, 160px);
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: var(--training-filter-gap);
+  gap: var(--training-filter-gap, 8px);
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -137,6 +137,7 @@ function handleTeamInput(event: Event) {
 .training-header-filter-shell {
   position: relative;
   width: 100%;
+  min-height: var(--training-filter-height, 34px);
 }
 
 .training-header-filter-label {
@@ -177,12 +178,12 @@ function handleTeamInput(event: Event) {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  height: var(--training-filter-height);
-  min-height: var(--training-filter-height);
+  height: var(--training-filter-height, 34px);
+  min-height: var(--training-filter-height, 34px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 var(--training-filter-padding-inline);
+  padding: 0 var(--training-filter-padding-inline, 12px);
   border: 1px solid var(--line);
   border-radius: 14px;
   background: white;
@@ -199,7 +200,7 @@ function handleTeamInput(event: Event) {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: var(--training-filter-font-size);
+  font-size: var(--training-filter-font-size, 14px);
   font-weight: 500;
   line-height: 1;
   text-align: center;

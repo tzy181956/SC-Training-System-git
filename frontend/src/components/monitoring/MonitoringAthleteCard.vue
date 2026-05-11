@@ -19,6 +19,27 @@ function progressText(completed: number, total: number, unit: string) {
   return total ? `${completed}/${total} ${unit}` : `无${unit}计划`
 }
 
+function clampProgressRatio(value: number) {
+  if (Number.isNaN(value)) return 0
+  return Math.min(Math.max(value, 0), 1)
+}
+
+function setProgressRatio() {
+  if (props.athlete.total_sets > 0) {
+    return clampProgressRatio(props.athlete.completed_sets / props.athlete.total_sets)
+  }
+  if (props.athlete.total_items > 0) {
+    return clampProgressRatio(props.athlete.completed_items / props.athlete.total_items)
+  }
+  return props.athlete.session_status === 'completed' ? 1 : 0
+}
+
+function progressStyle() {
+  return {
+    '--progress-ratio': String(setProgressRatio()),
+  }
+}
+
 function latestSetText() {
   const latestSet = props.athlete.latest_set
   if (!latestSet) return '暂无组记录'
@@ -64,7 +85,13 @@ function statusTone() {
 </script>
 
 <template>
-  <button class="athlete-card" :class="[statusTone(), athlete.alert_level, { alert: athlete.has_alert }]" type="button" @click="emit('select')">
+  <button
+    class="athlete-card"
+    :class="[statusTone(), athlete.alert_level, { alert: athlete.has_alert }]"
+    :style="progressStyle()"
+    type="button"
+    @click="emit('select')"
+  >
     <div class="card-head">
       <div class="athlete-copy adaptive-card">
         <strong class="adaptive-card-title">{{ athlete.athlete_name }}</strong>
@@ -79,8 +106,14 @@ function statusTone() {
     </div>
 
     <div class="progress-grid">
-      <span>{{ progressText(athlete.completed_items, athlete.total_items, '动作') }}</span>
-      <span>{{ progressText(athlete.completed_sets, athlete.total_sets, '组') }}</span>
+      <div class="progress-metric">
+        <strong>{{ progressText(athlete.completed_items, athlete.total_items, '动作') }}</strong>
+        <small>动作完成</small>
+      </div>
+      <div class="progress-metric">
+        <strong>{{ progressText(athlete.completed_sets, athlete.total_sets, '组') }}</strong>
+        <small>组完成</small>
+      </div>
     </div>
 
     <div v-if="shouldShowSessionRpe()" class="session-rpe-line">
@@ -102,10 +135,16 @@ function statusTone() {
 
 <style scoped>
 .athlete-card {
+  --progress-ratio: 0;
+  --progress-soft: rgba(15, 118, 110, 0.1);
+  --progress-soft-strong: rgba(15, 118, 110, 0.16);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: grid;
   gap: 12px;
   width: 100%;
-  min-height: 190px;
+  min-height: 194px;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -113,6 +152,43 @@ function statusTone() {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+}
+
+.athlete-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--progress-soft) 0%, var(--progress-soft-strong) 100%);
+  transform: scaleX(var(--progress-ratio));
+  transform-origin: left center;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.athlete-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.athlete-card.success {
+  --progress-soft: rgba(22, 163, 74, 0.11);
+  --progress-soft-strong: rgba(22, 163, 74, 0.18);
+}
+
+.athlete-card.progress {
+  --progress-soft: rgba(37, 99, 235, 0.1);
+  --progress-soft-strong: rgba(37, 99, 235, 0.17);
+}
+
+.athlete-card.partial {
+  --progress-soft: rgba(217, 119, 6, 0.1);
+  --progress-soft-strong: rgba(217, 119, 6, 0.17);
+}
+
+.athlete-card.neutral,
+.athlete-card.danger {
+  --progress-soft: rgba(100, 116, 139, 0.08);
+  --progress-soft-strong: rgba(100, 116, 139, 0.13);
 }
 
 .athlete-card:focus-visible {
@@ -219,13 +295,24 @@ function statusTone() {
   gap: 8px;
 }
 
-.progress-grid span {
-  min-height: 34px;
+.progress-metric {
+  display: grid;
+  gap: 2px;
+  min-height: 46px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: rgba(15, 118, 110, 0.08);
-  color: #115e59;
-  font-weight: 700;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.progress-metric strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.progress-metric small {
+  color: var(--text-soft);
+  font-size: 12px;
 }
 
 .session-rpe-line {

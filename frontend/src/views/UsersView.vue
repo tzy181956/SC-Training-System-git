@@ -563,11 +563,6 @@ onMounted(async () => {
   font-size: 14px;
 }
 
-.danger-btn {
-  color: #b91c1c;
-  border-color: rgba(185, 28, 28, 0.24);
-}
-
 .error-banner,
 .notice-banner {
   margin: 0;

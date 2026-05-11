@@ -604,10 +604,6 @@ function removeTemplate() {
   margin: 0;
 }
 
-.danger-btn {
-  color: #b91c1c;
-}
-
 @media (max-width: 1200px) {
   .grid.two {
     grid-template-columns: 1fr;

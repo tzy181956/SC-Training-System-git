@@ -59,10 +59,6 @@ watch(
 
 const selectedExercise = computed(() => props.exercises.find((exercise) => exercise.id === draft.exercise_id))
 const loadModeLabel = computed(() => (draft.initial_load_mode === 'percent_1rm' ? '按最近测试百分比' : '固定重量'))
-const selectedTestMetricLabel = computed(() => {
-  const matched = (props.testMetricOptions || []).find((option) => option.id === draft.initial_load_test_metric_definition_id)
-  return matched?.label || ''
-})
 
 const level1Options = computed(() =>
   Array.from(new Set(props.exercises.map((exercise) => normalizeString(exercise.level1_category)).filter(Boolean))).sort((left, right) =>
@@ -343,9 +339,6 @@ onBeforeUnmount(() => {
           <option :value="null">请选择测试项目</option>
           <option v-for="option in testMetricOptions || []" :key="option.id" :value="option.id">{{ option.label }}</option>
         </select>
-        <small class="field-hint">
-          {{ selectedTestMetricLabel || '按指定测试项目匹配最近一次结果，不再依赖动作名称完全一致。' }}
-        </small>
       </label>
       <label class="field metric metric--goal">
         <span>训练目标</span>
@@ -599,13 +592,6 @@ onBeforeUnmount(() => {
   min-width: 180px;
 }
 
-.field-hint {
-  margin: 0;
-  color: var(--text-soft);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
 .progress-panel {
   display: grid;
   gap: 12px;
@@ -617,20 +603,6 @@ onBeforeUnmount(() => {
 .note-input {
   min-height: 48px;
   resize: vertical;
-}
-
-.slim-btn {
-  min-height: 40px;
-  padding: 0 14px;
-}
-
-.slim-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.danger {
-  color: #b91c1c;
 }
 
 @media (max-width: 980px) {

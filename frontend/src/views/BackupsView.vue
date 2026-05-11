@@ -449,15 +449,6 @@ onMounted(() => {
   justify-content: flex-start;
 }
 
-.ghost-btn {
-  min-height: 44px;
-  border-radius: 14px;
-  padding: 0 14px;
-  background: #e2e8f0;
-  color: #0f172a;
-  font-weight: 600;
-}
-
 @media (max-width: 1200px) {
   .backup-layout,
   .summary-grid,

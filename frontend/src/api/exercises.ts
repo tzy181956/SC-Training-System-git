@@ -16,6 +16,28 @@ export type FetchExercisesParams = {
   [key: string]: string | number | string[] | undefined
 }
 
+function buildExerciseQueryParams(params: FetchExercisesParams) {
+  const searchParams = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null) return
+
+    if (Array.isArray(value)) {
+      value
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean)
+        .forEach((item) => searchParams.append(key, item))
+      return
+    }
+
+    const normalized = String(value).trim()
+    if (!normalized) return
+    searchParams.append(key, normalized)
+  })
+
+  return searchParams
+}
+
 export async function fetchTags() {
   const { data } = await client.get('/tags')
   return data
@@ -32,7 +54,7 @@ export async function createTag(payload: Record<string, unknown>) {
 }
 
 export async function fetchExercises(params: FetchExercisesParams = {}): Promise<ExerciseListResponse> {
-  const { data } = await client.get('/exercises', { params })
+  const { data } = await client.get('/exercises', { params: buildExerciseQueryParams(params) })
   return data
 }
 

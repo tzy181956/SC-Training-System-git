@@ -29,9 +29,10 @@ const links = computed(() => {
   return allLinks.filter((link) => link.roles.includes(authStore.roleCode as UserRoleCode))
 })
 
-const currentLabel = computed(() => (
-  links.value.find((link) => link.name === route.name)?.label || getAppModeDisplayLabel('management')
-))
+const currentLabel = computed(() => {
+  if (route.name === 'dashboard') return '今日管理工作台'
+  return links.value.find((link) => link.name === route.name)?.label || getAppModeDisplayLabel('management')
+})
 
 const managementModeLabel = getAppModeDisplayLabel('management')
 </script>
@@ -70,7 +71,6 @@ const managementModeLabel = getAppModeDisplayLabel('management')
     <main class="shell-main">
       <header class="shell-header">
         <div>
-          <p class="eyebrow shell-header-eyebrow">平板横屏优先</p>
           <h2>{{ currentLabel }}</h2>
         </div>
         <div class="shell-header-actions">
@@ -185,10 +185,6 @@ const managementModeLabel = getAppModeDisplayLabel('management')
   gap: 10px;
   flex-wrap: wrap;
   min-width: 0;
-}
-
-.shell-header-eyebrow {
-  color: var(--text-soft);
 }
 
 .shell-header h2,
