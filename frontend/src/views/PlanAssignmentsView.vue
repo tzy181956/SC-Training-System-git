@@ -9,10 +9,14 @@ import {
   fetchPlanTemplates,
   previewBatchAssignments,
 } from '@/api/plans'
+import AssignmentOverviewPane from '@/components/assignment/AssignmentOverviewPane.vue'
 import AssignmentPreviewPanel from '@/components/assignment/AssignmentPreviewPanel.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import { DEFAULT_REPEAT_WEEKDAYS, REPEAT_WEEKDAY_OPTIONS, formatRepeatWeekdays } from '@/constants/repeatWeekdays'
 import { todayString } from '@/utils/date'
+
+type AssignmentViewMode = 'builder' | 'overview'
+type ScheduleMode = 'single_day' | 'date_range' | 'weekly_repeat'
 
 const athletes = ref<any[]>([])
 const templates = ref<any[]>([])
@@ -29,105 +33,224 @@ const preview = ref<any | null>(null)
 const loadingPreview = ref(false)
 const submitting = ref(false)
 const cancelling = ref(false)
+
+const activeView = ref<AssignmentViewMode>('builder')
 const selectedAssignmentsByGroupKey = ref<Record<string, number[]>>({})
 const confirmDeleteGroupKey = ref<string | null>(null)
+const selectedOverviewGroupKey = ref<string | null>(null)
 
-const filters = reactive({
+const overviewState = reactive({
+  targetDate: todayString(),
   sportId: 0,
   teamId: 0,
-  onlyUnassigned: false,
 })
 
-const form = reactive({
-  athlete_ids: [] as number[],
-  template_id: 0,
-  assigned_date: todayString(),
-  start_date: todayString(),
-  end_date: todayString(),
-  repeat_weekdays: [...DEFAULT_REPEAT_WEEKDAYS] as number[],
+const builderState = reactive({
+  sportId: 0,
+  teamId: 0,
+  keyword: '',
+  selectedOnly: false,
+  athleteIds: [] as number[],
+  templateId: 0,
+  scheduleMode: 'single_day' as ScheduleMode,
+  singleDate: todayString(),
+  startDate: todayString(),
+  endDate: todayString(),
+  repeatWeekdays: [...DEFAULT_REPEAT_WEEKDAYS] as number[],
   notes: '',
 })
 
-const selectedTemplate = computed(() => templates.value.find((item) => item.id === form.template_id) || null)
-const filteredTeams = computed(() =>
-  filters.sportId ? teams.value.filter((team) => team.sport_id === filters.sportId) : teams.value,
+const viewButtons = [
+  { key: 'builder', label: '新建分配' },
+  { key: 'overview', label: '现有分配' },
+] as const
+
+const overviewTeams = computed(() =>
+  overviewState.sportId ? teams.value.filter((team) => team.sport_id === overviewState.sportId) : teams.value,
 )
-const filteredAthletes = computed(() =>
-  athletes.value.filter((athlete) => {
-    if (!athlete.is_active) return false
-    if (filters.sportId && athlete.sport_id !== filters.sportId) return false
-    if (filters.teamId && athlete.team_id !== filters.teamId) return false
-    if (filters.onlyUnassigned && !overview.value.unassigned_athletes.some((item: any) => item.id === athlete.id)) return false
-    return true
-  }),
+const builderTeams = computed(() =>
+  builderState.sportId ? teams.value.filter((team) => team.sport_id === builderState.sportId) : teams.value,
 )
-const filteredAssignmentGroups = computed(() =>
+
+const filteredOverviewGroups = computed(() =>
   overview.value.assignment_groups.filter((group: any) =>
     group.athletes.some((athlete: any) => {
-      if (filters.sportId && athlete.sport_id !== filters.sportId) return false
-      if (filters.teamId && athlete.team_id !== filters.teamId) return false
+      if (overviewState.sportId && athlete.sport_id !== overviewState.sportId) return false
+      if (overviewState.teamId && athlete.team_id !== overviewState.teamId) return false
       return true
     }),
   ),
 )
-const filteredUnassignedAthletes = computed(() =>
+
+const filteredOverviewUnassignedAthletes = computed(() =>
   overview.value.unassigned_athletes.filter((athlete: any) => {
-    if (filters.sportId && athlete.sport_id !== filters.sportId) return false
-    if (filters.teamId && athlete.team_id !== filters.teamId) return false
+    if (overviewState.sportId && athlete.sport_id !== overviewState.sportId) return false
+    if (overviewState.teamId && athlete.team_id !== overviewState.teamId) return false
     return true
   }),
 )
-const filteredAssignedEntries = computed(() =>
-  filteredAssignmentGroups.value.flatMap((group: any) =>
-    group.entries
-      .filter((entry: any) => {
-        if (filters.sportId && entry.athlete.sport_id !== filters.sportId) return false
-        if (filters.teamId && entry.athlete.team_id !== filters.teamId) return false
-        return true
-      })
-      .map((entry: any) => ({
-        ...entry,
-        template: group.template,
-        start_date: group.start_date,
-        end_date: group.end_date,
-      })),
-  ),
-)
-const assignedEntriesByAthleteId = computed(() => {
-  const map = new Map<number, any[]>()
-  filteredAssignedEntries.value.forEach((entry: any) => {
-    const bucket = map.get(entry.athlete.id)
-    if (bucket) {
-      bucket.push(entry)
-      return
-    }
-    map.set(entry.athlete.id, [entry])
+
+const assignedCountsByAthleteId = computed(() => {
+  const map = new Map<number, number>()
+  ;(overview.value.assignment_groups || []).forEach((group: any) => {
+    ;(group.entries || []).forEach((entry: any) => {
+      const athleteId = entry.athlete.id
+      map.set(athleteId, (map.get(athleteId) || 0) + 1)
+    })
   })
   return map
 })
+
+const unassignedAthleteIdSet = computed(() =>
+  new Set<number>((overview.value.unassigned_athletes || []).map((athlete: any) => athlete.id)),
+)
+
+const selectedTemplate = computed(() => templates.value.find((item) => item.id === builderState.templateId) || null)
+
+const builderBaseAthletes = computed(() =>
+  athletes.value
+    .filter((athlete) => {
+      if (!athlete.is_active) return false
+      if (builderState.sportId && athlete.sport_id !== builderState.sportId) return false
+      if (builderState.teamId && athlete.team_id !== builderState.teamId) return false
+      if (builderState.keyword.trim()) {
+        const keyword = builderState.keyword.trim().toLowerCase()
+        const values = [athlete.full_name, athlete.team?.name, athlete.sport?.name]
+        if (!values.some((value) => (value || '').toLowerCase().includes(keyword))) {
+          return false
+        }
+      }
+      return true
+    })
+    .sort((left, right) => {
+      const leftSelected = builderState.athleteIds.includes(left.id) ? 1 : 0
+      const rightSelected = builderState.athleteIds.includes(right.id) ? 1 : 0
+      if (leftSelected !== rightSelected) return rightSelected - leftSelected
+      const leftTeam = left.team?.name || ''
+      const rightTeam = right.team?.name || ''
+      if (leftTeam !== rightTeam) return leftTeam.localeCompare(rightTeam, 'zh-CN')
+      return (left.full_name || '').localeCompare(right.full_name || '', 'zh-CN')
+    }),
+)
+
+const visibleBuilderAthletes = computed(() =>
+  builderState.selectedOnly
+    ? builderBaseAthletes.value.filter((athlete) => builderState.athleteIds.includes(athlete.id))
+    : builderBaseAthletes.value,
+)
+
+const selectedAthletes = computed(() => {
+  const athleteMap = new Map<number, any>(athletes.value.map((athlete) => [athlete.id, athlete]))
+  return builderState.athleteIds
+    .map((athleteId) => athleteMap.get(athleteId))
+    .filter(Boolean)
+})
+
+const selectedTeamNames = computed(() =>
+  Array.from(new Set(selectedAthletes.value.map((athlete) => athlete.team?.name).filter(Boolean))),
+)
+
+const selectedWithExistingPlans = computed(() =>
+  selectedAthletes.value.filter((athlete) => (assignedCountsByAthleteId.value.get(athlete.id) || 0) > 0).length,
+)
+
+const selectedUnassignedCount = computed(() =>
+  selectedAthletes.value.filter((athlete) => unassignedAthleteIdSet.value.has(athlete.id)).length,
+)
+
+const scheduleModeButtons = [
+  { key: 'single_day', label: '单日计划' },
+  { key: 'date_range', label: '日期段计划' },
+  { key: 'weekly_repeat', label: '每周重复计划' },
+] as const
+
+const hasSelectedRepeatWeekdays = computed(() => builderState.repeatWeekdays.length > 0)
 const previewHasManualControl = computed(() =>
   Boolean(preview.value?.rows.some((row: any) => row.items.some((item: any) => item.status === 'manual_control'))),
 )
-const hasSelectedRepeatWeekdays = computed(() => form.repeat_weekdays.length > 0)
-const repeatWeekdaySummary = computed(() => formatRepeatWeekdays(form.repeat_weekdays))
 
-function getGroupKey(group: any) {
-  return group.assignment_ids.join('-')
-}
+const scheduleSummary = computed(() => {
+  if (builderState.scheduleMode === 'single_day') {
+    return `单日计划 · ${builderState.singleDate} · ${weekdayLabelFromDate(builderState.singleDate)}`
+  }
+  if (builderState.scheduleMode === 'date_range') {
+    return `日期段计划 · ${builderState.startDate} 至 ${builderState.endDate}`
+  }
+  return `每周重复计划 · ${builderState.startDate} 至 ${builderState.endDate} · ${formatRepeatWeekdays(builderState.repeatWeekdays)}`
+})
 
-function getSelectedAssignmentIds(group: any) {
-  return selectedAssignmentsByGroupKey.value[getGroupKey(group)] ?? []
-}
+const scheduleHint = computed(() => {
+  if (builderState.scheduleMode === 'single_day') {
+    return '只在当天生成一次有效分配。'
+  }
+  if (builderState.scheduleMode === 'date_range') {
+    return '区间内每天都按同一模板执行。'
+  }
+  return `按所选星期重复执行：${formatRepeatWeekdays(builderState.repeatWeekdays)}`
+})
 
-function getSelectedCount(group: any) {
-  return getSelectedAssignmentIds(group).length
-}
+const builderValidationMessage = computed(() => {
+  if (!builderState.athleteIds.length) return '先选择至少一名队员。'
+  if (!builderState.templateId) return '先选择训练模板。'
+  if (builderState.scheduleMode === 'single_day') {
+    return builderState.singleDate ? '' : '请选择训练日期。'
+  }
+  if (!builderState.startDate || !builderState.endDate) {
+    return '请先补全开始和结束日期。'
+  }
+  if (builderState.startDate > builderState.endDate) {
+    return '开始日期不能晚于结束日期。'
+  }
+  if (builderState.scheduleMode === 'weekly_repeat' && !builderState.repeatWeekdays.length) {
+    return '每周重复计划至少需要选择一个执行日。'
+  }
+  return ''
+})
 
-function isGroupAthleteSelected(group: any, athleteId: number) {
-  const selectedIds = getSelectedAssignmentIds(group)
-  const entry = group.entries.find((item: any) => item.athlete.id === athleteId)
-  return Boolean(entry && selectedIds.includes(entry.assignment_id))
-}
+const builderPayload = computed(() => {
+  if (builderValidationMessage.value) {
+    return null
+  }
+  if (builderState.scheduleMode === 'single_day') {
+    const weekday = weekdayFromDate(builderState.singleDate)
+    return {
+      athlete_ids: builderState.athleteIds,
+      template_id: builderState.templateId,
+      assigned_date: builderState.singleDate,
+      start_date: builderState.singleDate,
+      end_date: builderState.singleDate,
+      repeat_weekdays: [weekday],
+      notes: builderState.notes,
+      status: 'active',
+    }
+  }
+  if (builderState.scheduleMode === 'date_range') {
+    return {
+      athlete_ids: builderState.athleteIds,
+      template_id: builderState.templateId,
+      assigned_date: builderState.startDate,
+      start_date: builderState.startDate,
+      end_date: builderState.endDate,
+      repeat_weekdays: [...DEFAULT_REPEAT_WEEKDAYS],
+      notes: builderState.notes,
+      status: 'active',
+    }
+  }
+  return {
+    athlete_ids: builderState.athleteIds,
+    template_id: builderState.templateId,
+    assigned_date: builderState.startDate,
+    start_date: builderState.startDate,
+    end_date: builderState.endDate,
+    repeat_weekdays: [...builderState.repeatWeekdays],
+    notes: builderState.notes,
+    status: 'active',
+  }
+})
+
+const builderCanSubmit = computed(() => Boolean(builderPayload.value && preview.value))
+
+let previewRequestId = 0
 
 async function hydrate() {
   const [athleteData, templateData, sportData, teamData] = await Promise.all([
@@ -144,71 +267,114 @@ async function hydrate() {
 }
 
 async function loadOverview() {
-  overview.value = await fetchAssignmentOverview(form.start_date)
+  overview.value = await fetchAssignmentOverview(overviewState.targetDate)
   selectedAssignmentsByGroupKey.value = {}
   confirmDeleteGroupKey.value = null
+  if (
+    selectedOverviewGroupKey.value
+    && !filteredOverviewGroups.value.some((group: any) => group.assignment_ids.join('-') === selectedOverviewGroupKey.value)
+  ) {
+    selectedOverviewGroupKey.value = null
+  }
 }
 
 function toggleAthlete(id: number) {
-  if (form.athlete_ids.includes(id)) {
-    form.athlete_ids = form.athlete_ids.filter((athleteId) => athleteId !== id)
+  if (builderState.athleteIds.includes(id)) {
+    builderState.athleteIds = builderState.athleteIds.filter((athleteId) => athleteId !== id)
     return
   }
-  form.athlete_ids = [...form.athlete_ids, id]
+  builderState.athleteIds = [...builderState.athleteIds, id]
 }
 
-function handleAthleteCardClick(athlete: any) {
-  toggleAthlete(athlete.id)
+function selectAllFilteredAthletes() {
+  const ids = builderBaseAthletes.value.map((athlete) => athlete.id)
+  builderState.athleteIds = Array.from(new Set([...builderState.athleteIds, ...ids]))
+}
+
+function selectFilteredUnassignedAthletes() {
+  const ids = builderBaseAthletes.value
+    .filter((athlete) => unassignedAthleteIdSet.value.has(athlete.id))
+    .map((athlete) => athlete.id)
+  builderState.athleteIds = Array.from(new Set([...builderState.athleteIds, ...ids]))
+}
+
+function clearSelectedAthletes() {
+  builderState.athleteIds = []
+}
+
+function setScheduleMode(mode: ScheduleMode) {
+  if (builderState.scheduleMode === mode) return
+
+  if (mode === 'single_day') {
+    const nextDate = builderState.scheduleMode === 'single_day' ? builderState.singleDate : builderState.startDate
+    builderState.singleDate = nextDate || todayString()
+    builderState.repeatWeekdays = [weekdayFromDate(builderState.singleDate)]
+  } else if (mode === 'date_range') {
+    const nextStart = builderState.scheduleMode === 'single_day' ? builderState.singleDate : builderState.startDate
+    builderState.startDate = nextStart || todayString()
+    builderState.endDate = builderState.endDate < builderState.startDate ? builderState.startDate : builderState.endDate
+    builderState.repeatWeekdays = [...DEFAULT_REPEAT_WEEKDAYS]
+  } else {
+    const nextStart = builderState.scheduleMode === 'single_day' ? builderState.singleDate : builderState.startDate
+    builderState.startDate = nextStart || todayString()
+    builderState.endDate = builderState.endDate < builderState.startDate ? builderState.startDate : builderState.endDate
+    if (!builderState.repeatWeekdays.length) {
+      builderState.repeatWeekdays = [weekdayFromDate(builderState.startDate)]
+    }
+  }
+
+  builderState.scheduleMode = mode
 }
 
 function toggleRepeatWeekday(weekday: number) {
-  if (form.repeat_weekdays.includes(weekday)) {
-    form.repeat_weekdays = form.repeat_weekdays.filter((current) => current !== weekday)
+  if (builderState.repeatWeekdays.includes(weekday)) {
+    builderState.repeatWeekdays = builderState.repeatWeekdays.filter((current) => current !== weekday)
     return
   }
-  form.repeat_weekdays = [...form.repeat_weekdays, weekday].sort((left, right) => left - right)
+  builderState.repeatWeekdays = [...builderState.repeatWeekdays, weekday].sort((left, right) => left - right)
 }
 
 function getAssignedPlanHint(athleteId: number) {
-  const assignedCount = assignedEntriesByAthleteId.value.get(athleteId)?.length ?? 0
+  const assignedCount = assignedCountsByAthleteId.value.get(athleteId) ?? 0
   if (!assignedCount) {
-    return null
+    return '当前查看日期口径下暂无后续计划'
   }
-  if (form.athlete_ids.includes(athleteId)) {
+  if (builderState.athleteIds.includes(athleteId)) {
     return `已有 ${assignedCount} 条当前/后续计划，已加入本次分配`
   }
-  return `已有 ${assignedCount} 条当前/后续计划，仍可继续分配`
+  return `已有 ${assignedCount} 条当前/后续计划`
 }
 
-function toggleGroupAthlete(group: any, athleteId: number) {
-  const entry = group.entries.find((item: any) => item.athlete.id === athleteId)
-  if (!entry) return
+function selectOverviewGroup(groupKey: string) {
+  selectedOverviewGroupKey.value = groupKey
+  confirmDeleteGroupKey.value = null
+}
 
-  const key = getGroupKey(group)
-  const current = selectedAssignmentsByGroupKey.value[key] ?? []
+function toggleOverviewAssignment(groupKey: string, assignmentId: number) {
+  const current = selectedAssignmentsByGroupKey.value[groupKey] ?? []
   selectedAssignmentsByGroupKey.value = {
     ...selectedAssignmentsByGroupKey.value,
-    [key]: current.includes(entry.assignment_id)
-      ? current.filter((assignmentId) => assignmentId !== entry.assignment_id)
-      : [...current, entry.assignment_id],
+    [groupKey]: current.includes(assignmentId)
+      ? current.filter((currentId) => currentId !== assignmentId)
+      : [...current, assignmentId],
   }
 
-  if (!selectedAssignmentsByGroupKey.value[key].length && confirmDeleteGroupKey.value === key) {
+  if (!(selectedAssignmentsByGroupKey.value[groupKey] || []).length && confirmDeleteGroupKey.value === groupKey) {
     confirmDeleteGroupKey.value = null
   }
 }
 
-function requestDeleteGroupAssignments(group: any) {
-  if (!getSelectedCount(group)) return
-  confirmDeleteGroupKey.value = getGroupKey(group)
+function requestDeleteGroupAssignments(groupKey: string) {
+  if (!(selectedAssignmentsByGroupKey.value[groupKey] || []).length) return
+  confirmDeleteGroupKey.value = groupKey
 }
 
-function resetGroupDeleteFlow() {
+function resetDeleteFlow() {
   confirmDeleteGroupKey.value = null
 }
 
-async function cancelSelectedGroupAssignments(group: any) {
-  const assignmentIds = getSelectedAssignmentIds(group)
+async function cancelSelectedGroupAssignments(groupKey: string) {
+  const assignmentIds = selectedAssignmentsByGroupKey.value[groupKey] ?? []
   if (!assignmentIds.length) return
 
   cancelling.value = true
@@ -220,328 +386,407 @@ async function cancelSelectedGroupAssignments(group: any) {
   }
 }
 
-function selectUnassignedAthletes() {
-  const ids = filteredUnassignedAthletes.value.map((athlete: any) => athlete.id)
-  form.athlete_ids = Array.from(new Set([...form.athlete_ids, ...ids]))
-}
-
 async function generatePreview() {
-  if (!form.athlete_ids.length || !form.template_id || !hasSelectedRepeatWeekdays.value) {
+  const payload = builderPayload.value
+  previewRequestId += 1
+  const requestId = previewRequestId
+
+  if (!payload) {
     preview.value = null
+    loadingPreview.value = false
     return
   }
+
   loadingPreview.value = true
   try {
-    preview.value = await previewBatchAssignments({
-      athlete_ids: form.athlete_ids,
-      template_id: form.template_id,
-      assigned_date: form.start_date,
-      start_date: form.start_date,
-      end_date: form.end_date,
-      repeat_weekdays: form.repeat_weekdays,
-      notes: form.notes,
-      status: 'active',
-    })
+    const data = await previewBatchAssignments(payload)
+    if (requestId === previewRequestId) {
+      preview.value = data
+    }
   } finally {
-    loadingPreview.value = false
+    if (requestId === previewRequestId) {
+      loadingPreview.value = false
+    }
   }
 }
 
 async function submitAssignments() {
-  if (!preview.value || !hasSelectedRepeatWeekdays.value) return
+  if (!builderPayload.value || !preview.value) return
+
   submitting.value = true
   try {
-    await createBatchAssignments({
-      athlete_ids: form.athlete_ids,
-      template_id: form.template_id,
-      assigned_date: form.start_date,
-      start_date: form.start_date,
-      end_date: form.end_date,
-      repeat_weekdays: form.repeat_weekdays,
-      notes: form.notes,
-      status: 'active',
-    })
-    form.athlete_ids = []
-    form.template_id = 0
-    form.repeat_weekdays = [...DEFAULT_REPEAT_WEEKDAYS]
-    form.notes = ''
+    await createBatchAssignments(builderPayload.value)
+    builderState.athleteIds = []
+    builderState.templateId = 0
+    builderState.notes = ''
+    builderState.scheduleMode = 'single_day'
+    builderState.singleDate = todayString()
+    builderState.startDate = todayString()
+    builderState.endDate = todayString()
+    builderState.repeatWeekdays = [...DEFAULT_REPEAT_WEEKDAYS]
     preview.value = null
-    await hydrate()
+    await loadOverview()
+    activeView.value = 'overview'
   } finally {
     submitting.value = false
   }
 }
 
 watch(
-  () => [form.start_date, filters.sportId, filters.teamId],
+  () => [overviewState.targetDate, overviewState.sportId, overviewState.teamId],
   async () => {
     await loadOverview()
   },
 )
 
 watch(
-  () => [form.start_date, form.end_date, form.template_id, form.athlete_ids.join(','), form.repeat_weekdays.join(','), form.notes],
+  () => builderPayload.value ? JSON.stringify(builderPayload.value) : 'no-preview',
   async () => {
     await generatePreview()
   },
 )
 
 watch(
-  () => filters.sportId,
+  () => overviewState.sportId,
   () => {
-    if (filters.teamId && !filteredTeams.value.some((team) => team.id === filters.teamId)) {
-      filters.teamId = 0
+    if (overviewState.teamId && !overviewTeams.value.some((team) => team.id === overviewState.teamId)) {
+      overviewState.teamId = 0
+    }
+  },
+)
+
+watch(
+  () => builderState.sportId,
+  () => {
+    if (builderState.teamId && !builderTeams.value.some((team) => team.id === builderState.teamId)) {
+      builderState.teamId = 0
+    }
+  },
+)
+
+watch(
+  () => builderState.singleDate,
+  (nextDate) => {
+    if (builderState.scheduleMode === 'single_day' && nextDate) {
+      builderState.repeatWeekdays = [weekdayFromDate(nextDate)]
+    }
+  },
+)
+
+watch(
+  () => filteredOverviewGroups.value.map((group: any) => group.assignment_ids.join('-')).join('|'),
+  () => {
+    if (
+      selectedOverviewGroupKey.value
+      && !filteredOverviewGroups.value.some((group: any) => group.assignment_ids.join('-') === selectedOverviewGroupKey.value)
+    ) {
+      selectedOverviewGroupKey.value = null
+      confirmDeleteGroupKey.value = null
     }
   },
 )
 
 onMounted(hydrate)
+
+function weekdayFromDate(dateString: string) {
+  const [year, month, day] = dateString.split('-').map(Number)
+  const weekday = new Date(year, (month || 1) - 1, day || 1).getDay()
+  return weekday === 0 ? 7 : weekday
+}
+
+function weekdayLabelFromDate(dateString: string) {
+  const weekday = weekdayFromDate(dateString)
+  return REPEAT_WEEKDAY_OPTIONS.find((option) => option.value === weekday)?.label || '未识别星期'
+}
 </script>
 
 <template>
   <AppShell>
     <div class="assignment-page">
-      <section class="panel overview-panel">
-        <div class="section-head">
+      <section class="panel control-panel">
+        <div class="control-head">
           <div>
-            <p class="eyebrow">计划分配概览</p>
-            <h3>先看当前和后续已经安排的计划</h3>
+            <p class="eyebrow">计划分配工作台</p>
+            <h3>{{ activeView === 'builder' ? '先完成新分配，再切回现有计划查看结果' : '先看现状，再决定是否补齐未分配对象' }}</h3>
           </div>
-          <div class="overview-toolbar">
+          <div class="view-switch" role="tablist" aria-label="计划分配视图切换">
+            <button
+              v-for="button in viewButtons"
+              :key="button.key"
+              class="view-btn"
+              :class="{ active: activeView === button.key }"
+              type="button"
+              @click="activeView = button.key"
+            >
+              {{ button.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="toolbar-fields">
+          <template v-if="activeView === 'overview'">
             <label class="field compact">
               <span>查看日期</span>
-              <input v-model="form.start_date" type="date" class="text-input" />
+              <input v-model="overviewState.targetDate" type="date" class="text-input" />
             </label>
-            <select v-model.number="filters.sportId" class="text-input compact-input">
-              <option :value="0">全部项目</option>
-              <option v-for="sport in sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
-            </select>
-            <select v-model.number="filters.teamId" class="text-input compact-input">
-              <option :value="0">全部队伍</option>
-              <option v-for="team in filteredTeams" :key="team.id" :value="team.id">{{ team.name }}</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="summary-grid">
-          <article class="summary-card">
-            <span class="summary-label">已有计划人数</span>
-            <strong>{{ overview.assigned_count }}</strong>
-            <small>可在上方计划组中选择队员后取消分配</small>
-          </article>
-          <article class="summary-card">
-            <span class="summary-label">当前与后续计划组</span>
-            <strong>{{ overview.group_count }}</strong>
-            <small>按模板、时间段和循环星期聚合展示</small>
-          </article>
-          <article class="summary-card summary-card--subtle">
-            <span class="summary-label">未分配人数</span>
-            <strong>{{ overview.unassigned_count }}</strong>
-            <small>从当前日期往后仍无计划</small>
-          </article>
-        </div>
-
-        <div class="overview-grid">
-          <article class="overview-card overview-card--primary">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">当前与后续计划</p>
-                <h4>按模板、时间段和循环星期归并展示当前进行中和即将开始的计划</h4>
-              </div>
-              <span class="muted">共 {{ filteredAssignmentGroups.length }} 组</span>
-            </div>
-            <div v-if="filteredAssignmentGroups.length" class="group-list">
-              <div v-for="group in filteredAssignmentGroups" :key="group.assignment_ids.join('-')" class="group-card">
-                <div class="group-head">
-                  <div>
-                    <strong>{{ group.template.name }}</strong>
-                    <p>{{ group.start_date }} 至 {{ group.end_date }}</p>
-                    <p>循环：{{ formatRepeatWeekdays(group.repeat_weekdays) }}</p>
-                  </div>
-                  <div class="group-badges">
-                    <span class="status-badge" :class="group.group_status === 'active_now' ? 'status-badge--active' : 'status-badge--upcoming'">
-                      {{ group.group_status === 'active_now' ? '进行中' : '即将开始' }}
-                    </span>
-                    <span class="badge">{{ group.athlete_count }} 人</span>
-                  </div>
-                </div>
-                <p v-if="group.template.description" class="muted">{{ group.template.description }}</p>
-                <div class="athlete-chip-list">
-                  <button
-                    v-for="athlete in group.athletes"
-                    :key="athlete.id"
-                    class="athlete-chip athlete-chip--selectable"
-                    :class="{ 'athlete-chip--selected': isGroupAthleteSelected(group, athlete.id) }"
-                    type="button"
-                    @click="toggleGroupAthlete(group, athlete.id)"
-                  >
-                    {{ athlete.full_name }}
-                    <small v-if="athlete.team?.name"> / {{ athlete.team.name }}</small>
-                  </button>
-                </div>
-                <p v-if="group.notes.length" class="group-notes">备注：{{ group.notes.join('；') }}</p>
-                <div class="group-delete-row">
-                  <span v-if="getSelectedCount(group)" class="muted">已选 {{ getSelectedCount(group) }} 人</span>
-                  <span v-else class="muted">在组内选择队员后可取消分配</span>
-                  <div class="group-delete-actions">
-                    <template v-if="confirmDeleteGroupKey === getGroupKey(group)">
-                      <span class="warning-text">确认取消当前所选 {{ getSelectedCount(group) }} 人的计划？</span>
-                      <button class="ghost-btn slim" type="button" :disabled="cancelling" @click="resetGroupDeleteFlow">取消</button>
-                      <button
-                        class="ghost-btn slim danger-btn"
-                        type="button"
-                        :disabled="cancelling"
-                        @click="cancelSelectedGroupAssignments(group)"
-                      >
-                        {{ cancelling ? '取消中...' : '确认取消' }}
-                      </button>
-                    </template>
-                    <button
-                      v-else
-                      class="ghost-btn slim danger-btn"
-                      type="button"
-                      :disabled="!getSelectedCount(group) || cancelling"
-                      @click="requestDeleteGroupAssignments(group)"
-                    >
-                      取消分配
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else class="overview-empty">
-              <strong>从当前日期往后还没有有效计划组</strong>
-              <p class="muted">先在下方为队员分配模板后，这里会自动展示当前进行中和即将开始的计划。</p>
-            </div>
-          </article>
-
-          <article class="overview-card overview-card--secondary">
-            <div class="section-head section-head--tight">
-              <div class="overview-side-meta">
-                <p class="eyebrow">未分配队员</p>
-                <h4>从当前日期往后还没有任何计划的人</h4>
-                <span class="muted">共 {{ filteredUnassignedAthletes.length }} 人</span>
-              </div>
-            </div>
-            <label class="checkbox-row checkbox-row--compact">
-              <input v-model="filters.onlyUnassigned" type="checkbox" />
-              <span>下方分配区只看未分配</span>
+            <label class="field compact">
+              <span>项目</span>
+              <select v-model.number="overviewState.sportId" class="text-input">
+                <option :value="0">全部项目</option>
+                <option v-for="sport in sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
+              </select>
             </label>
-            <div class="unassigned-list-wrap">
-              <div class="unassigned-list">
-                <div v-for="athlete in filteredUnassignedAthletes" :key="athlete.id" class="overview-row overview-row--compact">
-                  <strong>{{ athlete.full_name }}</strong>
-                  <span>{{ athlete.team?.name || '未分队' }}</span>
-                </div>
-              </div>
-              <p v-if="!filteredUnassignedAthletes.length" class="muted">当前筛选条件下所有队员从当前日期往后都已有计划。</p>
-            </div>
-          </article>
+            <label class="field compact">
+              <span>队伍</span>
+              <select v-model.number="overviewState.teamId" class="text-input">
+                <option :value="0">全部队伍</option>
+                <option v-for="team in overviewTeams" :key="team.id" :value="team.id">{{ team.name }}</option>
+              </select>
+            </label>
+          </template>
+
+          <template v-else>
+            <label class="field compact">
+              <span>项目</span>
+              <select v-model.number="builderState.sportId" class="text-input">
+                <option :value="0">全部项目</option>
+                <option v-for="sport in sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>队伍</span>
+              <select v-model.number="builderState.teamId" class="text-input">
+                <option :value="0">全部队伍</option>
+                <option v-for="team in builderTeams" :key="team.id" :value="team.id">{{ team.name }}</option>
+              </select>
+            </label>
+            <label class="field search-field">
+              <span>姓名搜索</span>
+              <input v-model="builderState.keyword" class="text-input" placeholder="输入姓名、队伍或项目关键词" />
+            </label>
+          </template>
         </div>
       </section>
 
-      <section class="panel assignment-panel">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">新增 / 调整计划分配</p>
-            <h3>为指定队员设置模板和时间阶段</h3>
-          </div>
-          <button class="ghost-btn slim dark-btn" type="button" @click="selectUnassignedAthletes">选择当前未分配队员</button>
-        </div>
+      <AssignmentOverviewPane
+        v-if="activeView === 'overview'"
+        :overview="overview"
+        :groups="filteredOverviewGroups"
+        :unassigned-athletes="filteredOverviewUnassignedAthletes"
+        :selected-group-key="selectedOverviewGroupKey"
+        :selected-assignments-by-group-key="selectedAssignmentsByGroupKey"
+        :confirm-delete-group-key="confirmDeleteGroupKey"
+        :target-date="overviewState.targetDate"
+        :cancelling="cancelling"
+        @select-group="selectOverviewGroup"
+        @switch-to-builder="activeView = 'builder'"
+        @toggle-assignment="toggleOverviewAssignment"
+        @request-cancel="requestDeleteGroupAssignments"
+        @reset-cancel="resetDeleteFlow"
+        @confirm-cancel="cancelSelectedGroupAssignments"
+      />
 
-        <div class="assignment-layout">
-          <div class="wizard-panel">
-            <div class="section-block">
-              <div class="section-head">
-                <div>
-                  <p class="eyebrow">第一步</p>
-                  <h4>选择队员</h4>
-                </div>
-                <span class="muted">已选 {{ form.athlete_ids.length }} 人</span>
+      <section v-else class="assignment-layout">
+        <div class="wizard-panel">
+          <section class="panel section-block">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">第一步</p>
+                <h3>选择范围与队员</h3>
               </div>
-              <div class="athlete-grid">
-                <button
-                  v-for="athlete in filteredAthletes"
-                  :key="athlete.id"
-                  class="athlete-card"
-                  :class="{
-                    active: form.athlete_ids.includes(athlete.id),
-                    'athlete-card--assigned': (assignedEntriesByAthleteId.get(athlete.id)?.length ?? 0) > 0,
-                  }"
-                  type="button"
-                  @click="handleAthleteCardClick(athlete)"
-                >
+              <span class="muted">已选 {{ builderState.athleteIds.length }} 人</span>
+            </div>
+
+            <div class="action-row">
+              <button class="ghost-btn slim" type="button" @click="selectAllFilteredAthletes">全选当前筛选结果</button>
+              <button class="ghost-btn slim dark-btn" type="button" @click="selectFilteredUnassignedAthletes">选择当前未分配</button>
+              <button class="ghost-btn slim" type="button" :disabled="!builderState.athleteIds.length" @click="clearSelectedAthletes">清空已选</button>
+              <label class="checkbox-row">
+                <input v-model="builderState.selectedOnly" type="checkbox" />
+                <span>仅看已选</span>
+              </label>
+            </div>
+
+            <p class="muted helper-copy">
+              当前可选 {{ builderBaseAthletes.length }} 人。先用上方项目、队伍和姓名搜索缩小范围，再手动点选或批量加入。
+            </p>
+
+            <div class="athlete-grid">
+              <button
+                v-for="athlete in visibleBuilderAthletes"
+                :key="athlete.id"
+                class="athlete-card"
+                :class="{
+                  active: builderState.athleteIds.includes(athlete.id),
+                  'athlete-card--assigned': (assignedCountsByAthleteId.get(athlete.id) ?? 0) > 0,
+                  'athlete-card--unassigned': unassignedAthleteIdSet.has(athlete.id),
+                }"
+                type="button"
+                @click="toggleAthlete(athlete.id)"
+              >
+                <div class="athlete-card-head">
                   <strong>{{ athlete.full_name }}</strong>
-                  <span>{{ athlete.team?.name || '未分队' }}</span>
-                  <small v-if="getAssignedPlanHint(athlete.id)">
-                    {{ getAssignedPlanHint(athlete.id) }}
-                  </small>
-                  <small v-else>{{ form.athlete_ids.includes(athlete.id) ? '已加入本次分配' : '点击加入本次分配' }}</small>
-                </button>
+                  <span v-if="builderState.athleteIds.includes(athlete.id)" class="state-pill state-pill--selected">已选</span>
+                  <span v-else-if="(assignedCountsByAthleteId.get(athlete.id) ?? 0) > 0" class="state-pill state-pill--assigned">已有安排</span>
+                  <span v-else class="state-pill state-pill--unassigned">未分配</span>
+                </div>
+                <span>{{ athlete.team?.name || '未分队' }}</span>
+                <small>{{ getAssignedPlanHint(athlete.id) }}</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel section-block">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">第二步</p>
+                <h3>选择训练模板</h3>
               </div>
             </div>
 
-            <div class="section-block">
-              <p class="eyebrow">第二步</p>
-              <h4>选择训练模板</h4>
-              <select v-model.number="form.template_id" class="text-input">
+            <label class="field">
+              <span>训练模板</span>
+              <select v-model.number="builderState.templateId" class="text-input">
                 <option :value="0">请选择训练模板</option>
                 <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
               </select>
-              <p v-if="selectedTemplate" class="muted">模板详情请查看右侧预览。</p>
+            </label>
+            <p class="muted helper-copy">
+              {{ selectedTemplate ? `${selectedTemplate.name}${selectedTemplate.description ? `：${selectedTemplate.description}` : ''}` : '先选模板，右侧再查看折叠后的模块动作摘要。' }}
+            </p>
+          </section>
+
+          <section class="panel section-block">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">第三步</p>
+                <h3>设置日期与执行日</h3>
+              </div>
             </div>
 
-            <div class="section-block">
-              <p class="eyebrow">第三步</p>
-              <h4>设置计划时间段与循环星期</h4>
-              <div class="grid three">
-                <label class="field">
-                  <span>开始日期</span>
-                  <input v-model="form.start_date" type="date" class="text-input" />
-                </label>
-                <label class="field">
-                  <span>结束日期</span>
-                  <input v-model="form.end_date" type="date" class="text-input" />
-                </label>
-                <label class="field">
-                  <span>分配备注</span>
-                  <input v-model="form.notes" class="text-input" placeholder="例如：第一周主课、比赛周恢复" />
-                </label>
+            <div class="schedule-mode-switch" role="tablist" aria-label="日期模式切换">
+              <button
+                v-for="button in scheduleModeButtons"
+                :key="button.key"
+                class="schedule-mode-btn"
+                :class="{ active: builderState.scheduleMode === button.key }"
+                type="button"
+                @click="setScheduleMode(button.key)"
+              >
+                {{ button.label }}
+              </button>
+            </div>
+
+            <div v-if="builderState.scheduleMode === 'single_day'" class="grid two">
+              <label class="field">
+                <span>训练日期</span>
+                <input v-model="builderState.singleDate" type="date" class="text-input" />
+              </label>
+              <div class="info-card">
+                <strong>自动执行日</strong>
+                <span>{{ weekdayLabelFromDate(builderState.singleDate) }}</span>
               </div>
-              <div class="field">
-                <span>循环星期</span>
-                <div class="weekday-picker">
-                  <button
-                    v-for="option in REPEAT_WEEKDAY_OPTIONS"
-                    :key="option.value"
-                    class="weekday-chip"
-                    :class="{ active: form.repeat_weekdays.includes(option.value) }"
-                    type="button"
-                    @click="toggleRepeatWeekday(option.value)"
-                  >
-                    {{ option.label }}
-                  </button>
-                </div>
-                <small class="helper-text">当前选择：{{ repeatWeekdaySummary }}</small>
-              </div>
-              <div class="submit-row">
+            </div>
+
+            <div v-else class="grid three">
+              <label class="field">
+                <span>开始日期</span>
+                <input v-model="builderState.startDate" type="date" class="text-input" />
+              </label>
+              <label class="field">
+                <span>结束日期</span>
+                <input v-model="builderState.endDate" type="date" class="text-input" />
+              </label>
+              <label class="field">
+                <span>分配备注</span>
+                <input v-model="builderState.notes" class="text-input" placeholder="例如：第一周主课、比赛周恢复" />
+              </label>
+            </div>
+
+            <label v-if="builderState.scheduleMode === 'single_day'" class="field">
+              <span>分配备注</span>
+              <input v-model="builderState.notes" class="text-input" placeholder="例如：赛前唤醒、恢复课" />
+            </label>
+
+            <div v-if="builderState.scheduleMode === 'weekly_repeat'" class="field">
+              <span>每周执行日</span>
+              <div class="weekday-picker">
                 <button
-                  class="primary-btn"
+                  v-for="option in REPEAT_WEEKDAY_OPTIONS"
+                  :key="option.value"
+                  class="weekday-chip"
+                  :class="{ active: builderState.repeatWeekdays.includes(option.value) }"
                   type="button"
-                  :disabled="!preview || !hasSelectedRepeatWeekdays || submitting"
-                  @click="submitAssignments"
+                  @click="toggleRepeatWeekday(option.value)"
                 >
-                  {{ submitting ? '正在提交...' : '确认分配计划' }}
+                  {{ option.label }}
                 </button>
               </div>
-              <p v-if="!hasSelectedRepeatWeekdays" class="warning-text">至少选择一个循环星期后才能预览和提交。</p>
-              <p v-else-if="previewHasManualControl" class="warning-text">部分队员缺少对应测试结果，这些动作会在训练时显示为空值，由教练现场控制。</p>
-              <p v-else-if="loadingPreview" class="muted">正在生成分配预览...</p>
+              <small class="helper-text">当前选择：{{ formatRepeatWeekdays(builderState.repeatWeekdays) }}</small>
             </div>
-          </div>
 
-          <AssignmentPreviewPanel :preview="preview" :selected-template="selectedTemplate" />
+            <p class="muted helper-copy">{{ scheduleHint }}</p>
+          </section>
+
+          <section class="panel section-block">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">第四步</p>
+                <h3>确认本次分配</h3>
+              </div>
+            </div>
+
+            <div class="confirm-grid">
+              <div class="confirm-card">
+                <span>本次对象</span>
+                <strong>{{ builderState.athleteIds.length }} 人</strong>
+              </div>
+              <div class="confirm-card">
+                <span>已有后续计划</span>
+                <strong>{{ selectedWithExistingPlans }} 人</strong>
+              </div>
+              <div class="confirm-card">
+                <span>当前未分配</span>
+                <strong>{{ selectedUnassignedCount }} 人</strong>
+              </div>
+            </div>
+
+            <div class="confirm-details">
+              <div>
+                <strong>涉及队伍</strong>
+                <span>{{ selectedTeamNames.length ? selectedTeamNames.join('、') : '待选择队员' }}</span>
+              </div>
+              <div>
+                <strong>日期摘要</strong>
+                <span>{{ scheduleSummary }}</span>
+              </div>
+              <div>
+                <strong>风险提示</strong>
+                <span v-if="previewHasManualControl">存在训练时需现场控制的动作，请优先核对右侧提示。</span>
+                <span v-else-if="builderValidationMessage">{{ builderValidationMessage }}</span>
+                <span v-else>当前可以提交，右侧会保留主按钮用于最终确认。</span>
+              </div>
+            </div>
+
+            <p v-if="loadingPreview" class="muted helper-copy">正在生成最新分配预览...</p>
+          </section>
         </div>
+
+        <AssignmentPreviewPanel
+          :preview="preview"
+          :selected-template="selectedTemplate"
+          :selected-athletes="selectedAthletes"
+          :schedule-summary="scheduleSummary"
+          :schedule-hint="scheduleHint"
+          :selected-team-names="selectedTeamNames"
+          :selected-with-existing-plans="selectedWithExistingPlans"
+          :selected-unassigned-count="selectedUnassignedCount"
+          :notes="builderState.notes"
+          :can-submit="builderCanSubmit"
+          :submitting="submitting"
+          :validation-message="builderValidationMessage"
+          @submit="submitAssignments"
+        />
       </section>
     </div>
   </AppShell>
@@ -549,13 +794,14 @@ onMounted(hydrate)
 
 <style scoped>
 .assignment-page,
-.overview-panel,
-.assignment-panel,
-.overview-card,
-.group-list,
-.unassigned-list,
+.control-panel,
+.assignment-layout,
 .wizard-panel,
-.section-block {
+.section-block,
+.athlete-grid,
+.weekday-picker,
+.confirm-grid,
+.confirm-details {
   display: grid;
   gap: 16px;
 }
@@ -564,212 +810,50 @@ onMounted(hydrate)
   gap: 18px;
 }
 
-.assignment-layout,
-.overview-grid {
-  display: grid;
-  grid-template-columns: 1.6fr 0.75fr;
-  gap: 18px;
-  align-items: start;
+.control-panel {
+  padding: 18px;
 }
 
+.control-head,
+.toolbar-fields,
 .section-head,
-.overview-toolbar,
-.submit-row,
-.group-head {
+.action-row,
+.view-switch,
+.schedule-mode-switch,
+.athlete-card-head {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   flex-wrap: wrap;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+.toolbar-fields {
+  justify-content: flex-start;
 }
 
-.summary-card,
-.group-card {
-  display: grid;
-  gap: 10px;
-  padding: 16px;
-  border-radius: 18px;
-  background: var(--panel-soft);
-}
-
-.summary-card--subtle {
-  background: rgba(241, 245, 249, 0.76);
-}
-
-.summary-label,
-.eyebrow,
-.muted,
-.warning-text,
-.field span,
-.summary-card small,
-.group-head p,
-.group-notes,
-.overview-row span,
-.athlete-card span,
-.athlete-card small,
-.preview-row span {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.summary-card strong {
-  font-size: 32px;
-}
-
-.badge {
-  min-width: 64px;
-  padding: 8px 12px;
+.view-switch,
+.schedule-mode-switch {
+  padding: 4px;
   border-radius: 999px;
-  text-align: center;
-  background: rgba(15, 118, 110, 0.12);
-  color: var(--primary);
-  font-weight: 600;
+  background: rgba(14, 116, 144, 0.08);
 }
 
-.group-badges {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.status-badge {
-  min-width: 72px;
-  padding: 8px 12px;
+.view-btn,
+.schedule-mode-btn {
+  min-height: 36px;
+  padding: 0 14px;
   border-radius: 999px;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
+  background: transparent;
+  color: var(--text-soft);
+  font-weight: 700;
 }
 
-.status-badge--active {
-  background: rgba(15, 118, 110, 0.16);
-  color: var(--primary);
-}
-
-.status-badge--upcoming {
-  background: rgba(59, 130, 246, 0.14);
-  color: #1d4ed8;
-}
-
-.athlete-chip-list,
-.athlete-grid,
-.grid.three,
-.weekday-picker {
-  display: grid;
-  gap: 12px;
-}
-
-.athlete-chip-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.athlete-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.grid.three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.weekday-picker {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-}
-
-.athlete-chip,
-.overview-row,
-.preview-row,
-.athlete-card {
-  display: grid;
-  gap: 4px;
-  text-align: left;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.athlete-chip {
-  width: 100%;
-  border: 1px solid transparent;
-  appearance: none;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-  transition:
-    background 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.athlete-chip:hover {
-  border-color: rgba(15, 118, 110, 0.18);
-}
-
-.athlete-chip--selected {
-  background: rgba(254, 226, 226, 0.9);
-  border-color: rgba(185, 28, 28, 0.24);
-  color: #7f1d1d;
-}
-
-.athlete-chip--selected small {
-  color: #991b1b;
-}
-
-.overview-card--primary {
-  gap: 14px;
-}
-
-.overview-card--secondary {
-  gap: 12px;
-  align-self: start;
-}
-
-.overview-empty {
-  display: grid;
-  gap: 8px;
-  min-height: 180px;
-  padding: 18px;
-  border-radius: 18px;
-  place-content: center start;
-  background: rgba(241, 245, 249, 0.72);
-}
-
-.overview-empty strong {
-  font-size: 18px;
-}
-
-.section-head--tight {
-  align-items: start;
-}
-
-.overview-side-meta {
-  display: grid;
-  gap: 4px;
-}
-
-.athlete-card {
-  border: 1px solid transparent;
-  background: var(--panel-soft);
-  cursor: pointer;
-}
-
-.athlete-card.active {
-  background: #d1fae5;
-  border: 1px solid rgba(15, 118, 110, 0.18);
-}
-
-.athlete-card--assigned {
-  background: rgba(239, 246, 255, 0.82);
-  border-color: rgba(59, 130, 246, 0.2);
+.view-btn.active,
+.schedule-mode-btn.active {
+  background: white;
+  color: #0f766e;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
 .field {
@@ -778,98 +862,116 @@ onMounted(hydrate)
 }
 
 .compact {
-  min-width: 180px;
+  min-width: 190px;
 }
 
-.compact-input {
-  min-width: 180px;
+.search-field {
+  min-width: min(420px, 100%);
+  flex: 1 1 320px;
 }
 
-.warning-text {
-  color: var(--danger);
+.assignment-layout {
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr);
+  align-items: start;
 }
 
-.helper-text {
+.wizard-panel {
+  align-content: start;
+}
+
+.section-block {
+  padding: 18px;
+}
+
+.eyebrow,
+.muted,
+.helper-copy,
+.helper-text,
+.field span,
+.confirm-card span,
+.confirm-details span,
+.athlete-card span,
+.athlete-card small,
+.info-card span {
   margin: 0;
-  color: var(--muted);
+  color: var(--text-soft);
   font-size: 13px;
 }
 
-.weekday-chip {
-  min-height: 42px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-  transition:
-    background 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease;
+.helper-copy {
+  line-height: 1.5;
 }
 
-.weekday-chip.active {
-  background: rgba(15, 118, 110, 0.12);
-  border-color: rgba(15, 118, 110, 0.26);
+.athlete-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.athlete-card,
+.confirm-card,
+.info-card {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.athlete-card {
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.athlete-card:hover {
+  border-color: rgba(15, 118, 110, 0.2);
+}
+
+.athlete-card.active {
+  background: #d1fae5;
+  border-color: rgba(15, 118, 110, 0.22);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+}
+
+.athlete-card--assigned {
+  background: rgba(239, 246, 255, 0.82);
+}
+
+.athlete-card--unassigned:not(.active) {
+  background: rgba(240, 253, 250, 0.8);
+}
+
+.state-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.state-pill--selected {
+  background: rgba(15, 118, 110, 0.14);
   color: var(--primary);
-  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.08);
+}
+
+.state-pill--assigned {
+  background: rgba(59, 130, 246, 0.14);
+  color: #1d4ed8;
+}
+
+.state-pill--unassigned {
+  background: rgba(15, 118, 110, 0.08);
+  color: #0f766e;
 }
 
 .checkbox-row {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--muted);
+  color: var(--text-soft);
   font-size: 13px;
-}
-
-.checkbox-row--compact {
-  align-self: start;
-}
-
-.group-list {
-  gap: 12px;
-}
-
-.group-card {
-  gap: 8px;
-  padding: 14px 16px;
-}
-
-.group-delete-row,
-.group-delete-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.group-delete-actions {
-  justify-content: flex-end;
-}
-
-.unassigned-list-wrap {
-  display: grid;
-  gap: 10px;
-}
-
-.unassigned-list {
-  gap: 10px;
-  max-height: 420px;
-  padding-right: 4px;
-  overflow-y: auto;
-}
-
-.overview-row--compact {
-  gap: 2px;
-  padding: 12px 14px;
-}
-
-.overview-row--compact strong {
-  font-size: 15px;
 }
 
 .dark-btn {
@@ -877,30 +979,86 @@ onMounted(hydrate)
   color: white;
 }
 
-.danger-btn {
-  background: #b91c1c;
-  color: white;
+.grid.two,
+.grid.three {
+  display: grid;
+  gap: 12px;
+}
+
+.grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.info-card {
+  align-content: center;
+  background: rgba(240, 253, 250, 0.86);
+}
+
+.weekday-picker {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.weekday-chip {
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.weekday-chip.active {
+  background: rgba(15, 118, 110, 0.12);
+  border-color: rgba(15, 118, 110, 0.26);
+  color: var(--primary);
+}
+
+.confirm-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.confirm-card strong {
+  font-size: 28px;
+}
+
+.confirm-details {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.confirm-details > div {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.confirm-details strong {
+  display: block;
 }
 
 @media (max-width: 1280px) {
-  .overview-grid,
   .assignment-layout {
     grid-template-columns: 1fr;
-  }
-
-  .unassigned-list {
-    max-height: none;
-    overflow: visible;
-    padding-right: 0;
   }
 }
 
 @media (max-width: 900px) {
-  .summary-grid,
   .athlete-grid,
-  .athlete-chip-list,
+  .grid.two,
   .grid.three,
-  .weekday-picker {
+  .weekday-picker,
+  .confirm-grid,
+  .confirm-details {
     grid-template-columns: 1fr;
   }
 }

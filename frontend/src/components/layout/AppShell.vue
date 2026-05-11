@@ -18,10 +18,10 @@ const allLinks: Array<{ name: string; label: string; roles: UserRoleCode[] }> = 
   { name: 'plans', label: '训练模板', roles: ['admin', 'coach'] },
   { name: 'assignments', label: '计划分配', roles: ['admin', 'coach'] },
   { name: 'training-reports', label: '训练数据', roles: ['admin', 'coach'] },
+  { name: 'tests', label: '测试数据', roles: ['admin', 'coach'] },
   { name: 'users', label: '账号管理', roles: ['admin'] },
   { name: 'backups', label: '备份恢复', roles: ['admin'] },
   { name: 'logs', label: '日志', roles: ['admin'] },
-  { name: 'tests', label: '测试数据', roles: ['admin', 'coach'] },
 ]
 
 const links = computed(() => {
@@ -39,29 +39,31 @@ const managementModeLabel = getAppModeDisplayLabel('management')
 <template>
   <div class="shell">
     <aside class="shell-nav">
-      <div>
-        <p class="eyebrow">{{ managementModeLabel }}</p>
-        <h1>体能训练管理平台</h1>
-      </div>
-
-      <nav class="shell-links">
-        <RouterLink
-          v-for="link in links"
-          :key="link.name"
-          :to="{ name: link.name }"
-          class="shell-link"
-          :class="{ active: route.name === link.name }"
-        >
-          {{ link.label }}
-        </RouterLink>
-      </nav>
-
-      <div class="shell-user">
+      <div class="shell-nav-inner">
         <div>
-          <strong>当前模式</strong>
-          <p>{{ managementModeLabel }}</p>
+          <p class="eyebrow">{{ managementModeLabel }}</p>
+          <h1>体能训练管理平台</h1>
         </div>
-        <AuthUserBar variant="dark" />
+
+        <nav class="shell-links">
+          <RouterLink
+            v-for="link in links"
+            :key="link.name"
+            :to="{ name: link.name }"
+            class="shell-link"
+            :class="{ active: route.name === link.name }"
+          >
+            {{ link.label }}
+          </RouterLink>
+        </nav>
+
+        <div class="shell-user">
+          <div>
+            <strong>当前模式</strong>
+            <p>{{ managementModeLabel }}</p>
+          </div>
+          <AuthUserBar variant="dark" />
+        </div>
       </div>
     </aside>
 
@@ -89,21 +91,27 @@ const managementModeLabel = getAppModeDisplayLabel('management')
   display: grid;
   grid-template-columns: var(--nav-width) 1fr;
   min-height: 100vh;
-  align-items: start;
+  align-items: stretch;
 }
 
 .shell-nav {
   background: linear-gradient(180deg, #0f172a, #153b35);
   color: white;
+  min-height: 100%;
+}
+
+.shell-nav-inner {
+  position: sticky;
+  top: 0;
+  min-height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
-  position: sticky;
-  top: 0;
-  max-height: 100vh;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  box-sizing: border-box;
 }
 
 .shell-links {
@@ -196,8 +204,13 @@ const managementModeLabel = getAppModeDisplayLabel('management')
   }
 
   .shell-nav {
+    min-height: auto;
+  }
+
+  .shell-nav-inner {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    min-height: auto;
     position: static;
     max-height: none;
     overflow: visible;
