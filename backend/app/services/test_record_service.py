@@ -1,25 +1,97 @@
 from __future__ import annotations
 
+from math import ceil
+
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
+from sqlalchemy.orm import Query, Session, joinedload
 
 from app.core.exceptions import bad_request
 from app.models import Athlete, TestRecord, User
-from app.schemas.test_record import TestRecordCreate, TestRecordUpdate
+from app.schemas.test_record import TestRecordCreate, TestRecordListResponse, TestRecordUpdate
 from app.services import access_control_service, test_definition_service
 from app.services.backup_service import create_pre_dangerous_operation_backup
 from app.services.dangerous_operation_service import log_dangerous_operation
 
 
-def list_test_records(db: Session, user: User) -> list[TestRecord]:
+def _normalize_query_text(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    return normalized or None
+
+
+def _build_visible_test_records_query(
+    db: Session,
+    user: User,
+    *,
+    athlete_keyword: str | None = None,
+    metric_keyword: str | None = None,
+    test_type: str | None = None,
+) -> Query:
     query = db.query(TestRecord).options(
         joinedload(TestRecord.athlete).joinedload(Athlete.team),
         joinedload(TestRecord.athlete).joinedload(Athlete.sport),
     )
+
     visible_sport_id = access_control_service.resolve_visible_sport_id(user)
     if visible_sport_id is not None:
         query = query.join(TestRecord.athlete).filter(Athlete.sport_id == visible_sport_id)
+    else:
+        query = query.join(TestRecord.athlete)
+
+    normalized_athlete_keyword = _normalize_query_text(athlete_keyword)
+    normalized_metric_keyword = _normalize_query_text(metric_keyword)
+    normalized_test_type = _normalize_query_text(test_type)
+
+    if normalized_athlete_keyword:
+        query = query.filter(Athlete.full_name.ilike(f"%{normalized_athlete_keyword}%"))
+    if normalized_metric_keyword:
+        query = query.filter(TestRecord.metric_name.ilike(f"%{normalized_metric_keyword}%"))
+    if normalized_test_type:
+        query = query.filter(TestRecord.test_type == normalized_test_type)
+
+    return query
+
+
+def list_test_records(db: Session, user: User) -> list[TestRecord]:
+    query = _build_visible_test_records_query(db, user)
     return query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc()).all()
+
+
+def list_test_record_library(
+    db: Session,
+    user: User,
+    *,
+    athlete_keyword: str | None = None,
+    metric_keyword: str | None = None,
+    test_type: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> TestRecordListResponse:
+    query = _build_visible_test_records_query(
+        db,
+        user,
+        athlete_keyword=athlete_keyword,
+        metric_keyword=metric_keyword,
+        test_type=test_type,
+    )
+    total = query.order_by(None).with_entities(func.count(TestRecord.id)).scalar() or 0
+    total_pages = ceil(total / page_size) if total else 0
+    offset = (page - 1) * page_size
+
+    items = (
+        query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    return TestRecordListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 def create_test_record(db: Session, user: User, payload: TestRecordCreate) -> TestRecord:
@@ -62,20 +134,10 @@ def delete_test_records_batch(db: Session, user: User, record_ids: list[int], *,
     if not normalized_ids:
         raise bad_request("至少选择一条测试记录后才能删除。")
 
-    query = (
-        db.query(TestRecord)
-        .options(
-            joinedload(TestRecord.athlete).joinedload(Athlete.team),
-            joinedload(TestRecord.athlete).joinedload(Athlete.sport),
-        )
-        .filter(TestRecord.id.in_(normalized_ids))
-    )
-    visible_sport_id = access_control_service.resolve_visible_sport_id(user)
-    if visible_sport_id is not None:
-        query = query.join(TestRecord.athlete).filter(Athlete.sport_id == visible_sport_id)
-
+    query = _build_visible_test_records_query(db, user).filter(TestRecord.id.in_(normalized_ids))
     records = query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc()).all()
     if not records:
+        visible_sport_id = access_control_service.resolve_visible_sport_id(user)
         if visible_sport_id is not None:
             existing_any = db.query(TestRecord.id).filter(TestRecord.id.in_(normalized_ids)).first()
             if existing_any:
@@ -84,6 +146,32 @@ def delete_test_records_batch(db: Session, user: User, record_ids: list[int], *,
     if len(records) != len(normalized_ids):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="包含无权限删除的测试记录。")
 
+    return _delete_test_records(db, records, actor_name=actor_name)
+
+
+def delete_test_records_by_filter(
+    db: Session,
+    user: User,
+    *,
+    athlete_keyword: str | None = None,
+    metric_keyword: str | None = None,
+    test_type: str | None = None,
+    actor_name: str | None = None,
+) -> int:
+    query = _build_visible_test_records_query(
+        db,
+        user,
+        athlete_keyword=athlete_keyword,
+        metric_keyword=metric_keyword,
+        test_type=test_type,
+    )
+    records = query.order_by(TestRecord.test_date.desc(), TestRecord.id.desc()).all()
+    if not records:
+        raise bad_request("当前筛选条件下没有可删除的测试记录。")
+    return _delete_test_records(db, records, actor_name=actor_name)
+
+
+def _delete_test_records(db: Session, records: list[TestRecord], *, actor_name: str | None = None) -> int:
     backup_result = create_pre_dangerous_operation_backup(label=f"delete_test_records_batch_{len(records)}")
     athletes = sorted({record.athlete.full_name for record in records if record.athlete})
     team_names = sorted({record.athlete.team.name for record in records if record.athlete and record.athlete.team})
@@ -91,6 +179,7 @@ def delete_test_records_batch(db: Session, user: User, record_ids: list[int], *,
     metrics = sorted({record.metric_name for record in records})
     test_types = sorted({record.test_type for record in records})
     dates = sorted(record.test_date.isoformat() for record in records)
+    record_ids = sorted(record.id for record in records)
 
     deleted_count = len(records)
     for record in records:
@@ -111,7 +200,7 @@ def delete_test_records_batch(db: Session, user: User, record_ids: list[int], *,
             "metrics": metrics,
             "date_from": dates[0] if dates else None,
             "date_to": dates[-1] if dates else None,
-            "record_ids": normalized_ids,
+            "record_ids": record_ids,
         },
         backup_path=backup_result.backup_path,
     )

@@ -1,14 +1,20 @@
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models import User
-from app.schemas.dangerous_action import DeleteTestRecordsBatchPayload
-from app.schemas.test_record import TestRecordCreate, TestRecordImportRead, TestRecordRead, TestRecordUpdate
+from app.schemas.dangerous_action import DeleteTestRecordsBatchPayload, DeleteTestRecordsByFilterPayload
+from app.schemas.test_record import (
+    TestRecordCreate,
+    TestRecordImportRead,
+    TestRecordListResponse,
+    TestRecordRead,
+    TestRecordUpdate,
+)
 from app.services import dangerous_operation_service, test_record_service
 from app.services.test_record_excel_service import (
     build_import_template_workbook,
@@ -70,12 +76,25 @@ def export_test_record_library(
     )
 
 
-@router.get("", response_model=list[TestRecordRead])
+@router.get("", response_model=TestRecordListResponse)
 def list_test_records(
+    athlete_keyword: str | None = Query(default=None),
+    metric_keyword: str | None = Query(default=None),
+    test_type: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    return test_record_service.list_test_records(db, current_user)
+    return test_record_service.list_test_record_library(
+        db,
+        current_user,
+        athlete_keyword=athlete_keyword,
+        metric_keyword=metric_keyword,
+        test_type=test_type,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post("", response_model=TestRecordRead)
@@ -108,6 +127,24 @@ def delete_test_records_batch(
         db,
         current_user,
         payload.record_ids,
+        actor_name=payload.actor_name or current_user.display_name,
+    )
+    return {"deleted_count": deleted_count}
+
+
+@router.post("/delete-filtered", response_model=dict[str, int])
+def delete_test_records_filtered(
+    payload: DeleteTestRecordsByFilterPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="批量删除测试数据")
+    deleted_count = test_record_service.delete_test_records_by_filter(
+        db,
+        current_user,
+        athlete_keyword=payload.athlete_keyword,
+        metric_keyword=payload.metric_keyword,
+        test_type=payload.test_type,
         actor_name=payload.actor_name or current_user.display_name,
     )
     return {"deleted_count": deleted_count}

@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import {
   createExercise,
   deleteExercise,
+  fetchExercise,
   fetchExerciseCategoriesTree,
   fetchExerciseFacets,
   fetchExercises,
@@ -12,14 +13,18 @@ import {
 import ExerciseLibraryEditor from '@/components/exercise/ExerciseLibraryEditor.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import { useAuthStore } from '@/stores/auth'
-import type { ExerciseCategoryNode, ExerciseFacetValues, ExerciseLibraryItem } from '@/types/exerciseLibrary'
-import {
-  EXERCISE_TAG_FACETS,
-  filterExerciseLibrary,
-  summarizeExerciseTags,
-} from '@/utils/exerciseLibrary'
+import type {
+  ExerciseCategoryNode,
+  ExerciseFacetValues,
+  ExerciseLibraryItem,
+  ExerciseListItem,
+  ExerciseListResponse,
+} from '@/types/exerciseLibrary'
+import { EXERCISE_TAG_FACETS, summarizeExerciseListTags } from '@/utils/exerciseLibrary'
 
-const exercises = ref<ExerciseLibraryItem[]>([])
+const DEFAULT_PAGE_SIZE = 50
+const FILTER_DEBOUNCE_MS = 300
+
 const authStore = useAuthStore()
 const categoryTree = ref<ExerciseCategoryNode[]>([])
 const exerciseFacets = ref<ExerciseFacetValues>({
@@ -28,9 +33,25 @@ const exerciseFacets = ref<ExerciseFacetValues>({
   level2_options_by_level1: {},
   facets: {},
 })
-const selected = ref<ExerciseLibraryItem | null>(null)
+const exerciseList = ref<ExerciseListResponse>({
+  items: [],
+  total: 0,
+  page: 1,
+  page_size: DEFAULT_PAGE_SIZE,
+  total_pages: 0,
+})
+const selectedListItem = ref<ExerciseListItem | null>(null)
+const selectedDetail = ref<ExerciseLibraryItem | null>(null)
 const layoutRef = ref<HTMLElement | null>(null)
 const layoutHeight = ref<number | null>(null)
+
+const listLoading = ref(false)
+const detailLoading = ref(false)
+const metadataLoading = ref(false)
+const listError = ref('')
+const metadataError = ref('')
+let listRequestId = 0
+let detailRequestId = 0
 
 const filters = reactive({
   keyword: '',
@@ -39,6 +60,9 @@ const filters = reactive({
   tags: Object.fromEntries(EXERCISE_TAG_FACETS.map(({ key }) => [key, [] as string[]])),
 })
 
+const debouncedKeyword = ref('')
+let keywordDebounceTimer: number | null = null
+
 const level1Options = computed(() => exerciseFacets.value.level1_options || [])
 const level2Options = computed(() => {
   if (!filters.level1) return exerciseFacets.value.level2_options || []
@@ -46,53 +70,150 @@ const level2Options = computed(() => {
 })
 const facetOptions = computed(() => exerciseFacets.value.facets || {})
 const isAdmin = computed(() => authStore.isAdmin)
-const hasActiveFilters = computed(() => {
-  if (filters.keyword.trim()) return true
-  if (filters.level1) return true
-  if (filters.level2) return true
-  return Object.values(filters.tags).some((values) => values.length > 0)
+const hasTagFilters = computed(() => Object.values(filters.tags).some((values) => values.length > 0))
+const listItems = computed(() => exerciseList.value.items || [])
+const hasActiveFilters = computed(() => Boolean(debouncedKeyword.value || filters.level1 || filters.level2 || hasTagFilters.value))
+const paginationSummary = computed(() => {
+  if (!exerciseList.value.total) return '当前没有动作'
+  const start = (exerciseList.value.page - 1) * exerciseList.value.page_size + 1
+  const end = Math.min(exerciseList.value.page * exerciseList.value.page_size, exerciseList.value.total)
+  return `显示 ${start}-${end} / ${exerciseList.value.total}`
 })
-const filteredExercises = computed(() => {
-  if (!hasActiveFilters.value) return []
-  return filterExerciseLibrary(exercises.value, filters)
-})
+const selectedExerciseId = computed(() => selectedListItem.value?.id || selectedDetail.value?.id || null)
 
-async function hydrate(preferredId?: number | null) {
-  const [exerciseData, categoryData, facetData] = await Promise.all([
-    fetchExercises(),
-    fetchExerciseCategoriesTree(),
-    fetchExerciseFacets(),
-  ])
-  exercises.value = exerciseData
-  categoryTree.value = categoryData
-  exerciseFacets.value = facetData
-  if (!hasActiveFilters.value) {
-    selected.value = null
-    return
+function buildListQuery(page = exerciseList.value.page || 1) {
+  const tagQuery = Object.fromEntries(
+    Object.entries(filters.tags)
+      .map(([key, values]) => [key, values.filter(Boolean)])
+      .filter(([, values]) => values.length),
+  )
+
+  return {
+    keyword: debouncedKeyword.value || undefined,
+    level1: filters.level1 || undefined,
+    level2: filters.level2 || undefined,
+    page,
+    page_size: DEFAULT_PAGE_SIZE,
+    ...tagQuery,
   }
-  if (preferredId) {
-    selected.value = exercises.value.find((item) => item.id === preferredId) || null
-    return
+}
+
+function logExerciseListPerformance(response: ExerciseListResponse, startedAt: number) {
+  if (!import.meta.env.DEV) return
+  const durationMs = Math.round(performance.now() - startedAt)
+  console.info('[exercise-library] /exercises list loaded', {
+    total: response.total,
+    page: response.page,
+    pageSize: response.page_size,
+    itemCount: response.items.length,
+    durationMs,
+  })
+}
+
+async function loadExerciseList(page = 1, preferredId?: number | null) {
+  const requestId = ++listRequestId
+  listLoading.value = true
+  listError.value = ''
+  const startedAt = performance.now()
+  try {
+    const response = await fetchExercises(buildListQuery(page))
+    if (requestId !== listRequestId) return
+    exerciseList.value = response
+    logExerciseListPerformance(response, startedAt)
+
+    if (preferredId) {
+      const matched = response.items.find((item) => item.id === preferredId) || null
+      if (matched) {
+        selectedListItem.value = matched
+        return
+      }
+    }
+
+    if (selectedExerciseId.value) {
+      const matched = response.items.find((item) => item.id === selectedExerciseId.value) || null
+      if (matched) {
+        selectedListItem.value = matched
+        return
+      }
+    }
+
+    selectedListItem.value = response.items[0] || null
+    if (!selectedListItem.value && !isAdmin.value) {
+      selectedDetail.value = null
+    }
+  } catch (error: any) {
+    if (requestId !== listRequestId) return
+    listError.value = error?.response?.data?.detail || '动作列表加载失败，请稍后重试。'
+  } finally {
+    if (requestId !== listRequestId) return
+    listLoading.value = false
   }
-  if (!selected.value && filteredExercises.value[0]) selected.value = filteredExercises.value[0]
+}
+
+async function loadExerciseDetail(exerciseId: number) {
+  const requestId = ++detailRequestId
+  detailLoading.value = true
+  try {
+    const detail = await fetchExercise(exerciseId)
+    if (requestId !== detailRequestId) return
+    selectedDetail.value = detail
+  } catch (error: any) {
+    if (requestId !== detailRequestId) return
+    selectedDetail.value = null
+    const detail = error?.response?.data?.detail
+    window.alert(typeof detail === 'string' ? detail : '动作详情加载失败，请稍后再试。')
+  } finally {
+    if (requestId !== detailRequestId) return
+    detailLoading.value = false
+  }
+}
+
+async function loadMetadata() {
+  metadataLoading.value = true
+  metadataError.value = ''
+  try {
+    const [categoryData, facetData] = await Promise.all([
+      fetchExerciseCategoriesTree(),
+      fetchExerciseFacets(),
+    ])
+    categoryTree.value = categoryData
+    exerciseFacets.value = facetData
+  } catch (error: any) {
+    metadataError.value = error?.response?.data?.detail || '分类和标签筛选数据加载失败，稍后可重试。'
+  } finally {
+    metadataLoading.value = false
+  }
+}
+
+async function refreshCurrentPage(preferredId?: number | null) {
+  const currentPage = exerciseList.value.page || 1
+  await loadExerciseList(currentPage, preferredId)
 }
 
 async function handleSave(payload: Record<string, unknown>) {
   if (!isAdmin.value) return
-  if (selected.value?.id) {
-    await updateExercise(selected.value.id, payload)
-    await hydrate(selected.value.id)
+
+  if (selectedDetail.value?.id) {
+    const updated = await updateExercise(selectedDetail.value.id, payload)
+    selectedDetail.value = updated
+    await refreshCurrentPage(updated.id)
     return
   }
+
   const created = await createExercise(payload)
-  await hydrate(created.id)
+  selectedDetail.value = created
+  await loadExerciseList(1, created.id)
 }
 
 async function handleDelete(exerciseId: number) {
   if (!isAdmin.value) return
   try {
     await deleteExercise(exerciseId, { confirmed: true, actor_name: '管理端' })
-    await hydrate()
+    selectedDetail.value = null
+    selectedListItem.value = null
+    const currentPage = exerciseList.value.page || 1
+    const shouldFallbackPage = currentPage > 1 && listItems.value.length <= 1
+    await loadExerciseList(shouldFallbackPage ? currentPage - 1 : currentPage)
   } catch (error: any) {
     const detail = error?.response?.data?.detail
     window.alert(typeof detail === 'string' ? detail : '删除动作失败，请稍后再试。')
@@ -117,7 +238,10 @@ function toggleTagFilter(key: string, value: string) {
 
 function createCustomExercise() {
   if (!isAdmin.value) return
-  selected.value = null
+  detailRequestId += 1
+  detailLoading.value = false
+  selectedListItem.value = null
+  selectedDetail.value = null
 }
 
 function updateLayoutHeight() {
@@ -127,45 +251,73 @@ function updateLayoutHeight() {
   layoutHeight.value = available > 320 ? available : null
 }
 
-function syncSelectionWithFilters() {
-  if (!hasActiveFilters.value) {
-    selected.value = null
-    return
-  }
-
-  if (selected.value && filteredExercises.value.some((item) => item.id === selected.value?.id)) {
-    return
-  }
-
-  selected.value = filteredExercises.value[0] || null
+function goToPage(page: number) {
+  if (page < 1) return
+  if (exerciseList.value.total_pages && page > exerciseList.value.total_pages) return
+  void loadExerciseList(page)
 }
 
 watch(
+  () => filters.keyword,
+  (value) => {
+    if (keywordDebounceTimer) window.clearTimeout(keywordDebounceTimer)
+    keywordDebounceTimer = window.setTimeout(() => {
+      debouncedKeyword.value = value.trim()
+    }, FILTER_DEBOUNCE_MS)
+  },
+  { immediate: true },
+)
+
+watch(
   () => [
-    hasActiveFilters.value,
-    filters.keyword,
+    debouncedKeyword.value,
     filters.level1,
     filters.level2,
     ...Object.values(filters.tags).map((values) => values.join('|')),
-    exercises.value.length,
   ],
   () => {
-    syncSelectionWithFilters()
+    void loadExerciseList(1)
   },
 )
 
-onMounted(() => hydrate())
+watch(
+  () => filters.level1,
+  () => {
+    if (filters.level2 && !level2Options.value.includes(filters.level2)) {
+      filters.level2 = ''
+    }
+  },
+)
+
+watch(
+  () => selectedListItem.value?.id,
+  (exerciseId) => {
+    if (!exerciseId) {
+      if (!selectedDetail.value?.id) selectedDetail.value = null
+      return
+    }
+    if (selectedDetail.value?.id === exerciseId) return
+    void loadExerciseDetail(exerciseId)
+  },
+)
+
+onMounted(() => {
+  void loadExerciseList(1)
+  void loadMetadata()
+})
+
 onMounted(() => {
   nextTick(() => updateLayoutHeight())
   window.addEventListener('resize', updateLayoutHeight)
 })
 
 onBeforeUnmount(() => {
+  if (keywordDebounceTimer) window.clearTimeout(keywordDebounceTimer)
   window.removeEventListener('resize', updateLayoutHeight)
 })
 
 watch(
-  () => selected.value?.id,
+  () => selectedDetail.value?.id,
   () => nextTick(() => updateLayoutHeight()),
 )
 </script>
@@ -196,7 +348,7 @@ watch(
               <input
                 v-model="filters.keyword"
                 class="text-input"
-                placeholder="动作名称 / 英文名 / 检索词 / 标签"
+                placeholder="动作名称 / 英文名 / 基础动作 / 分类"
               />
             </label>
           </div>
@@ -219,11 +371,17 @@ watch(
         </div>
 
         <div class="filter-actions">
-          <span>{{ hasActiveFilters ? `筛选后 ${filteredExercises.length} / ${exercises.length}` : `请先筛选（当前总数 ${exercises.length}）` }}</span>
+          <span>{{ paginationSummary }}</span>
           <button class="ghost-btn slim" @click="clearFilters">清空筛选</button>
         </div>
 
+        <div v-if="metadataError" class="inline-notice inline-notice--warning">{{ metadataError }}</div>
+
         <div class="facet-panel">
+          <div class="facet-panel-head">
+            <strong>标签筛选</strong>
+            <small>{{ metadataLoading ? '加载中…' : '标签筛选已接入后端查询。' }}</small>
+          </div>
           <div v-for="facet in EXERCISE_TAG_FACETS" :key="facet.key" class="facet-group">
             <strong>{{ facet.label }}</strong>
             <div class="facet-options">
@@ -245,44 +403,69 @@ watch(
         <div class="list-head">
           <div>
             <p class="eyebrow">动作列表</p>
-            <h3>{{ hasActiveFilters ? '筛选结果' : '等待筛选' }}</h3>
+            <h3>{{ hasActiveFilters ? '筛选结果' : '动作分页列表' }}</h3>
           </div>
+          <button class="ghost-btn slim" :disabled="listLoading" @click="refreshCurrentPage(selectedExerciseId)">刷新当前页</button>
         </div>
+
+        <div v-if="listError" class="inline-notice inline-notice--warning">{{ listError }}</div>
+
         <div class="list-scroll">
-          <button
-            v-for="exercise in filteredExercises"
-            :key="exercise.id"
-            class="exercise-row adaptive-card"
-            :class="{ active: selected?.id === exercise.id }"
-            @click="selected = exercise"
-          >
-            <div class="row-head">
-              <strong class="adaptive-card-title">{{ exercise.name }}</strong>
-              <span class="source-badge" :class="exercise.source_type">{{ exercise.source_type === 'exos_excel' ? 'Excel' : '自定义' }}</span>
-            </div>
-            <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ exercise.name_en || exercise.alias || '无英文名' }}</span>
-            <small class="adaptive-card-meta adaptive-card-clamp-2">
-              {{ exercise.level1_category || '未分类' }} / {{ exercise.level2_category || '未分类' }} / {{ exercise.base_movement || '未分类' }}
-            </small>
-            <small class="adaptive-card-meta adaptive-card-clamp-2">{{ exercise.category_path || '无分类路径' }}</small>
-            <div class="tag-line">
-              <span v-for="tag in summarizeExerciseTags(exercise)" :key="tag" class="tag-chip">{{ tag }}</span>
-            </div>
+          <div v-if="listLoading" class="empty-state">动作列表加载中…</div>
+
+          <template v-else>
+            <button
+              v-for="exercise in listItems"
+              :key="exercise.id"
+              class="exercise-row adaptive-card"
+              :class="{ active: selectedExerciseId === exercise.id }"
+              @click="selectedListItem = exercise"
+            >
+              <div class="row-head">
+                <strong class="adaptive-card-title">{{ exercise.name }}</strong>
+                <span class="source-badge" :class="exercise.source_type">{{ exercise.source_type === 'exos_excel' ? 'Excel' : '自定义' }}</span>
+              </div>
+              <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ exercise.name_en || exercise.alias || '无英文名' }}</span>
+              <small class="adaptive-card-meta adaptive-card-clamp-2">
+                {{ exercise.level1_category || '未分类' }} / {{ exercise.level2_category || '未分类' }} / {{ exercise.base_movement || '未分类' }}
+              </small>
+              <small class="adaptive-card-meta adaptive-card-clamp-2">{{ exercise.category_path || '无分类路径' }}</small>
+              <div class="tag-line">
+                <span v-for="tag in summarizeExerciseListTags(exercise)" :key="tag" class="tag-chip">{{ tag }}</span>
+              </div>
+            </button>
+            <div v-if="!listItems.length" class="empty-state">当前筛选条件下没有动作。</div>
+          </template>
+        </div>
+
+        <div class="pagination-bar">
+          <button class="ghost-btn slim" :disabled="listLoading || exerciseList.page <= 1" @click="goToPage(exerciseList.page - 1)">
+            上一页
           </button>
-          <div v-if="!hasActiveFilters" class="empty-state">请先搜索或选择分类/标签后再显示动作。</div>
-          <div v-else-if="!filteredExercises.length" class="empty-state">当前筛选条件下没有动作。</div>
+          <span>第 {{ exerciseList.page }} / {{ exerciseList.total_pages || 1 }} 页</span>
+          <button
+            class="ghost-btn slim"
+            :disabled="listLoading || exerciseList.page >= exerciseList.total_pages"
+            @click="goToPage(exerciseList.page + 1)"
+          >
+            下一页
+          </button>
         </div>
       </section>
 
-      <ExerciseLibraryEditor
-        class="editor-panel"
-        :model-value="selected"
-        :category-tree="categoryTree"
-        :facet-options="facetOptions"
-        :read-only="!isAdmin"
-        @submit="handleSave"
-        @remove="handleDelete"
-      />
+      <div class="editor-panel-wrap">
+        <div v-if="detailLoading" class="panel loading-panel">动作详情加载中…</div>
+        <ExerciseLibraryEditor
+          v-else
+          class="editor-panel"
+          :model-value="selectedDetail"
+          :category-tree="categoryTree"
+          :facet-options="facetOptions"
+          :read-only="!isAdmin"
+          @submit="handleSave"
+          @remove="handleDelete"
+        />
+      </div>
     </div>
   </AppShell>
 </template>
@@ -300,6 +483,7 @@ watch(
 
 .filter-panel,
 .list-panel,
+.editor-panel-wrap,
 .editor-panel {
   min-height: 0;
   height: 100%;
@@ -317,9 +501,14 @@ watch(
   scrollbar-gutter: stable;
 }
 
-.list-panel {
-  grid-template-rows: auto minmax(0, 1fr);
+.list-panel,
+.editor-panel-wrap {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
+}
+
+.editor-panel-wrap {
+  display: grid;
 }
 
 .toolbar,
@@ -329,7 +518,9 @@ watch(
 .facet-group,
 .facet-options,
 .row-head,
-.tag-line {
+.tag-line,
+.pagination-bar,
+.facet-panel-head {
   display: flex;
   gap: 10px;
 }
@@ -337,7 +528,8 @@ watch(
 .toolbar,
 .filter-actions,
 .list-head,
-.row-head {
+.row-head,
+.pagination-bar {
   align-items: center;
   justify-content: space-between;
 }
@@ -360,6 +552,16 @@ watch(
 .facet-group {
   display: grid;
   gap: 10px;
+}
+
+.facet-panel--muted {
+  opacity: 0.78;
+}
+
+.facet-panel-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .facet-group {
@@ -385,6 +587,10 @@ watch(
 .facet-chip.active {
   background: var(--primary);
   color: white;
+}
+
+.facet-chip:disabled {
+  cursor: not-allowed;
 }
 
 .source-badge {
@@ -421,12 +627,26 @@ watch(
   background: #d1fae5;
 }
 
-.empty-state {
+.empty-state,
+.loading-panel,
+.inline-notice {
   padding: 20px 16px;
   text-align: center;
   color: var(--muted);
-  border: 1px dashed var(--line);
   border-radius: 16px;
+}
+
+.empty-state,
+.loading-panel {
+  border: 1px dashed var(--line);
+}
+
+.inline-notice {
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(254, 243, 199, 0.6);
+  color: #92400e;
 }
 
 .eyebrow {

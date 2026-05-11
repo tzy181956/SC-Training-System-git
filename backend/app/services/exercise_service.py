@@ -1,10 +1,12 @@
 from collections import defaultdict
+from math import ceil
 
+from sqlalchemy import String, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
 from app.models import Exercise, ExerciseTag, Tag, TrainingPlanTemplateItem, TrainingSessionItem
-from app.schemas.exercise import ExerciseCreate, ExerciseUpdate
+from app.schemas.exercise import ExerciseCreate, ExerciseListItemRead, ExerciseListResponse, ExerciseUpdate
 from app.schemas.tag import TagCreate
 from app.services import backup_service, content_change_log_service, dangerous_operation_service
 from app.services.exercise_library_import import _slugify
@@ -48,6 +50,73 @@ def _sync_english_name_fields(data: dict) -> dict:
     return data
 
 
+def _normalize_query_text(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    return normalized or None
+
+
+def _build_exercise_list_query(db: Session, *, keyword: str | None, level1: str | None, level2: str | None):
+    query = db.query(Exercise)
+
+    normalized_keyword = _normalize_query_text(keyword)
+    normalized_level1 = _normalize_query_text(level1)
+    normalized_level2 = _normalize_query_text(level2)
+
+    if normalized_level1:
+        query = query.filter(Exercise.level1_category == normalized_level1)
+    if normalized_level2:
+        query = query.filter(Exercise.level2_category == normalized_level2)
+    if normalized_keyword:
+        like_term = f"%{normalized_keyword}%"
+        query = query.filter(
+            or_(
+                Exercise.name.ilike(like_term),
+                Exercise.name_en.ilike(like_term),
+                Exercise.alias.ilike(like_term),
+                Exercise.code.ilike(like_term),
+                Exercise.base_movement.ilike(like_term),
+                Exercise.level1_category.ilike(like_term),
+                Exercise.level2_category.ilike(like_term),
+                Exercise.category_path.ilike(like_term),
+                Exercise.tag_text.ilike(like_term),
+                Exercise.search_keywords.cast(String).ilike(like_term),
+                Exercise.structured_tags.cast(String).ilike(like_term),
+            )
+        )
+    return query
+
+
+def _normalize_tag_filters(tag_filters: dict[str, list[str]] | None) -> dict[str, list[str]]:
+    normalized: dict[str, list[str]] = {}
+    for key, values in (tag_filters or {}).items():
+        if key not in EXERCISE_FACET_KEYS:
+            continue
+        cleaned = [str(value or "").strip() for value in values]
+        cleaned = [value for value in cleaned if value]
+        if cleaned:
+            normalized[key] = cleaned
+    return normalized
+
+
+def _build_tag_summary(structured_tags: dict | None, *, limit: int = 4) -> list[str]:
+    normalized_tags = structured_tags if isinstance(structured_tags, dict) else {}
+    values: list[str] = []
+    seen: set[str] = set()
+    for key in EXERCISE_FACET_KEYS:
+        raw_values = normalized_tags.get(key)
+        if not isinstance(raw_values, list):
+            continue
+        for raw_value in raw_values:
+            value = str(raw_value or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            values.append(value)
+            if len(values) >= limit:
+                return values
+    return values
+
+
 def list_tags(db: Session) -> list[Tag]:
     return db.query(Tag).order_by(Tag.category, Tag.sort_order, Tag.name).all()
 
@@ -67,17 +136,100 @@ def create_tag(db: Session, payload: TagCreate) -> Tag:
     return tag
 
 
-def list_exercises(db: Session) -> list[Exercise]:
+def list_exercises(
+    db: Session,
+    *,
+    keyword: str | None = None,
+    level1: str | None = None,
+    level2: str | None = None,
+    tag_filters: dict[str, list[str]] | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> ExerciseListResponse:
+    # Keep the list endpoint lightweight for the library page and template pickers.
+    # Full metadata stays on GET /exercises/{id}.
+    query = _build_exercise_list_query(db, keyword=keyword, level1=level1, level2=level2)
+    normalized_tag_filters = _normalize_tag_filters(tag_filters)
+    if normalized_tag_filters:
+        filtered_ids: list[int] = []
+        candidate_rows = query.with_entities(Exercise.id, Exercise.structured_tags).all()
+        for exercise_id, structured_tags in candidate_rows:
+            normalized_tags = structured_tags if isinstance(structured_tags, dict) else {}
+            matched = True
+            for key, selected_values in normalized_tag_filters.items():
+                current_values = normalized_tags.get(key)
+                if not isinstance(current_values, list):
+                    matched = False
+                    break
+                current_set = {str(value or "").strip() for value in current_values if str(value or "").strip()}
+                if not current_set.intersection(selected_values):
+                    matched = False
+                    break
+            if matched:
+                filtered_ids.append(exercise_id)
+
+        if not filtered_ids:
+            return ExerciseListResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                total_pages=0,
+            )
+        query = query.filter(Exercise.id.in_(filtered_ids))
+
+    total = query.with_entities(func.count(Exercise.id)).scalar() or 0
+    total_pages = ceil(total / page_size) if total else 0
+    offset = (page - 1) * page_size
+
     items = (
-        db.query(Exercise)
-        .options(
-            joinedload(Exercise.tags).joinedload(ExerciseTag.tag),
-            joinedload(Exercise.base_category),
+        query.with_entities(
+            Exercise.id,
+            Exercise.name,
+            Exercise.alias,
+            Exercise.code,
+            Exercise.source_type,
+            Exercise.name_en,
+            Exercise.level1_category,
+            Exercise.level2_category,
+            Exercise.base_movement,
+            Exercise.category_path,
+            Exercise.base_category_id,
+            Exercise.structured_tags,
+            Exercise.is_main_lift_candidate,
         )
-        .order_by(Exercise.name)
+        .order_by(Exercise.name, Exercise.id)
+        .offset(offset)
+        .limit(page_size)
         .all()
     )
-    return [_normalize_exercise_record(item) for item in items]
+
+    list_items = [
+        ExerciseListItemRead(
+            id=item.id,
+            name=item.name,
+            alias=item.alias,
+            code=item.code,
+            source_type=item.source_type,
+            name_en=item.name_en,
+            level1_category=item.level1_category,
+            level2_category=item.level2_category,
+            base_movement=item.base_movement,
+            category_path=item.category_path,
+            base_category_id=item.base_category_id,
+            is_main_lift_candidate=item.is_main_lift_candidate,
+            tag_summary=_build_tag_summary(item.structured_tags),
+        )
+        for item in items
+    ]
+
+    return ExerciseListResponse(
+        items=list_items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 def list_exercise_facets(db: Session) -> dict:

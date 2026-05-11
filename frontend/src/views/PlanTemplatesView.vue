@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
-import { fetchExercises } from '@/api/exercises'
+import { fetchAllExerciseListItems } from '@/api/exercises'
 import {
   addPlanTemplateItem,
   addPlanTemplateModule,
@@ -54,7 +54,7 @@ function normalizeTestMetricOptions(catalog: any): any[] {
 async function hydrate(preferredTemplateId?: number | null) {
   const [templateData, exerciseData, testDefinitionCatalog] = await Promise.all([
     fetchPlanTemplates(),
-    fetchExercises(),
+    fetchAllExerciseListItems(),
     fetchTestDefinitions(),
   ])
   templates.value = templateData

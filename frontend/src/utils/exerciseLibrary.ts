@@ -1,6 +1,7 @@
 import type {
   ExerciseCategoryNode,
   ExerciseLibraryFilters,
+  ExerciseListItem,
   ExerciseLibraryItem,
 } from '@/types/exerciseLibrary'
 
@@ -102,9 +103,13 @@ export function getLevel2Options(items: ExerciseLibraryItem[], level1: string) {
   ).sort((left, right) => left.localeCompare(right, 'zh-CN'))
 }
 
-export function summarizeExerciseTags(item: ExerciseLibraryItem, limit = 4) {
+export function summarizeExerciseTags(item: Pick<ExerciseLibraryItem, 'structured_tags'>, limit = 4) {
   const values = EXERCISE_TAG_FACETS.flatMap(({ key }) => item.structured_tags?.[key] || []).filter(Boolean)
   return Array.from(new Set(values)).slice(0, limit)
+}
+
+export function summarizeExerciseListTags(item: Pick<ExerciseListItem, 'tag_summary'>, limit = 4) {
+  return Array.from(new Set((item.tag_summary || []).filter(Boolean))).slice(0, limit)
 }
 
 export function buildCategoryPathLabel(category: Pick<ExerciseCategoryNode, 'name_zh'>[], fallback = '未分类') {

@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.athlete import AthleteRead
 from app.schemas.common import ORMModel
@@ -34,6 +34,14 @@ class TestRecordUpdate(BaseModel):
 class TestRecordRead(ORMModel, TestRecordBase):
     id: int
     athlete: AthleteRead | None = None
+
+
+class TestRecordListResponse(BaseModel):
+    items: list[TestRecordRead] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 50
+    total_pages: int = 0
 
 
 class TestRecordImportRead(BaseModel):

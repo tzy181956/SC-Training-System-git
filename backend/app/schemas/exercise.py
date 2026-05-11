@@ -67,6 +67,30 @@ class ExerciseTagLinkRead(ORMModel):
     tag: TagRead
 
 
+class ExerciseListItemRead(ORMModel):
+    id: int
+    name: str
+    alias: str | None = None
+    code: str | None = None
+    source_type: str = "custom_manual"
+    name_en: str | None = None
+    level1_category: str | None = None
+    level2_category: str | None = None
+    base_movement: str | None = None
+    category_path: str | None = None
+    base_category_id: int | None = None
+    is_main_lift_candidate: bool = False
+    tag_summary: list[str] = Field(default_factory=list)
+
+
+class ExerciseListResponse(BaseModel):
+    items: list[ExerciseListItemRead] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 50
+    total_pages: int = 0
+
+
 class ExerciseRead(ORMModel, ExerciseBase):
     id: int
     base_category: ExerciseCategoryPathNode | None = None

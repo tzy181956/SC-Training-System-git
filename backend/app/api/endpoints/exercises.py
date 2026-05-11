@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -6,7 +6,13 @@ from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models import User
 from app.schemas.dangerous_action import DangerousActionConfirm
-from app.schemas.exercise import ExerciseCreate, ExerciseFacetValuesRead, ExerciseRead, ExerciseUpdate
+from app.schemas.exercise import (
+    ExerciseCreate,
+    ExerciseFacetValuesRead,
+    ExerciseListResponse,
+    ExerciseRead,
+    ExerciseUpdate,
+)
 from app.services import dangerous_operation_service, exercise_service
 
 
@@ -17,10 +23,32 @@ class ExerciseTagPayload(BaseModel):
     tag_id: int
 
 
-@router.get("", response_model=list[ExerciseRead])
-def list_exercises(db: Session = Depends(get_db), current_user: User = Depends(require_roles("coach"))):
+@router.get("", response_model=ExerciseListResponse)
+def list_exercises(
+    request: Request,
+    keyword: str | None = Query(default=None),
+    level1: str | None = Query(default=None),
+    level2: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
     _ = current_user
-    return exercise_service.list_exercises(db)
+    tag_filters = {
+        key: request.query_params.getlist(key)
+        for key in exercise_service.EXERCISE_FACET_KEYS
+        if request.query_params.getlist(key)
+    }
+    return exercise_service.list_exercises(
+        db,
+        keyword=keyword,
+        level1=level1,
+        level2=level2,
+        tag_filters=tag_filters,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/facets", response_model=ExerciseFacetValuesRead)

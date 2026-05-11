@@ -1,23 +1,26 @@
 <script setup lang="ts">
 import axios from 'axios'
 import * as echarts from 'echarts'
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import { fetchAthletes, fetchSports, fetchTeams, type SportRead, type TeamRead } from '@/api/athletes'
 import {
   createTestMetricDefinition,
   createTestRecord,
   createTestTypeDefinition,
+  deleteFilteredTestRecords,
   deleteTestMetricDefinition,
-  deleteTestRecordsBatch,
   deleteTestTypeDefinition,
   downloadTestRecordTemplate,
   exportTestRecordLibrary,
+  fetchAllTestRecords,
   fetchTestDefinitions,
   fetchTestRecords,
   importTestRecords,
   updateTestMetricDefinition,
   updateTestTypeDefinition,
+  type TestRecordLibraryItem,
+  type TestRecordLibraryResponse,
   type TestMetricDefinitionRead,
   type TestTypeDefinitionRead,
 } from '@/api/testRecords'
@@ -72,11 +75,18 @@ const records = ref<TestRecord[]>([])
 const definitions = ref<TestTypeDefinitionRead[]>([])
 const chartRef = ref<HTMLDivElement | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
+const libraryTableRef = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const importBusy = ref(false)
 const exportBusy = ref(false)
 const templateBusy = ref(false)
 const actionMessage = ref('')
+const libraryLoading = ref(false)
+const libraryLoadingMore = ref(false)
+const libraryError = ref('')
+
+const DEFAULT_LIBRARY_PAGE_SIZE = 50
+const LIBRARY_SCROLL_THRESHOLD = 120
 
 const typeManagerOpen = ref(false)
 const metricManagerOpen = ref(false)
@@ -115,6 +125,14 @@ const libraryFilters = reactive({
   athleteKeyword: '',
   metricKeyword: '',
   testType: '',
+})
+
+const libraryState = reactive<TestRecordLibraryResponse>({
+  items: [],
+  total: 0,
+  page: 1,
+  page_size: DEFAULT_LIBRARY_PAGE_SIZE,
+  total_pages: 0,
 })
 
 const entryPanelOpen = ref(false)
@@ -251,26 +269,16 @@ const chartTitle = computed(() => {
   return `${athleteName} - ${trendFilters.metricName || '测试项目'} 趋势`
 })
 
-const totalLibraryRecords = computed(() =>
-  records.value
-    .filter((record) => {
-      const athleteName = record.athlete?.full_name || ''
-      const athleteMatch = !libraryFilters.athleteKeyword || athleteName.includes(libraryFilters.athleteKeyword.trim())
-      const metricMatch = !libraryFilters.metricKeyword || record.metric_name.includes(libraryFilters.metricKeyword.trim())
-      const typeMatch = !libraryFilters.testType || record.test_type === libraryFilters.testType
-      return athleteMatch && metricMatch && typeMatch
-    })
-    .slice()
-    .sort((left, right) => {
-      const dateCompare = right.test_date.localeCompare(left.test_date)
-      if (dateCompare !== 0) return dateCompare
-      return right.id - left.id
-    }),
-)
-
 const hasLibraryFilters = computed(
   () => Boolean(libraryFilters.athleteKeyword.trim() || libraryFilters.metricKeyword.trim() || libraryFilters.testType),
 )
+
+const libraryItems = computed(() => libraryState.items)
+const libraryTotal = computed(() => libraryState.total)
+const libraryPage = computed(() => libraryState.page)
+const libraryPageSize = computed(() => libraryState.page_size)
+const libraryTotalPages = computed(() => libraryState.total_pages)
+const libraryHasMore = computed(() => libraryPage.value < libraryTotalPages.value)
 
 const libraryAthleteOptions = computed(() =>
   Array.from(new Set(records.value.map((record) => record.athlete?.full_name || '').filter(Boolean))).sort((left, right) =>
@@ -317,7 +325,7 @@ async function hydrate() {
       fetchAthletes(),
       fetchSports(),
       fetchTeams(),
-      fetchTestRecords(),
+      fetchAllTestRecords(),
       fetchTestDefinitions(),
     ])
     athletes.value = athleteData
@@ -335,6 +343,59 @@ async function hydrate() {
     await nextTick()
     renderChart()
   }
+}
+
+function buildLibraryQuery(page = 1) {
+  return {
+    athlete_keyword: libraryFilters.athleteKeyword.trim() || undefined,
+    metric_keyword: libraryFilters.metricKeyword.trim() || undefined,
+    test_type: libraryFilters.testType || undefined,
+    page,
+    page_size: DEFAULT_LIBRARY_PAGE_SIZE,
+  }
+}
+
+async function loadLibraryPage(page = 1, options?: { append?: boolean }) {
+  const append = Boolean(options?.append && page > 1)
+  if (append) libraryLoadingMore.value = true
+  else libraryLoading.value = true
+  libraryError.value = ''
+
+  try {
+    const response = await fetchTestRecords(buildLibraryQuery(page))
+    libraryState.total = response.total
+    libraryState.page = response.page
+    libraryState.page_size = response.page_size
+    libraryState.total_pages = response.total_pages
+    libraryState.items = append ? [...libraryState.items, ...response.items] : response.items
+  } catch (error) {
+    libraryError.value = extractErrorMessage(error, '测试数据总库加载失败，请稍后重试。')
+  } finally {
+    libraryLoading.value = false
+    libraryLoadingMore.value = false
+  }
+}
+
+async function resetAndLoadLibrary() {
+  libraryState.items = []
+  libraryState.total = 0
+  libraryState.page = 1
+  libraryState.page_size = DEFAULT_LIBRARY_PAGE_SIZE
+  libraryState.total_pages = 0
+  await loadLibraryPage(1)
+}
+
+async function loadMoreLibraryRecords() {
+  if (libraryLoading.value || libraryLoadingMore.value || !libraryHasMore.value) return
+  await loadLibraryPage(libraryPage.value + 1, { append: true })
+}
+
+async function handleLibraryScroll() {
+  const element = libraryTableRef.value
+  if (!element) return
+  const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+  if (distanceToBottom > LIBRARY_SCROLL_THRESHOLD) return
+  await loadMoreLibraryRecords()
 }
 
 async function refreshDefinitions(options?: {
@@ -472,6 +533,7 @@ async function handleImport(event: Event) {
     const summary = await importTestRecords(file)
     actionMessage.value = `导入完成：共 ${summary.total_rows} 行，新增 ${summary.imported_rows} 行，跳过 ${summary.skipped_rows} 行重复数据。`
     await hydrate()
+    await resetAndLoadLibrary()
   } catch (error) {
     actionMessage.value = extractErrorMessage(error)
   } finally {
@@ -489,32 +551,32 @@ async function handleDeleteFilteredBatch() {
     actionMessage.value = '请先筛选出要删除的测试批次，再执行删除。'
     return
   }
-  if (!totalLibraryRecords.value.length) {
+  if (!libraryTotal.value) {
     actionMessage.value = '当前筛选条件下没有可删除的测试数据。'
     return
   }
 
-  const dateValues = totalLibraryRecords.value
-    .map((record) => record.test_date)
-    .sort((left, right) => left.localeCompare(right))
-
   const confirmed = confirmDangerousAction({
     title: '批量删除测试数据',
     impactLines: [
-      `将删除当前筛选结果 ${totalLibraryRecords.value.length} 条`,
-      `日期范围：${dateValues[0]} ~ ${dateValues[dateValues.length - 1]}`,
+      `将删除当前筛选结果 ${libraryTotal.value} 条`,
       `筛选条件：${libraryFilters.athleteKeyword || '全部运动员'} / ${libraryFilters.metricKeyword || '全部项目'} / ${libraryFilters.testType || '全部类型'}`,
     ],
   })
   if (!confirmed) return
 
   try {
-    const result = await deleteTestRecordsBatch(
-      totalLibraryRecords.value.map((record) => record.id),
+    const result = await deleteFilteredTestRecords(
+      {
+        athlete_keyword: libraryFilters.athleteKeyword.trim() || undefined,
+        metric_keyword: libraryFilters.metricKeyword.trim() || undefined,
+        test_type: libraryFilters.testType || undefined,
+      },
       { confirmed: true, actor_name: '管理模式' },
     )
     actionMessage.value = `已删除 ${result.deleted_count} 条测试数据。`
     await hydrate()
+    await resetAndLoadLibrary()
   } catch (error) {
     actionMessage.value = extractErrorMessage(error)
   }
@@ -1059,12 +1121,27 @@ function downloadBlob(blob: Blob, filename: string) {
   window.URL.revokeObjectURL(url)
 }
 
+watch(
+  () => [libraryFilters.athleteKeyword, libraryFilters.metricKeyword, libraryFilters.testType],
+  () => {
+    void resetAndLoadLibrary()
+  },
+)
+
 watch([filteredTrendRecords, teamRangeMetricRecords, chartMetricUnit, selectedMetricDirectionMeta], async () => {
   await nextTick()
   renderChart()
 })
 
-onMounted(hydrate)
+onMounted(async () => {
+  await Promise.all([hydrate(), resetAndLoadLibrary()])
+  await nextTick()
+  libraryTableRef.value?.addEventListener('scroll', handleLibraryScroll)
+})
+
+onBeforeUnmount(() => {
+  libraryTableRef.value?.removeEventListener('scroll', handleLibraryScroll)
+})
 </script>
 
 <template>
@@ -1267,7 +1344,7 @@ onMounted(hydrate)
           <div class="action-row">
             <button
               class="ghost-btn danger-btn"
-              :disabled="!hasLibraryFilters || !totalLibraryRecords.length"
+              :disabled="!hasLibraryFilters || !libraryTotal"
               @click="handleDeleteFilteredBatch"
             >
               删除当前筛选批次
@@ -1304,12 +1381,15 @@ onMounted(hydrate)
         </div>
 
         <div class="library-meta">
-          <span>总记录：{{ records.length }}</span>
-          <span>筛选后：{{ totalLibraryRecords.length }}</span>
+          <span>趋势数据记录数：{{ records.length }}</span>
+          <span>总库筛选后总数：{{ libraryTotal }}</span>
+          <span>已加载：{{ libraryItems.length }}</span>
           <span>运动员：{{ athletes.length }}</span>
         </div>
 
-        <div class="table-scroll">
+        <p v-if="libraryError" class="manager-error">{{ libraryError }}</p>
+
+        <div ref="libraryTableRef" class="table-scroll">
           <table class="data-table">
             <thead>
               <tr>
@@ -1325,7 +1405,7 @@ onMounted(hydrate)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="record in totalLibraryRecords" :key="record.id">
+              <tr v-for="record in libraryItems" :key="record.id">
                 <td>{{ record.test_date }}</td>
                 <td>{{ record.athlete?.full_name || '-' }}</td>
                 <td>{{ record.athlete?.team?.name || '-' }}</td>
@@ -1340,7 +1420,10 @@ onMounted(hydrate)
           </table>
         </div>
 
-        <p v-if="!loading && totalLibraryRecords.length === 0" class="hint-text">当前筛选条件下没有测试数据。</p>
+        <p v-if="libraryLoading" class="hint-text">测试数据总库加载中...</p>
+        <p v-else-if="!libraryItems.length" class="hint-text">当前筛选条件下没有测试数据。</p>
+        <p v-else-if="libraryLoadingMore" class="hint-text">正在加载更多测试数据...</p>
+        <p v-else-if="libraryHasMore" class="hint-text">向下滚动继续加载更多记录。</p>
       </div>
     </div>
   </AppShell>

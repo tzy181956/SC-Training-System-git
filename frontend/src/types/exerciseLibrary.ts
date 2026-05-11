@@ -69,6 +69,30 @@ export interface ExerciseLibraryItem {
   is_main_lift_candidate: boolean
 }
 
+export interface ExerciseListItem {
+  id: number
+  name: string
+  alias?: string | null
+  code?: string | null
+  source_type: ExerciseSourceType
+  name_en?: string | null
+  level1_category?: string | null
+  level2_category?: string | null
+  base_movement?: string | null
+  category_path?: string | null
+  base_category_id?: number | null
+  is_main_lift_candidate: boolean
+  tag_summary: string[]
+}
+
+export interface ExerciseListResponse {
+  items: ExerciseListItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
 export interface ExerciseImportPreview {
   source_path: string
   total_rows: number
