@@ -14,6 +14,12 @@ import type { MonitoringAthleteCard, MonitoringAthleteDetailResponse, Monitoring
 import { todayString } from '@/utils/date'
 import { sortMonitoringAthletes } from '@/utils/monitoringSort'
 
+const AUTO_REFRESH_OPTIONS = [
+  { label: '5 秒', value: 5000 },
+  { label: '10 秒', value: 10000 },
+  { label: '30 秒', value: 30000 },
+] as const
+
 const router = useRouter()
 const monitorDate = ref(todayString())
 const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
@@ -22,8 +28,8 @@ const loading = ref(false)
 const loadError = ref('')
 const monitorNotice = ref('')
 const lastRefreshAt = ref<string | null>(null)
-const autoRefreshEnabled = ref(false)
-const refreshIntervalMs = ref(30000)
+const autoRefreshEnabled = ref(true)
+const refreshIntervalMs = ref(5000)
 const backgroundRefreshing = ref(false)
 const pageVisible = ref(true)
 const selectedAthleteId = ref<number | null>(null)
@@ -145,6 +151,12 @@ async function loadMonitoringData(options: LoadMonitoringOptions = {}) {
 
 function toggleAutoRefresh() {
   autoRefreshEnabled.value = !autoRefreshEnabled.value
+  restartAutoRefreshTimer()
+}
+
+function setRefreshInterval(value: number) {
+  if (refreshIntervalMs.value === value) return
+  refreshIntervalMs.value = value
   restartAutoRefreshTimer()
 }
 
@@ -286,6 +298,7 @@ watch(sortedAthletes, (athletes) => {
 onMounted(() => {
   pageVisible.value = !document.hidden
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  restartAutoRefreshTimer()
   void loadMonitoringData()
 })
 
@@ -312,6 +325,18 @@ onBeforeUnmount(() => {
     </template>
 
     <template #header-actions>
+      <div class="refresh-interval-group" role="group" aria-label="自动刷新频率">
+        <button
+          v-for="option in AUTO_REFRESH_OPTIONS"
+          :key="option.value"
+          class="secondary-btn refresh-interval-btn"
+          :class="{ active: refreshIntervalMs === option.value }"
+          type="button"
+          @click="setRefreshInterval(option.value)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
       <button class="secondary-btn refresh-btn" type="button" @click="toggleAutoRefresh">
         {{ autoRefreshEnabled ? '关闭自动刷新' : '开启自动刷新' }}
       </button>
@@ -421,6 +446,23 @@ onBeforeUnmount(() => {
 
 .refresh-btn {
   min-height: 38px;
+}
+
+.refresh-interval-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.refresh-interval-btn {
+  min-height: 38px;
+  min-width: 64px;
+}
+
+.refresh-interval-btn.active {
+  border-color: #0f766e;
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
 }
 
 @media (max-width: 960px) {
