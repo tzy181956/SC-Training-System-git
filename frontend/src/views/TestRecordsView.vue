@@ -5,20 +5,28 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 
 import { fetchAthletes, fetchSports, fetchTeams, type SportRead, type TeamRead } from '@/api/athletes'
 import {
+  calculateTestScores,
   createTestMetricDefinition,
   createTestRecord,
+  createScoreProfile,
   createTestTypeDefinition,
   deleteFilteredTestRecords,
+  deleteScoreProfile,
   deleteTestMetricDefinition,
   deleteTestTypeDefinition,
   downloadTestRecordTemplate,
   exportTestRecordLibrary,
   fetchAllTestRecords,
+  fetchScoreProfiles,
   fetchTestDefinitions,
   fetchTestRecords,
   importTestRecords,
+  updateScoreProfile,
   updateTestMetricDefinition,
   updateTestTypeDefinition,
+  type ScoreCalculationResponse,
+  type ScoreDimensionWrite,
+  type ScoreProfileRead,
   type TestRecordLibraryItem,
   type TestRecordLibraryResponse,
   type TestMetricDefinitionRead,
@@ -98,6 +106,17 @@ const editingTypeId = ref<number | null>(null)
 const editingMetricId = ref<number | null>(null)
 const typeManagerError = ref('')
 const metricManagerError = ref('')
+const scoreProfileManagerOpen = ref(false)
+const scoreSubmitting = ref(false)
+const scoreProfileError = ref('')
+const editingScoreProfileId = ref<number | null>(null)
+const scoreProfiles = ref<ScoreProfileRead[]>([])
+const scoreCalculation = ref<ScoreCalculationResponse | null>(null)
+const scoreCalculationLoading = ref(false)
+const selectedScoreAthleteId = ref<number>(0)
+const scoreRadarRef = ref<HTMLDivElement | null>(null)
+let scoreRadarChart: echarts.ECharts | null = null
+let scoreAutoCalculateTimer: number | null = null
 
 let chart: echarts.ECharts | null = null
 
@@ -150,6 +169,24 @@ const metricForm = reactive({
   is_lower_better: false,
   notes: '',
 })
+const scoreFilters = reactive({
+  scoreProfileId: 0,
+  teamId: 0,
+  dateFrom: '',
+  dateTo: '',
+  baselineMode: 'current_batch' as 'current_batch' | 'historical_pool',
+})
+const scoreProfileForm = reactive<{
+  name: string
+  notes: string
+  is_active: boolean
+  dimensions: ScoreDimensionWrite[]
+}>({
+  name: '',
+  notes: '',
+  is_active: true,
+  dimensions: [],
+})
 
 const selectedAthlete = computed(() => athletes.value.find((item) => item.id === trendFilters.athleteId) || null)
 
@@ -173,6 +210,15 @@ const metricDefinitions = computed<ManagedMetricDefinition[]>(() =>
   ),
 )
 
+const scoreMetricOptions = computed(() =>
+  metricDefinitions.value
+    .map((definition) => ({
+      id: definition.id,
+      label: `${definition.test_type_name || '未分类测试类型'} / ${definition.name || `测试项目 #${definition.id}`}`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN')),
+)
+
 const editableTypeDefinitions = computed(() =>
   authStore.isAdmin ? definitions.value : definitions.value.filter((definition) => !definition.is_system),
 )
@@ -187,6 +233,26 @@ const selectedMetricDefinition = computed(
 )
 
 const selectedMetricDirectionMeta = computed(() => getTestMetricDirectionMeta(selectedMetricDefinition.value))
+const selectedScoreProfile = computed(() => scoreProfiles.value.find((item) => item.id === scoreFilters.scoreProfileId) || null)
+const selectedScoreAthlete = computed(
+  () => scoreCalculation.value?.ranking.find((item) => item.athlete_id === selectedScoreAthleteId.value) || null,
+)
+const scoreTeamDateRange = computed(() => {
+  const dates = records.value
+    .filter((record) => {
+      if (!scoreFilters.teamId) return false
+      return resolveAthleteTeamId(resolveRecordAthlete(record)) === scoreFilters.teamId
+    })
+    .map((record) => record.test_date)
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right))
+
+  if (!dates.length) return null
+  return {
+    from: dates[0],
+    to: dates[dates.length - 1],
+  }
+})
 
 const chartMetricUnit = computed(
   () => selectedMetricDefinition.value?.default_unit || filteredTrendRecords.value[0]?.unit || '',
@@ -317,31 +383,78 @@ const canSubmitEntryRecord = computed(
 )
 
 const entryActiveUnit = computed(() => entryForm.unit || selectedMetricDefinition.value?.default_unit || '')
+const scoreProfileValidationErrors = computed(() => {
+  const errors: string[] = []
+  const trimmedName = scoreProfileForm.name.trim()
+  if (!trimmedName) errors.push('请输入模板名称。')
+  if (!scoreProfileForm.dimensions.length) errors.push('至少需要保留 1 个能力维度。')
+
+  const dimensionNames = new Set<string>()
+  scoreProfileForm.dimensions.forEach((dimension, dimensionIndex) => {
+    const dimensionLabel = `能力维度 ${dimensionIndex + 1}`
+    const trimmedDimensionName = dimension.name.trim()
+    if (!trimmedDimensionName) {
+      errors.push(`${dimensionLabel} 未填写维度名称。`)
+    } else if (dimensionNames.has(trimmedDimensionName)) {
+      errors.push(`能力维度名称“${trimmedDimensionName}”重复，请修改。`)
+    } else {
+      dimensionNames.add(trimmedDimensionName)
+    }
+
+    if (!dimension.metrics.length) {
+      errors.push(`${dimensionLabel} 至少需要 1 个测试项目。`)
+      return
+    }
+
+    const metricIds = new Set<number>()
+    dimension.metrics.forEach((metric, metricIndex) => {
+      const metricLabel = `${dimensionLabel} 的测试项目 ${metricIndex + 1}`
+      if (!metric.test_metric_definition_id) {
+        errors.push(`${metricLabel} 还未选择测试项目。`)
+        return
+      }
+      if (metricIds.has(metric.test_metric_definition_id)) {
+        errors.push(`${dimensionLabel} 中存在重复测试项目，请调整。`)
+        return
+      }
+      metricIds.add(metric.test_metric_definition_id)
+    })
+  })
+
+  return Array.from(new Set(errors))
+})
+const canSubmitScoreProfile = computed(
+  () => scoreProfileValidationErrors.value.length === 0,
+)
 
 async function hydrate() {
   loading.value = true
   try {
-    const [athleteData, sportData, teamData, recordData, catalog] = await Promise.all([
+    const [athleteData, sportData, teamData, recordData, catalog, scoreProfileData] = await Promise.all([
       fetchAthletes(),
       fetchSports(),
       fetchTeams(),
       fetchAllTestRecords(),
       fetchTestDefinitions(),
+      fetchScoreProfiles(),
     ])
     athletes.value = athleteData
     sports.value = sportData
     teams.value = teamData
     records.value = recordData
     definitions.value = catalog.types || []
+    scoreProfiles.value = scoreProfileData
     syncTrendFilterSelection({
       preferredAthleteId: trendFilters.athleteId,
       preferredTypeName: trendFilters.testType,
       preferredMetricName: trendFilters.metricName,
     })
+    syncScoreSelection()
   } finally {
     loading.value = false
     await nextTick()
     renderChart()
+    renderScoreCharts()
   }
 }
 
@@ -402,15 +515,18 @@ async function refreshDefinitions(options?: {
   preferredTypeName?: string
   preferredMetricName?: string
 }) {
-  const catalog = await fetchTestDefinitions()
+  const [catalog, profileData] = await Promise.all([fetchTestDefinitions(), fetchScoreProfiles()])
   definitions.value = catalog.types || []
+  scoreProfiles.value = profileData
   syncTrendFilterSelection({
     preferredAthleteId: trendFilters.athleteId,
     preferredTypeName: options?.preferredTypeName ?? trendFilters.testType,
     preferredMetricName: options?.preferredMetricName ?? trendFilters.metricName,
   })
+  syncScoreSelection()
   await nextTick()
   renderChart()
+  renderScoreCharts()
 }
 
 function syncTrendFilterSelection(options?: {
@@ -452,6 +568,296 @@ function syncTrendFilterSelection(options?: {
 
   trendFilters.metricName = resolvedMetric?.name || ''
   syncEntryFormContext({ resetValues: false, resetUnit: true })
+}
+
+function syncScoreSelection() {
+  if (scoreFilters.teamId && teams.value.some((item) => item.id === scoreFilters.teamId)) {
+    // keep
+  } else {
+    scoreFilters.teamId = teams.value[0]?.id || 0
+  }
+
+  if (scoreFilters.scoreProfileId && scoreProfiles.value.some((item) => item.id === scoreFilters.scoreProfileId)) {
+    // keep
+  } else {
+    scoreFilters.scoreProfileId = scoreProfiles.value[0]?.id || 0
+  }
+}
+
+function openScoreProfileManager() {
+  scoreProfileError.value = ''
+  scoreProfileManagerOpen.value = true
+  if (!editingScoreProfileId.value) resetScoreProfileForm()
+}
+
+function closeScoreProfileManager() {
+  scoreProfileManagerOpen.value = false
+  scoreProfileError.value = ''
+  resetScoreProfileForm()
+}
+
+function resetScoreProfileForm() {
+  editingScoreProfileId.value = null
+  scoreProfileForm.name = ''
+  scoreProfileForm.notes = ''
+  scoreProfileForm.is_active = true
+  scoreProfileForm.dimensions = [buildEmptyScoreDimension()]
+}
+
+function buildEmptyScoreDimension(): ScoreDimensionWrite {
+  return {
+    id: null,
+    name: '',
+    sort_order: scoreProfileForm.dimensions.length + 1,
+    weight: 1,
+    metrics: [],
+  }
+}
+
+function buildEmptyScoreMetric(sortOrder: number) {
+  return {
+    id: null,
+    test_metric_definition_id: 0,
+    weight: 1,
+    sort_order: sortOrder,
+  }
+}
+
+function startEditScoreProfile(profile: ScoreProfileRead) {
+  editingScoreProfileId.value = profile.id
+  scoreProfileForm.name = profile.name
+  scoreProfileForm.notes = profile.notes || ''
+  scoreProfileForm.is_active = profile.is_active
+  scoreProfileForm.dimensions = profile.dimensions.map((dimension, dimensionIndex) => ({
+    id: dimension.id,
+    name: dimension.name,
+    sort_order: dimension.sort_order || dimensionIndex + 1,
+    weight: dimension.weight,
+    metrics: dimension.metrics.map((metric, metricIndex) => ({
+      id: metric.id,
+      test_metric_definition_id: metric.test_metric_definition_id,
+      weight: metric.weight,
+      sort_order: metric.sort_order || metricIndex + 1,
+    })),
+  }))
+  openScoreProfileManager()
+}
+
+function addScoreDimension() {
+  scoreProfileForm.dimensions.push(buildEmptyScoreDimension())
+}
+
+function removeScoreDimension(index: number) {
+  scoreProfileForm.dimensions.splice(index, 1)
+  if (!scoreProfileForm.dimensions.length) scoreProfileForm.dimensions.push(buildEmptyScoreDimension())
+}
+
+function addScoreMetric(dimensionIndex: number) {
+  const metrics = scoreProfileForm.dimensions[dimensionIndex].metrics
+  metrics.push(buildEmptyScoreMetric(metrics.length + 1))
+}
+
+function removeScoreMetric(dimensionIndex: number, metricIndex: number) {
+  scoreProfileForm.dimensions[dimensionIndex].metrics.splice(metricIndex, 1)
+}
+
+function normalizeDimensionWeights(metrics: Array<{ weight: number }>) {
+  const total = metrics.reduce((sum, item) => sum + Number(item.weight || 0), 0)
+  if (!total) return
+  metrics.forEach((item) => {
+    item.weight = Number((Number(item.weight || 0) / total).toFixed(4))
+  })
+}
+
+function equalizeDimensionWeights(metrics: Array<{ weight: number }>) {
+  if (!metrics.length) return
+  const nextWeight = Number((1 / metrics.length).toFixed(4))
+  metrics.forEach((item) => {
+    item.weight = nextWeight
+  })
+}
+
+async function submitScoreProfile() {
+  if (!canSubmitScoreProfile.value) {
+    scoreProfileError.value = '请完善评分模板名称、能力维度和测试项目。'
+    return
+  }
+  scoreSubmitting.value = true
+  scoreProfileError.value = ''
+  try {
+    const payload = {
+      name: scoreProfileForm.name.trim(),
+      notes: scoreProfileForm.notes.trim() || null,
+      is_active: scoreProfileForm.is_active,
+      dimensions: scoreProfileForm.dimensions.map((dimension, dimensionIndex) => ({
+        id: dimension.id || undefined,
+        name: dimension.name.trim(),
+        sort_order: dimensionIndex + 1,
+        weight: dimension.weight || 1,
+        metrics: dimension.metrics
+          .filter((metric) => metric.test_metric_definition_id)
+          .map((metric, metricIndex) => ({
+            id: metric.id || undefined,
+            test_metric_definition_id: metric.test_metric_definition_id,
+            weight: metric.weight || 1,
+            sort_order: metricIndex + 1,
+          })),
+      })),
+    }
+    if (editingScoreProfileId.value) {
+      await updateScoreProfile(editingScoreProfileId.value, payload)
+    } else {
+      await createScoreProfile(payload)
+    }
+    await refreshDefinitions()
+    closeScoreProfileManager()
+  } catch (error) {
+    scoreProfileError.value = extractErrorMessage(error, '保存评分模板失败，请稍后重试。')
+  } finally {
+    scoreSubmitting.value = false
+  }
+}
+
+async function removeScoreProfile(profile: ScoreProfileRead) {
+  const confirmed = confirmDangerousAction({
+    title: '删除评分模板',
+    impactLines: [
+      `模板名称：${profile.name}`,
+      `能力维度数：${profile.dimensions.length}`,
+      '删除后该模板配置将不可直接恢复。',
+    ],
+  })
+  if (!confirmed) return
+  try {
+    await deleteScoreProfile(profile.id, { confirmed: true, actor_name: '管理模式' })
+    await refreshDefinitions()
+  } catch (error) {
+    scoreProfileError.value = extractErrorMessage(error, '删除评分模板失败，请稍后重试。')
+  }
+}
+
+async function calculateScores() {
+  if (!scoreFilters.scoreProfileId || !scoreFilters.teamId) {
+    actionMessage.value = '请先选择评分模板和队伍。'
+    return
+  }
+  const resolvedDateFrom = scoreFilters.dateFrom || scoreTeamDateRange.value?.from || ''
+  const resolvedDateTo = scoreFilters.dateTo || scoreTeamDateRange.value?.to || ''
+  if (!resolvedDateFrom || !resolvedDateTo) {
+    actionMessage.value = '当前队伍没有可用于评分的测试日期数据。'
+    return
+  }
+  scoreCalculationLoading.value = true
+  try {
+    scoreCalculation.value = await calculateTestScores({
+      score_profile_id: scoreFilters.scoreProfileId,
+      team_id: scoreFilters.teamId,
+      date_from: resolvedDateFrom,
+      date_to: resolvedDateTo,
+      baseline_mode: scoreFilters.baselineMode,
+    })
+    selectedScoreAthleteId.value = scoreCalculation.value.ranking[0]?.athlete_id || 0
+    await nextTick()
+    renderScoreCharts()
+  } catch (error) {
+    actionMessage.value = extractErrorMessage(error, '测试评分计算失败，请稍后重试。')
+  } finally {
+    scoreCalculationLoading.value = false
+  }
+}
+
+function queueAutoCalculateScores() {
+  if (scoreAutoCalculateTimer !== null) {
+    window.clearTimeout(scoreAutoCalculateTimer)
+  }
+
+  if (!scoreFilters.scoreProfileId || !scoreFilters.teamId) {
+    scoreCalculation.value = null
+    return
+  }
+
+  scoreAutoCalculateTimer = window.setTimeout(() => {
+    scoreAutoCalculateTimer = null
+    void calculateScores()
+  }, 250)
+}
+
+function buildScoreRadarRange() {
+  const allScores = [
+    ...(scoreCalculation.value?.ranking.flatMap((athlete) =>
+      athlete.dimension_scores
+        .map((dimension) => dimension.score)
+        .filter((score): score is number => typeof score === 'number'),
+    ) || []),
+    ...(scoreCalculation.value?.team_average_dimensions
+      .map((dimension) => dimension.score)
+      .filter((score): score is number => typeof score === 'number') || []),
+  ]
+  const minValue = Math.min(...allScores, 40)
+  const maxValue = Math.max(...allScores, 60)
+  const padding = Math.max((maxValue - minValue) * 0.1, 5)
+  const indicatorMin = Math.floor(minValue - padding)
+  const indicatorMax = Math.ceil(maxValue + padding)
+  return { min: indicatorMin, max: indicatorMax }
+}
+
+function buildRadarIndicators(source: Array<{ dimension_name: string; score?: number | null }>) {
+  const range = buildScoreRadarRange()
+  return {
+    min: range.min,
+    max: range.max,
+    indicator: source.map((item) => ({ name: item.dimension_name, min: range.min, max: range.max })),
+  }
+}
+
+function renderScoreCharts() {
+  if (selectedScoreAthlete.value && scoreRadarRef.value) {
+    const athleteDimensions = selectedScoreAthlete.value.dimension_scores.map((item) => ({
+      dimension_name: item.dimension_name,
+      score: item.score,
+    }))
+    const teamDimensionMap = new Map(
+      (scoreCalculation.value?.team_average_dimensions || []).map((item) => [item.dimension_name, item.score]),
+    )
+    const radar = buildRadarIndicators(athleteDimensions)
+    scoreRadarChart ||= echarts.init(scoreRadarRef.value)
+    scoreRadarChart.setOption({
+      tooltip: { trigger: 'item' },
+      legend: {
+        bottom: 0,
+        data: [selectedScoreAthlete.value.athlete_name, '团队平均'],
+      },
+      radar: {
+        indicator: radar.indicator,
+        radius: '60%',
+        center: ['50%', '48%'],
+        scale: true,
+      },
+      series: [
+        {
+          type: 'radar',
+          data: [
+            {
+              value: athleteDimensions.map((item) => Number(item.score ?? radar.min)),
+              name: selectedScoreAthlete.value.athlete_name,
+              areaStyle: { color: 'rgba(15,118,110,0.18)' },
+              lineStyle: { color: '#0f766e' },
+              itemStyle: { color: '#0f766e' },
+            },
+            {
+              value: athleteDimensions.map((item) => Number(teamDimensionMap.get(item.dimension_name) ?? radar.min)),
+              name: '团队平均',
+              areaStyle: { color: 'rgba(245,158,11,0.12)' },
+              lineStyle: { color: '#f59e0b' },
+              itemStyle: { color: '#f59e0b' },
+            },
+          ],
+        },
+      ],
+    })
+  } else if (scoreRadarChart) {
+    scoreRadarChart.clear()
+  }
 }
 
 function syncEntryFormContext(options?: { resetValues?: boolean; resetUnit?: boolean }) {
@@ -1128,6 +1534,27 @@ watch(
   },
 )
 
+watch(
+  () => selectedScoreAthleteId.value,
+  async () => {
+    await nextTick()
+    renderScoreCharts()
+  },
+)
+
+watch(
+  () => [
+    scoreFilters.scoreProfileId,
+    scoreFilters.teamId,
+    scoreFilters.baselineMode,
+    scoreFilters.dateFrom,
+    scoreFilters.dateTo,
+  ],
+  () => {
+    queueAutoCalculateScores()
+  },
+)
+
 watch([filteredTrendRecords, teamRangeMetricRecords, chartMetricUnit, selectedMetricDirectionMeta], async () => {
   await nextTick()
   renderChart()
@@ -1141,6 +1568,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   libraryTableRef.value?.removeEventListener('scroll', handleLibraryScroll)
+  if (scoreAutoCalculateTimer !== null) {
+    window.clearTimeout(scoreAutoCalculateTimer)
+  }
 })
 </script>
 
@@ -1425,8 +1855,262 @@ onBeforeUnmount(() => {
         <p v-else-if="libraryLoadingMore" class="hint-text">正在加载更多测试数据...</p>
         <p v-else-if="libraryHasMore" class="hint-text">向下滚动继续加载更多记录。</p>
       </div>
+
+      <div class="panel library-panel">
+        <div class="section-head">
+          <div class="section-head-copy">
+            <p class="eyebrow">测试评分</p>
+            <h3>测试评分与雷达图</h3>
+          </div>
+          <div class="action-row">
+            <button class="ghost-btn" type="button" @click="openScoreProfileManager">管理评分模板</button>
+          </div>
+        </div>
+
+        <div class="filter-grid">
+          <select v-model.number="scoreFilters.scoreProfileId" class="text-input">
+            <option :value="0">请选择评分模板</option>
+            <option v-for="profile in scoreProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+          </select>
+          <select v-model.number="scoreFilters.teamId" class="text-input">
+            <option :value="0">请选择队伍</option>
+            <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
+          </select>
+          <select v-model="scoreFilters.baselineMode" class="text-input">
+            <option value="current_batch">当前批次</option>
+            <option value="historical_pool">历史数据池</option>
+          </select>
+          <input v-model="scoreFilters.dateFrom" type="date" class="text-input" />
+          <input v-model="scoreFilters.dateTo" type="date" class="text-input" />
+        </div>
+        <p class="field-note">
+          评分日期留空时，默认使用当前队伍全部测试记录的日期范围
+          <template v-if="scoreTeamDateRange">（{{ scoreTeamDateRange.from }} 至 {{ scoreTeamDateRange.to }}）</template>
+          <template v-else>。</template>
+        </p>
+        <p class="field-note">选择评分模板、队伍、评分基准或日期后将自动重新计算。</p>
+
+        <div class="entry-panel-body">
+          <p class="hint-text">当前评分模式：Z 分数标准化评分</p>
+          <p class="hint-text">T 分数解释：50 表示参考数据平均水平，每 10 分约等于 1 个标准差。</p>
+          <p class="hint-text">分数未做截断，极高或极低分可能代表真实极端表现，也可能提示需要检查原始数据。</p>
+          <p class="hint-text">当前评分取值口径：每个项目使用所选日期范围内最新一次测试记录。</p>
+        </div>
+
+        <template v-if="scoreCalculation">
+          <div class="library-meta">
+            <span>评分基准：{{ scoreCalculation.baseline_label }}</span>
+            <span>模板：{{ scoreCalculation.profile.name }}</span>
+            <span>参与排行人数：{{ scoreCalculation.ranking.length }}</span>
+          </div>
+
+          <div v-if="scoreCalculation.warnings.length" class="manager-error">
+            {{ scoreCalculation.warnings.join('；') }}
+          </div>
+
+          <div class="split-view score-split-view">
+            <section class="panel">
+              <div class="section-head">
+                <div class="section-head-copy">
+                  <p class="eyebrow">综合评分</p>
+                  <h3>排行榜</h3>
+                </div>
+              </div>
+              <div class="list-grid">
+                <button
+                  v-for="athlete in scoreCalculation.ranking"
+                  :key="athlete.athlete_id"
+                  class="row-card adaptive-card score-rank-card"
+                  :class="{ active: selectedScoreAthleteId === athlete.athlete_id }"
+                  type="button"
+                  @click="selectedScoreAthleteId = athlete.athlete_id"
+                >
+                  <strong class="adaptive-card-title">{{ athlete.athlete_name }}</strong>
+                  <span class="adaptive-card-subtitle">{{ athlete.team_name || '未分队' }}</span>
+                  <small class="adaptive-card-meta">综合评分：{{ athlete.overall_score ?? '--' }}</small>
+                </button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-head">
+                <div class="section-head-copy">
+                  <p class="eyebrow">雷达图</p>
+                  <h3>个人 vs 团队平均</h3>
+                </div>
+              </div>
+              <div v-if="selectedScoreAthlete" ref="scoreRadarRef" class="chart"></div>
+              <div v-else class="empty-state">当前没有可展示的个人评分结果。</div>
+              <p class="hint-text">绿色表示当前球员，橙色表示团队平均。50 为参考均值，60 约为高于均值 1 个标准差，40 约为低于均值 1 个标准差。</p>
+            </section>
+          </div>
+
+          <section v-if="selectedScoreAthlete" class="panel">
+            <div class="section-head">
+              <div class="section-head-copy">
+                <p class="eyebrow">项目明细</p>
+                <h3>{{ selectedScoreAthlete.athlete_name }} 评分明细</h3>
+              </div>
+            </div>
+
+            <div v-if="selectedScoreAthlete.missing_metrics.length" class="manager-error">
+              缺失项目：{{ selectedScoreAthlete.missing_metrics.join('；') }}
+            </div>
+
+            <div v-for="dimension in selectedScoreAthlete.dimension_scores" :key="dimension.dimension_id" class="detail-section">
+              <h4>{{ dimension.dimension_name }}：{{ dimension.score ?? '--' }}</h4>
+              <p v-if="dimension.warnings.length" class="hint-text">{{ dimension.warnings.join('；') }}</p>
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>测试项目</th>
+                      <th>原始值</th>
+                      <th>测试日期</th>
+                      <th>mean</th>
+                      <th>sd</th>
+                      <th>z</th>
+                      <th>standard_score</th>
+                      <th>权重</th>
+                      <th>缺失</th>
+                      <th>样本不足</th>
+                      <th>sd=0</th>
+                      <th>异常值提示</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="metric in dimension.metrics" :key="`${dimension.dimension_id}-${metric.metric_definition_id}`">
+                      <td>{{ metric.metric_name }}</td>
+                      <td>{{ metric.raw_value ?? '-' }}</td>
+                      <td>{{ metric.raw_test_date || '-' }}</td>
+                      <td>{{ metric.mean ?? '-' }}</td>
+                      <td>{{ metric.sd ?? '-' }}</td>
+                      <td>{{ metric.z ?? '-' }}</td>
+                      <td>{{ metric.standard_score ?? '-' }}</td>
+                      <td>{{ metric.weight ?? '-' }}</td>
+                      <td>{{ metric.is_missing ? '是' : '否' }}</td>
+                      <td>{{ metric.sample_insufficient ? '是' : '否' }}</td>
+                      <td>{{ metric.zero_variance ? '是' : '否' }}</td>
+                      <td>{{ metric.outlier_warning ? '是' : '否' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </template>
+      </div>
     </div>
   </AppShell>
+
+  <teleport to="body">
+    <div v-if="scoreProfileManagerOpen" class="manager-overlay" @click="closeScoreProfileManager">
+      <section class="manager-dialog panel" role="dialog" aria-modal="true" aria-labelledby="score-profile-manager-title" @click.stop>
+        <div class="manager-dialog-head">
+          <div>
+            <p class="eyebrow">测试评分</p>
+            <h3 id="score-profile-manager-title">管理评分模板</h3>
+          </div>
+          <button class="ghost-btn slim" type="button" @click="closeScoreProfileManager">关闭</button>
+        </div>
+
+        <div class="manager-dialog-body">
+          <div class="manager-list-block">
+            <div class="manager-block-head">
+              <strong>已有评分模板</strong>
+              <span>{{ scoreProfiles.length }} 个</span>
+            </div>
+            <p v-if="scoreProfileError" class="manager-error">{{ scoreProfileError }}</p>
+            <div v-if="!scoreProfiles.length" class="empty-state manager-empty">当前还没有评分模板，请先新增。</div>
+            <div v-else class="manager-list">
+              <div v-for="profile in scoreProfiles" :key="profile.id" class="manager-row">
+                <div class="manager-row-copy">
+                  <strong>{{ profile.name }}</strong>
+                  <span class="manager-row-meta">维度数：{{ profile.dimensions.length }}</span>
+                  <span class="manager-row-meta">状态：{{ profile.is_active ? '启用' : '停用' }}</span>
+                  <p v-if="profile.notes" class="manager-row-notes">{{ profile.notes }}</p>
+                </div>
+                <div class="manager-row-actions">
+                  <button class="ghost-btn slim" type="button" @click="startEditScoreProfile(profile)">编辑</button>
+                  <button class="ghost-btn slim danger-btn" type="button" @click="removeScoreProfile(profile)">删除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <form class="manager-form-block" @submit.prevent="submitScoreProfile">
+            <div class="manager-block-head">
+              <strong>{{ editingScoreProfileId ? '编辑评分模板' : '新增评分模板' }}</strong>
+              <button v-if="editingScoreProfileId" class="ghost-btn slim" type="button" @click="resetScoreProfileForm">取消编辑</button>
+            </div>
+            <div class="detail-section score-profile-base-section">
+              <label class="field">
+                <span>模板名称 <strong class="required-mark">*</strong></span>
+                <input v-model="scoreProfileForm.name" class="text-input" placeholder="例如：篮球基础能力评分" />
+              </label>
+              <label class="field">
+                <span>备注</span>
+                <textarea v-model="scoreProfileForm.notes" class="text-input manager-textarea" placeholder="可选"></textarea>
+              </label>
+              <label class="checkbox-field">
+                <input v-model="scoreProfileForm.is_active" type="checkbox" />
+                <span>启用模板</span>
+              </label>
+              <div v-if="scoreProfileValidationErrors.length" class="manager-error">
+                当前不能保存：
+                {{ scoreProfileValidationErrors.join('；') }}
+              </div>
+            </div>
+
+            <div v-for="(dimension, dimensionIndex) in scoreProfileForm.dimensions" :key="dimensionIndex" class="detail-section">
+              <div class="section-head">
+                <h4>能力维度 {{ dimensionIndex + 1 }}</h4>
+                <button class="ghost-btn slim danger-btn" type="button" @click="removeScoreDimension(dimensionIndex)">删除维度</button>
+              </div>
+              <label class="field">
+                <span>维度名称</span>
+                <input v-model="dimension.name" class="text-input" placeholder="例如：下肢力量 / 爆发力 / 速度" />
+              </label>
+              <div class="action-row">
+                <button class="ghost-btn slim" type="button" @click="equalizeDimensionWeights(dimension.metrics)">一键平均分配</button>
+                <button class="ghost-btn slim" type="button" @click="normalizeDimensionWeights(dimension.metrics)">一键归一化</button>
+                <button class="ghost-btn slim" type="button" @click="addScoreMetric(dimensionIndex)">添加测试项目</button>
+              </div>
+              <div v-for="(metric, metricIndex) in dimension.metrics" :key="metricIndex" class="grid two">
+                <label class="field">
+                  <span>测试项目</span>
+                  <select v-model.number="metric.test_metric_definition_id" class="text-input" :disabled="!scoreMetricOptions.length">
+                    <option :value="0">请选择测试项目</option>
+                    <option v-if="!scoreMetricOptions.length" :value="0">当前没有可用测试项目，请先到测试项目管理中维护</option>
+                    <option v-for="option in scoreMetricOptions" :key="option.id" :value="option.id">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>权重</span>
+                  <input v-model.number="metric.weight" type="number" step="0.01" min="0" class="text-input" />
+                </label>
+                <div class="manager-form-actions">
+                  <button class="ghost-btn slim danger-btn" type="button" @click="removeScoreMetric(dimensionIndex, metricIndex)">删除项目</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="action-row">
+              <button class="ghost-btn slim" type="button" @click="addScoreDimension">添加能力维度</button>
+            </div>
+
+            <div class="manager-form-actions">
+              <button class="primary-btn" type="submit" :disabled="scoreSubmitting || !canSubmitScoreProfile">
+                {{ scoreSubmitting ? '保存中...' : editingScoreProfileId ? '保存修改' : '新增评分模板' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </teleport>
 
   <teleport to="body">
     <div v-if="typeManagerOpen" class="manager-overlay" @click="closeTypeManager">
@@ -1904,6 +2588,7 @@ onBeforeUnmount(() => {
   align-content: start;
   overflow-y: auto;
   padding-right: 6px;
+  padding-top: 2px;
 }
 
 .manager-list {
@@ -2005,6 +2690,39 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
 }
 
+.detail-section {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.detail-section + .detail-section {
+  margin-top: 4px;
+}
+
+.detail-section .section-head {
+  align-items: flex-start;
+}
+
+.detail-section .section-head h4 {
+  margin: 0;
+  min-width: 0;
+}
+
+.detail-section .action-row {
+  align-items: center;
+}
+
+.detail-section .manager-form-actions {
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.score-profile-base-section {
+  gap: 12px;
+}
+
 @media (max-width: 1100px) {
   .split-view,
   .two-col,
@@ -2030,6 +2748,14 @@ onBeforeUnmount(() => {
 
   .manager-dialog {
     max-height: calc(100vh - 24px);
+  }
+
+  .detail-section .manager-form-actions {
+    justify-content: stretch;
+  }
+
+  .detail-section .manager-form-actions > * {
+    width: 100%;
   }
 }
 </style>

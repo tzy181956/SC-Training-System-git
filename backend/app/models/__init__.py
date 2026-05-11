@@ -5,6 +5,7 @@ from app.models.dangerous_operation_log import DangerousOperationLog
 from app.models.exercise_category import ExerciseCategory
 from app.models.exercise import Exercise, ExerciseTag
 from app.models.organization import Sport, Team
+from app.models.score_profile import ScoreDimension, ScoreDimensionMetric, ScoreProfile
 from app.models.tag import Tag
 from app.models.test_record import TestRecord
 from app.models.test_definition import TestMetricDefinition, TestTypeDefinition
@@ -24,6 +25,9 @@ __all__ = [
     "Exercise",
     "ExerciseCategory",
     "ExerciseTag",
+    "ScoreDimension",
+    "ScoreDimensionMetric",
+    "ScoreProfile",
     "SetRecord",
     "Sport",
     "Tag",

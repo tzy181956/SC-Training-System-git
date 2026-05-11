@@ -14,6 +14,7 @@ from app.api.endpoints import (
     tags,
     test_definitions,
     test_records,
+    test_scores,
     training_loads,
     training_reports,
     users,
@@ -34,6 +35,7 @@ api_router.include_router(assignments.router)
 api_router.include_router(sessions.router)
 api_router.include_router(test_definitions.router)
 api_router.include_router(test_records.router)
+api_router.include_router(test_scores.router)
 api_router.include_router(training_reports.router)
 api_router.include_router(training_loads.router)
 api_router.include_router(users.router)

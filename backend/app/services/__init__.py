@@ -20,6 +20,7 @@ __all__ = [
     "log_service",
     "monitoring_service",
     "plan_service",
+    "score_profile_service",
     "session_service",
     "test_definition_service",
     "test_record_service",
