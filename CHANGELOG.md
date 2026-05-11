@@ -2,6 +2,18 @@
 
 ## Unreleased / V1-dev
 
+### Documentation
+
+- 重修根目录权威文档与协作文档口径：
+  - `README.md`
+  - `PROJECT_CONTEXT.md`
+  - `CURRENT_STATUS.md`
+  - `DEVELOPMENT_GUIDE.md`
+  - `CODEX_HANDOFF.md`
+  - `NEXT_STEPS.md`
+- 文档主叙事已从“免登录 + 局域网本地主场景”切换为“登录制 + 服务器运行 + 本地开发并行”。
+- 统一说明当前正式数据库演进路径为 Alembic + `backend/scripts/migrate_db.py`，不再把 `schema_sync.py` / `init_db.py` 写成正式主方案。
+
 ### Fixed
 
 - 修复前端开发服务器下登录请求误打到 `5173/api/*` 自身导致 `404` 的问题：`frontend/vite.config.ts` 和 `frontend/scripts/dev-server.mjs` 已补 `/api -> http://127.0.0.1:8000` 开发代理，登录页不再因为前后端端口分离而直接报 `Request failed with status code 404`。
