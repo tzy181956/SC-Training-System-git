@@ -1516,6 +1516,18 @@ function formatTooltipValue(value: unknown) {
   return value
 }
 
+function formatScoreDisplay(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '--'
+  return value.toFixed(1)
+}
+
+function getRankMedal(rankIndex: number) {
+  if (rankIndex === 0) return '🥇'
+  if (rankIndex === 1) return '🥈'
+  if (rankIndex === 2) return '🥉'
+  return ''
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = window.URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -1768,6 +1780,157 @@ onBeforeUnmount(() => {
       <div class="panel library-panel">
         <div class="section-head">
           <div class="section-head-copy">
+            <p class="eyebrow">测试评分</p>
+            <h3>测试评分与雷达图</h3>
+          </div>
+          <div class="action-row">
+            <button class="ghost-btn" type="button" @click="openScoreProfileManager">管理评分模板</button>
+          </div>
+        </div>
+
+        <div class="filter-grid">
+          <select v-model.number="scoreFilters.scoreProfileId" class="text-input">
+            <option :value="0">请选择评分模板</option>
+            <option v-for="profile in scoreProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+          </select>
+          <select v-model.number="scoreFilters.teamId" class="text-input">
+            <option :value="0">请选择队伍</option>
+            <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
+          </select>
+          <select v-model="scoreFilters.baselineMode" class="text-input">
+            <option value="current_batch">当前批次</option>
+            <option value="historical_pool">历史数据池</option>
+          </select>
+          <input v-model="scoreFilters.dateFrom" type="date" class="text-input" />
+          <input v-model="scoreFilters.dateTo" type="date" class="text-input" />
+        </div>
+        <p class="field-note">
+          评分日期留空时，默认使用当前队伍全部测试记录的日期范围
+          <template v-if="scoreTeamDateRange">（{{ scoreTeamDateRange.from }} 至 {{ scoreTeamDateRange.to }}）</template>
+          <template v-else>。</template>
+        </p>
+        <p class="field-note">选择评分模板、队伍、评分基准或日期后将自动重新计算。</p>
+
+        <div class="entry-panel-body">
+          <p class="hint-text">当前评分模式：Z 分数标准化评分</p>
+          <p class="hint-text">T 分数解释：50 表示参考数据平均水平，每 10 分约等于 1 个标准差。</p>
+          <p class="hint-text">分数未做截断，极高或极低分可能代表真实极端表现，也可能提示需要检查原始数据。</p>
+          <p class="hint-text">当前评分取值口径：每个项目使用所选日期范围内最新一次测试记录。</p>
+        </div>
+
+        <template v-if="scoreCalculation">
+          <div class="library-meta">
+            <span>评分基准：{{ scoreCalculation.baseline_label }}</span>
+            <span>模板：{{ scoreCalculation.profile.name }}</span>
+            <span>参与排行人数：{{ scoreCalculation.ranking.length }}</span>
+          </div>
+
+          <div v-if="scoreCalculation.warnings.length" class="manager-error">
+            {{ scoreCalculation.warnings.join('；') }}
+          </div>
+
+          <div class="split-view score-split-view">
+            <section class="panel">
+              <div class="section-head">
+                <div class="section-head-copy">
+                  <p class="eyebrow">综合评分</p>
+                  <h3>排行榜</h3>
+                </div>
+              </div>
+              <div class="list-grid">
+                <button
+                  v-for="(athlete, index) in scoreCalculation.ranking"
+                  :key="athlete.athlete_id"
+                  class="row-card adaptive-card score-rank-card"
+                  :class="{ active: selectedScoreAthleteId === athlete.athlete_id }"
+                  type="button"
+                  @click="selectedScoreAthleteId = athlete.athlete_id"
+                >
+                  <div class="score-rank-card-head">
+                    <span class="score-rank-index">#{{ index + 1 }}</span>
+                    <span v-if="getRankMedal(index)" class="score-rank-medal" :aria-label="`第 ${index + 1} 名奖牌`">
+                      {{ getRankMedal(index) }}
+                    </span>
+                  </div>
+                  <strong class="adaptive-card-title">{{ athlete.athlete_name }}</strong>
+                  <span class="adaptive-card-subtitle">{{ athlete.team_name || '未分队' }}</span>
+                  <small class="adaptive-card-meta">综合评分：{{ formatScoreDisplay(athlete.overall_score) }}</small>
+                </button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-head">
+                <div class="section-head-copy">
+                  <p class="eyebrow">雷达图</p>
+                  <h3>个人 vs 团队平均</h3>
+                </div>
+              </div>
+              <div v-if="selectedScoreAthlete" ref="scoreRadarRef" class="chart"></div>
+              <div v-else class="empty-state">当前没有可展示的个人评分结果。</div>
+              <p class="hint-text">绿色表示当前球员，橙色表示团队平均。50 为参考均值，60 约为高于均值 1 个标准差，40 约为低于均值 1 个标准差。</p>
+            </section>
+          </div>
+
+          <section v-if="selectedScoreAthlete" class="panel">
+            <div class="section-head">
+              <div class="section-head-copy">
+                <p class="eyebrow">项目明细</p>
+                <h3>{{ selectedScoreAthlete.athlete_name }} 评分明细</h3>
+              </div>
+            </div>
+
+            <div v-if="selectedScoreAthlete.missing_metrics.length" class="manager-error">
+              缺失项目：{{ selectedScoreAthlete.missing_metrics.join('；') }}
+            </div>
+
+            <div v-for="dimension in selectedScoreAthlete.dimension_scores" :key="dimension.dimension_id" class="detail-section">
+              <h4>{{ dimension.dimension_name }}：{{ dimension.score ?? '--' }}</h4>
+              <p v-if="dimension.warnings.length" class="hint-text">{{ dimension.warnings.join('；') }}</p>
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>测试项目</th>
+                      <th>原始值</th>
+                      <th>测试日期</th>
+                      <th>mean</th>
+                      <th>sd</th>
+                      <th>z</th>
+                      <th>standard_score</th>
+                      <th>权重</th>
+                      <th>缺失</th>
+                      <th>样本不足</th>
+                      <th>sd=0</th>
+                      <th>异常值提示</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="metric in dimension.metrics" :key="`${dimension.dimension_id}-${metric.metric_definition_id}`">
+                      <td>{{ metric.metric_name }}</td>
+                      <td>{{ metric.raw_value ?? '-' }}</td>
+                      <td>{{ metric.raw_test_date || '-' }}</td>
+                      <td>{{ metric.mean ?? '-' }}</td>
+                      <td>{{ metric.sd ?? '-' }}</td>
+                      <td>{{ metric.z ?? '-' }}</td>
+                      <td>{{ metric.standard_score ?? '-' }}</td>
+                      <td>{{ metric.weight ?? '-' }}</td>
+                      <td>{{ metric.is_missing ? '是' : '否' }}</td>
+                      <td>{{ metric.sample_insufficient ? '是' : '否' }}</td>
+                      <td>{{ metric.zero_variance ? '是' : '否' }}</td>
+                      <td>{{ metric.outlier_warning ? '是' : '否' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </template>
+      </div>
+
+      <div class="panel library-panel">
+        <div class="section-head">
+          <div class="section-head-copy">
             <p class="eyebrow">数据总库</p>
             <h3>测试数据总库</h3>
           </div>
@@ -1854,151 +2017,6 @@ onBeforeUnmount(() => {
         <p v-else-if="!libraryItems.length" class="hint-text">当前筛选条件下没有测试数据。</p>
         <p v-else-if="libraryLoadingMore" class="hint-text">正在加载更多测试数据...</p>
         <p v-else-if="libraryHasMore" class="hint-text">向下滚动继续加载更多记录。</p>
-      </div>
-
-      <div class="panel library-panel">
-        <div class="section-head">
-          <div class="section-head-copy">
-            <p class="eyebrow">测试评分</p>
-            <h3>测试评分与雷达图</h3>
-          </div>
-          <div class="action-row">
-            <button class="ghost-btn" type="button" @click="openScoreProfileManager">管理评分模板</button>
-          </div>
-        </div>
-
-        <div class="filter-grid">
-          <select v-model.number="scoreFilters.scoreProfileId" class="text-input">
-            <option :value="0">请选择评分模板</option>
-            <option v-for="profile in scoreProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
-          </select>
-          <select v-model.number="scoreFilters.teamId" class="text-input">
-            <option :value="0">请选择队伍</option>
-            <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
-          </select>
-          <select v-model="scoreFilters.baselineMode" class="text-input">
-            <option value="current_batch">当前批次</option>
-            <option value="historical_pool">历史数据池</option>
-          </select>
-          <input v-model="scoreFilters.dateFrom" type="date" class="text-input" />
-          <input v-model="scoreFilters.dateTo" type="date" class="text-input" />
-        </div>
-        <p class="field-note">
-          评分日期留空时，默认使用当前队伍全部测试记录的日期范围
-          <template v-if="scoreTeamDateRange">（{{ scoreTeamDateRange.from }} 至 {{ scoreTeamDateRange.to }}）</template>
-          <template v-else>。</template>
-        </p>
-        <p class="field-note">选择评分模板、队伍、评分基准或日期后将自动重新计算。</p>
-
-        <div class="entry-panel-body">
-          <p class="hint-text">当前评分模式：Z 分数标准化评分</p>
-          <p class="hint-text">T 分数解释：50 表示参考数据平均水平，每 10 分约等于 1 个标准差。</p>
-          <p class="hint-text">分数未做截断，极高或极低分可能代表真实极端表现，也可能提示需要检查原始数据。</p>
-          <p class="hint-text">当前评分取值口径：每个项目使用所选日期范围内最新一次测试记录。</p>
-        </div>
-
-        <template v-if="scoreCalculation">
-          <div class="library-meta">
-            <span>评分基准：{{ scoreCalculation.baseline_label }}</span>
-            <span>模板：{{ scoreCalculation.profile.name }}</span>
-            <span>参与排行人数：{{ scoreCalculation.ranking.length }}</span>
-          </div>
-
-          <div v-if="scoreCalculation.warnings.length" class="manager-error">
-            {{ scoreCalculation.warnings.join('；') }}
-          </div>
-
-          <div class="split-view score-split-view">
-            <section class="panel">
-              <div class="section-head">
-                <div class="section-head-copy">
-                  <p class="eyebrow">综合评分</p>
-                  <h3>排行榜</h3>
-                </div>
-              </div>
-              <div class="list-grid">
-                <button
-                  v-for="athlete in scoreCalculation.ranking"
-                  :key="athlete.athlete_id"
-                  class="row-card adaptive-card score-rank-card"
-                  :class="{ active: selectedScoreAthleteId === athlete.athlete_id }"
-                  type="button"
-                  @click="selectedScoreAthleteId = athlete.athlete_id"
-                >
-                  <strong class="adaptive-card-title">{{ athlete.athlete_name }}</strong>
-                  <span class="adaptive-card-subtitle">{{ athlete.team_name || '未分队' }}</span>
-                  <small class="adaptive-card-meta">综合评分：{{ athlete.overall_score ?? '--' }}</small>
-                </button>
-              </div>
-            </section>
-
-            <section class="panel">
-              <div class="section-head">
-                <div class="section-head-copy">
-                  <p class="eyebrow">雷达图</p>
-                  <h3>个人 vs 团队平均</h3>
-                </div>
-              </div>
-              <div v-if="selectedScoreAthlete" ref="scoreRadarRef" class="chart"></div>
-              <div v-else class="empty-state">当前没有可展示的个人评分结果。</div>
-              <p class="hint-text">绿色表示当前球员，橙色表示团队平均。50 为参考均值，60 约为高于均值 1 个标准差，40 约为低于均值 1 个标准差。</p>
-            </section>
-          </div>
-
-          <section v-if="selectedScoreAthlete" class="panel">
-            <div class="section-head">
-              <div class="section-head-copy">
-                <p class="eyebrow">项目明细</p>
-                <h3>{{ selectedScoreAthlete.athlete_name }} 评分明细</h3>
-              </div>
-            </div>
-
-            <div v-if="selectedScoreAthlete.missing_metrics.length" class="manager-error">
-              缺失项目：{{ selectedScoreAthlete.missing_metrics.join('；') }}
-            </div>
-
-            <div v-for="dimension in selectedScoreAthlete.dimension_scores" :key="dimension.dimension_id" class="detail-section">
-              <h4>{{ dimension.dimension_name }}：{{ dimension.score ?? '--' }}</h4>
-              <p v-if="dimension.warnings.length" class="hint-text">{{ dimension.warnings.join('；') }}</p>
-              <div class="table-scroll">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>测试项目</th>
-                      <th>原始值</th>
-                      <th>测试日期</th>
-                      <th>mean</th>
-                      <th>sd</th>
-                      <th>z</th>
-                      <th>standard_score</th>
-                      <th>权重</th>
-                      <th>缺失</th>
-                      <th>样本不足</th>
-                      <th>sd=0</th>
-                      <th>异常值提示</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="metric in dimension.metrics" :key="`${dimension.dimension_id}-${metric.metric_definition_id}`">
-                      <td>{{ metric.metric_name }}</td>
-                      <td>{{ metric.raw_value ?? '-' }}</td>
-                      <td>{{ metric.raw_test_date || '-' }}</td>
-                      <td>{{ metric.mean ?? '-' }}</td>
-                      <td>{{ metric.sd ?? '-' }}</td>
-                      <td>{{ metric.z ?? '-' }}</td>
-                      <td>{{ metric.standard_score ?? '-' }}</td>
-                      <td>{{ metric.weight ?? '-' }}</td>
-                      <td>{{ metric.is_missing ? '是' : '否' }}</td>
-                      <td>{{ metric.sample_insufficient ? '是' : '否' }}</td>
-                      <td>{{ metric.zero_variance ? '是' : '否' }}</td>
-                      <td>{{ metric.outlier_warning ? '是' : '否' }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        </template>
       </div>
     </div>
   </AppShell>
@@ -2721,6 +2739,42 @@ onBeforeUnmount(() => {
 
 .score-profile-base-section {
   gap: 12px;
+}
+
+.score-rank-card {
+  position: relative;
+}
+
+.score-rank-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.score-rank-index {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.score-rank-medal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+  font-size: 18px;
+  line-height: 1;
 }
 
 @media (max-width: 1100px) {
