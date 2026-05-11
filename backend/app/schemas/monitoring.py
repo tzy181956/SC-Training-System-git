@@ -41,6 +41,7 @@ class MonitoringAthleteCardRead(BaseModel):
     latest_set: MonitoringLatestSetRead | None = None
     alert_level: MonitoringAlertLevel = "none"
     alert_reasons: list[str] = Field(default_factory=list)
+    alert_generated_at: datetime | None = None
     has_alert: bool
 
 
@@ -109,5 +110,6 @@ class MonitoringAthleteDetailRead(BaseModel):
     session_completed_at: datetime | None = None
     alert_level: MonitoringAlertLevel = "none"
     alert_reasons: list[str] = Field(default_factory=list)
+    alert_generated_at: datetime | None = None
     has_alert: bool
     assignments: list[MonitoringAssignmentDetailRead]

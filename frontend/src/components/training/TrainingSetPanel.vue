@@ -196,7 +196,7 @@ function toggleHistoryPanel() {
 function formatRecordSummary(recordId: number) {
   const draft = recordDrafts[recordId]
   if (!draft) return ''
-  return `${draft.weight || '-'} 千克 · ${draft.reps || '-'} 次 · RIR ${draft.rir || '-'}`
+  return `${draft.weight || '-'} 千克 · ${draft.reps || '-'} 次 · RIR（还能做几个） ${draft.rir || '-'}`
 }
 
 function validateCurrentDraft() {
@@ -211,10 +211,10 @@ function validateCurrentDraft() {
     return { error: '当前组次数必须是正整数。' }
   }
   if (!currentDraft.rir.trim()) {
-    return { error: '请先手动选择当前组 RIR。' }
+    return { error: '请先手动选择当前组 RIR（还能做几个）。' }
   }
   if (!Number.isInteger(rir) || rir < 0 || rir > 4) {
-    return { error: '当前组 RIR 请输入 0 到 4。' }
+    return { error: '当前组 RIR（还能做几个）请输入 0 到 4。' }
   }
 
   return {
@@ -273,7 +273,7 @@ function validateRecordDraft(record: any) {
     return { error: `第 ${record.set_number} 组次数必须是正整数。` }
   }
   if (!Number.isInteger(rir) || rir < 0 || rir > 4) {
-    return { error: `第 ${record.set_number} 组 RIR 请输入 0 到 4。` }
+    return { error: `第 ${record.set_number} 组 RIR（还能做几个）请输入 0 到 4。` }
   }
 
   return {
@@ -362,13 +362,13 @@ function resetRecordDraft(record: any) {
           </label>
 
           <label class="field">
-            <span>RIR</span>
+            <span>RIR（还能做几个）</span>
             <input
               v-model="currentDraft.rir"
               class="text-input current-input readonly-input"
               type="text"
               readonly
-              placeholder="请选择 RIR"
+              placeholder="请选择 RIR（还能做几个）"
               @click.prevent
             />
             <div class="step-row rir-step-row">
@@ -383,7 +383,7 @@ function resetRecordDraft(record: any) {
                 {{ rirValue === 4 ? '4+' : rirValue }}
               </button>
             </div>
-            <span v-if="!hasSelectedCurrentRir" class="field-hint warning">RIR 必须手动选择后才能提交</span>
+            <span v-if="!hasSelectedCurrentRir" class="field-hint warning">先输入 RIR 后提交</span>
           </label>
         </div>
 
@@ -480,7 +480,7 @@ function resetRecordDraft(record: any) {
               </label>
 
               <label class="history-field">
-                <span>RIR</span>
+                <span>RIR（还能做几个）</span>
                 <input
                   v-model="recordDrafts[record.id].rir"
                   class="text-input history-input"
@@ -562,7 +562,9 @@ span {
 }
 
 .field-hint.warning {
-  color: #92400e;
+  color: #dc2626;
+  font-size: 16px;
+  font-weight: 800;
 }
 
 .field input {

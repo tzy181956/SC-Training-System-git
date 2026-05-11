@@ -117,6 +117,7 @@ def get_athlete_monitoring_detail(
         "session_completed_at": athlete_card["session_completed_at"],
         "alert_level": athlete_card["alert_level"],
         "alert_reasons": athlete_card["alert_reasons"],
+        "alert_generated_at": athlete_card["alert_generated_at"],
         "has_alert": athlete_card["has_alert"],
         "assignments": [
             _build_assignment_detail(assignment, sessions_by_assignment.get(assignment.id))
@@ -277,6 +278,8 @@ def _build_athlete_card(
         sync_status=sync_status,
         session_status=session_status,
         totals=totals,
+        sync_issues=sync_issues,
+        primary_session=primary_session,
         latest_record=latest_record,
         latest_main_lift_record=latest_main_lift_record,
         monitor_now=monitor_now,
@@ -307,6 +310,7 @@ def _build_athlete_card(
         "latest_set": _serialize_latest_record(latest_record),
         "alert_level": alert_summary["alert_level"],
         "alert_reasons": alert_summary["alert_reasons"],
+        "alert_generated_at": alert_summary["alert_generated_at"],
         "has_alert": alert_summary["alert_level"] != "none",
     }
 
@@ -325,44 +329,50 @@ def _build_alert_summary(
     sync_status: str,
     session_status: str,
     totals: dict[str, int],
+    sync_issues: list[TrainingSyncIssue],
+    primary_session: TrainingSession | None,
     latest_record: SetRecord | None,
     latest_main_lift_record: SetRecord | None,
     monitor_now: datetime,
     training_started_at: datetime | None,
 ) -> dict:
-    alerts: list[tuple[str, str]] = []
+    alerts: list[tuple[str, str, datetime | None]] = []
 
     if sync_status == "manual_retry_required":
-        alerts.append(("critical", "同步异常待处理"))
+        alerts.append(("critical", "同步异常待处理", _resolve_sync_issue_alert_time(sync_issues)))
     elif sync_status == "pending":
-        alerts.append(("warning", "本地数据待同步"))
+        alerts.append(("warning", "本地数据待同步", _resolve_sync_issue_alert_time(sync_issues)))
 
     if session_status == "partial_complete":
-        alerts.append(("warning", "已结束未完成"))
+        alerts.append(("warning", "已结束未完成", _resolve_session_alert_time(primary_session)))
     elif session_status == "absent":
-        alerts.append(("warning", "缺席"))
+        alerts.append(("warning", "缺席", _resolve_session_alert_time(primary_session)))
 
     if session_status == "not_started" and _is_not_started_timed_out(training_started_at, monitor_now):
-        alerts.append(("warning", "超过训练开始后 30 分钟仍未开始"))
+        alerts.append(("warning", "超过训练开始后 30 分钟仍未开始", _resolve_not_started_alert_time(training_started_at)))
 
     if session_status == "in_progress" and _is_in_progress_stale(latest_record, monitor_now):
-        alerts.append(("warning", "最近一组距离当前时间超过 20 分钟"))
+        alerts.append(("warning", "最近一组距离当前时间超过 20 分钟", _resolve_stale_record_alert_time(latest_record)))
 
     if latest_record and latest_record.actual_rir <= 0:
-        alerts.append(("warning", "最近一组 RIR <= 0"))
+        alerts.append(("warning", "最近一组 RIR <= 0", _ensure_aware_utc(latest_record.completed_at)))
 
     if latest_main_lift_record and latest_main_lift_record.actual_rir >= 4:
-        alerts.append(("info", "主项最近一组 RIR >= 4"))
+        alerts.append(("info", "主项最近一组 RIR >= 4", _ensure_aware_utc(latest_main_lift_record.completed_at)))
 
     if totals["completed_sets"] > totals["total_sets"]:
-        alerts.append(("warning", "完成组数 > 总组数"))
+        alerts.append(("warning", "完成组数 > 总组数", _resolve_stale_record_alert_time(latest_record) or _resolve_session_alert_time(primary_session)))
 
     alert_level = "none"
     alert_reasons: list[str] = []
+    alert_generated_at: datetime | None = None
     seen_reasons: set[str] = set()
-    for level, reason in alerts:
+    for index, (level, reason, generated_at) in enumerate(alerts):
         if ALERT_LEVEL_PRIORITY[level] > ALERT_LEVEL_PRIORITY[alert_level]:
             alert_level = level
+            alert_generated_at = generated_at
+        elif index == 0 and alert_generated_at is None:
+            alert_generated_at = generated_at
         if reason not in seen_reasons:
             alert_reasons.append(reason)
             seen_reasons.add(reason)
@@ -370,7 +380,36 @@ def _build_alert_summary(
     return {
         "alert_level": alert_level,
         "alert_reasons": alert_reasons,
+        "alert_generated_at": alert_generated_at,
     }
+
+
+def _resolve_sync_issue_alert_time(sync_issues: list[TrainingSyncIssue]) -> datetime | None:
+    if not sync_issues:
+        return None
+    return _ensure_aware_utc(sync_issues[0].updated_at)
+
+
+def _resolve_session_alert_time(session: TrainingSession | None) -> datetime | None:
+    if session is None:
+        return None
+    if session.completed_at:
+        return _ensure_aware_utc(session.completed_at)
+    if session.updated_at:
+        return _ensure_aware_utc(session.updated_at)
+    return _ensure_aware_utc(session.created_at)
+
+
+def _resolve_not_started_alert_time(training_started_at: datetime | None) -> datetime | None:
+    if training_started_at is None:
+        return None
+    return _ensure_aware_utc(training_started_at) + NOT_STARTED_ALERT_AFTER
+
+
+def _resolve_stale_record_alert_time(latest_record: SetRecord | None) -> datetime | None:
+    if latest_record is None:
+        return None
+    return _ensure_aware_utc(latest_record.completed_at) + IN_PROGRESS_STALE_AFTER
 
 
 def _is_not_started_timed_out(training_started_at: datetime | None, monitor_now: datetime) -> bool:

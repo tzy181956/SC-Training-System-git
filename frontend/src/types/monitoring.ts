@@ -81,6 +81,7 @@ export type MonitoringAthleteCard = {
   latest_set: MonitoringLatestSetSnapshot | null
   alert_level: MonitoringAlertLevel
   alert_reasons: string[]
+  alert_generated_at?: string | null
   has_alert: boolean
 }
 
@@ -124,6 +125,7 @@ export type MonitoringAthleteDetailResponse = {
   session_completed_at?: string | null
   alert_level: MonitoringAlertLevel
   alert_reasons: string[]
+  alert_generated_at?: string | null
   has_alert: boolean
   assignments: MonitoringAssignmentDetail[]
 }

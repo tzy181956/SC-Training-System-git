@@ -435,16 +435,22 @@ async function submitCurrentSet(payload: Record<string, unknown>) {
   if (!activeItem.value) return
   restoreToActionList.value = false
   const currentItemId = activeItem.value.id
+  const submittedWhileFocusedItemId = activeItemId.value
   const response = await trainingStore.recordSet(currentItemId, payload, {
     activeItemId: currentItemId,
     latestSuggestion: latestSuggestion.value,
   })
+  const userStillFocusedSubmittedItem = activeItemId.value === submittedWhileFocusedItemId
   if (response.item.status === 'completed') {
-    latestSuggestion.value = null
-    activeItemId.value = findNextPendingItemId(currentItemId) ?? currentItemId
+    if (userStillFocusedSubmittedItem) {
+      latestSuggestion.value = null
+      activeItemId.value = findNextPendingItemId(currentItemId) ?? currentItemId
+    }
   } else {
-    activeItemId.value = currentItemId
-    latestSuggestion.value = response.next_suggestion
+    if (userStillFocusedSubmittedItem) {
+      activeItemId.value = currentItemId
+      latestSuggestion.value = response.next_suggestion
+    }
   }
   if (response.session?.id && !route.params.sessionId) {
     await router.replace({ name: 'training-session', params: { sessionId: response.session.id } })
@@ -463,12 +469,16 @@ async function updateRecord(recordId: number, payload: Record<string, unknown>) 
   if (!activeItem.value) return
   restoreToActionList.value = false
   const currentItemId = activeItem.value.id
+  const submittedWhileFocusedItemId = activeItemId.value
   const response = await trainingStore.reviseSetRecord(recordId, payload, {
     activeItemId: currentItemId,
     latestSuggestion: latestSuggestion.value,
   })
-  latestSuggestion.value = response.next_suggestion
-  if (response.item.status === 'completed') {
+  const userStillFocusedSubmittedItem = activeItemId.value === submittedWhileFocusedItemId
+  if (userStillFocusedSubmittedItem) {
+    latestSuggestion.value = response.next_suggestion
+  }
+  if (response.item.status === 'completed' && userStillFocusedSubmittedItem) {
     activeItemId.value = findNextPendingItemId(currentItemId) ?? currentItemId
   }
 }

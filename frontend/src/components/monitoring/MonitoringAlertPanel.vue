@@ -1,15 +1,25 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
-import {
-  getTrainingStatusLabel,
-  MONITORING_STATUS_LABEL_OVERRIDES,
-} from '@/constants/trainingStatus'
 import type { MonitoringAlertLevel, MonitoringAthleteCard } from '@/types/monitoring'
+import {
+  buildMonitoringAlertKey,
+  resolveMonitoringAlertLevel,
+  resolveMonitoringAlertReasons,
+} from '@/utils/monitoringAlerts'
 
 const props = defineProps<{
   athletes: MonitoringAthleteCard[]
+  sessionDate: string
+  dismissedAlertKeys: string[]
+  deletedAlertKeys: string[]
   loading?: boolean
+}>()
+
+const emit = defineEmits<{
+  dismissAlert: [key: string]
+  restoreAlert: [key: string]
+  deleteAlert: [key: string]
 }>()
 
 const alertLevelLabels: Record<MonitoringAlertLevel, string> = {
@@ -19,28 +29,51 @@ const alertLevelLabels: Record<MonitoringAlertLevel, string> = {
   critical: '关键',
 }
 
-const alertAthletes = computed(() =>
-  props.athletes.filter((athlete) => alertLevel(athlete) !== 'none'),
+type AlertEntry = {
+  key: string
+  athlete: MonitoringAthleteCard
+  level: MonitoringAlertLevel
+  reasons: string[]
+  generatedAt: string | null
+}
+
+const archivedExpanded = ref(false)
+
+function formatGeneratedAt(value: string | null | undefined) {
+  if (!value) return '时间待确认'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '时间待确认'
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+const alertEntries = computed<AlertEntry[]>(() =>
+  props.athletes.reduce<AlertEntry[]>((entries, athlete) => {
+    const level = resolveMonitoringAlertLevel(athlete)
+    if (level === 'none') return entries
+    const reasons = resolveMonitoringAlertReasons(athlete)
+    entries.push({
+      key: buildMonitoringAlertKey(props.sessionDate, athlete),
+      athlete,
+      level,
+      reasons,
+      generatedAt: athlete.alert_generated_at || null,
+    })
+    return entries
+  }, []),
 )
 
-function alertLevel(athlete: MonitoringAthleteCard): MonitoringAlertLevel {
-  if (athlete.alert_level && athlete.alert_level !== 'none') return athlete.alert_level
-  if (!athlete.has_alert && athlete.sync_status === 'synced') return 'none'
-  if (athlete.sync_status === 'manual_retry_required') return 'critical'
-  return 'warning'
-}
-
-function fallbackAlertReason(athlete: MonitoringAthleteCard) {
-  if (athlete.sync_status === 'manual_retry_required') return '同步异常待处理'
-  if (athlete.sync_status === 'pending') return '本地数据待同步'
-  if (athlete.session_status === 'partial_complete') return '已结束未完成'
-  if (athlete.session_status === 'absent') return '缺席'
-  return getTrainingStatusLabel(athlete.session_status, MONITORING_STATUS_LABEL_OVERRIDES)
-}
-
-function alertReasons(athlete: MonitoringAthleteCard) {
-  return athlete.alert_reasons?.length ? athlete.alert_reasons : [fallbackAlertReason(athlete)]
-}
+const dismissedKeySet = computed(() => new Set(props.dismissedAlertKeys))
+const deletedKeySet = computed(() => new Set(props.deletedAlertKeys))
+const activeAlerts = computed(() =>
+  alertEntries.value.filter((entry) => !dismissedKeySet.value.has(entry.key) && !deletedKeySet.value.has(entry.key)),
+)
+const archivedAlerts = computed(() =>
+  alertEntries.value.filter((entry) => dismissedKeySet.value.has(entry.key) && !deletedKeySet.value.has(entry.key)),
+)
 </script>
 
 <template>
@@ -50,23 +83,55 @@ function alertReasons(athlete: MonitoringAthleteCard) {
         <p class="section-label">异常提醒</p>
         <h3>需要关注</h3>
       </div>
-      <span>{{ alertAthletes.length }} 项</span>
+      <span>{{ activeAlerts.length }} 项</span>
     </div>
 
     <div v-if="loading" class="alert-state">正在加载...</div>
-    <div v-else-if="!alertAthletes.length" class="alert-state">当前没有同步异常或未完成提醒。</div>
-    <div v-else class="alert-list">
-      <article v-for="athlete in alertAthletes" :key="athlete.athlete_id" class="alert-row" :class="alertLevel(athlete)">
-        <div class="adaptive-card">
-          <strong class="adaptive-card-title">{{ athlete.athlete_name }}</strong>
-          <span class="adaptive-card-subtitle">{{ athlete.team_name || '未分队' }}</span>
+    <template v-else>
+      <div v-if="!activeAlerts.length" class="alert-state">当前没有未收起的提醒。</div>
+      <div v-else class="alert-list">
+        <article v-for="entry in activeAlerts" :key="entry.key" class="alert-row" :class="entry.level">
+          <div class="adaptive-card">
+            <div class="row-head">
+              <strong class="adaptive-card-title">{{ entry.athlete.athlete_name }}</strong>
+              <button class="ghost-btn slim-btn alert-action" type="button" @click="emit('dismissAlert', entry.key)">收起提醒</button>
+            </div>
+            <span class="adaptive-card-subtitle">{{ entry.athlete.team_name || '未分队' }}</span>
+            <span class="generated-at">产生时间：{{ formatGeneratedAt(entry.generatedAt) }}</span>
+          </div>
+          <span class="level-pill" :class="entry.level">{{ alertLevelLabels[entry.level] }}</span>
+          <div class="reason-list">
+            <span v-for="reason in entry.reasons" :key="reason">{{ reason }}</span>
+          </div>
+        </article>
+      </div>
+
+      <section v-if="archivedAlerts.length" class="archived-panel">
+        <button class="archived-toggle" type="button" @click="archivedExpanded = !archivedExpanded">
+          <span>已收起提醒 {{ archivedAlerts.length }} 项</span>
+          <span>{{ archivedExpanded ? '收起' : '展开' }}</span>
+        </button>
+        <div v-if="archivedExpanded" class="archived-list">
+          <article v-for="entry in archivedAlerts" :key="entry.key" class="alert-row archived" :class="entry.level">
+            <div class="adaptive-card">
+              <div class="row-head">
+                <strong class="adaptive-card-title">{{ entry.athlete.athlete_name }}</strong>
+                <div class="archived-actions">
+                  <button class="ghost-btn slim-btn alert-action" type="button" @click="emit('restoreAlert', entry.key)">恢复提醒</button>
+                  <button class="ghost-btn slim-btn danger alert-action" type="button" @click="emit('deleteAlert', entry.key)">删除提醒</button>
+                </div>
+              </div>
+              <span class="adaptive-card-subtitle">{{ entry.athlete.team_name || '未分队' }}</span>
+              <span class="generated-at">产生时间：{{ formatGeneratedAt(entry.generatedAt) }}</span>
+            </div>
+            <span class="level-pill" :class="entry.level">{{ alertLevelLabels[entry.level] }}</span>
+            <div class="reason-list">
+              <span v-for="reason in entry.reasons" :key="reason">{{ reason }}</span>
+            </div>
+          </article>
         </div>
-        <span class="level-pill" :class="alertLevel(athlete)">{{ alertLevelLabels[alertLevel(athlete)] }}</span>
-        <div class="reason-list">
-          <span v-for="reason in alertReasons(athlete)" :key="reason">{{ reason }}</span>
-        </div>
-      </article>
-    </div>
+      </section>
+    </template>
   </aside>
 </template>
 
@@ -114,6 +179,31 @@ function alertReasons(athlete: MonitoringAthleteCard) {
   border: 1px solid rgba(185, 28, 28, 0.16);
   border-radius: 12px;
   background: #fff7ed;
+}
+
+.row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.generated-at {
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alert-action {
+  flex-shrink: 0;
+}
+
+.archived-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .level-pill {
@@ -164,6 +254,38 @@ function alertReasons(athlete: MonitoringAthleteCard) {
 .alert-row.critical .reason-list span {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.archived-panel {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.1);
+}
+
+.archived-toggle {
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.76);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.archived-list {
+  display: grid;
+  gap: 10px;
+}
+
+.alert-row.archived {
+  background: rgba(255, 255, 255, 0.82);
+  border-style: dashed;
 }
 
 .alert-state {

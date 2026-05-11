@@ -12,6 +12,7 @@ import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.v
 import { ALL_TEAMS_VALUE, UNASSIGNED_TEAM_VALUE } from '@/composables/useTeamFilter'
 import type { MonitoringAthleteCard, MonitoringAthleteDetailResponse, MonitoringTodayResponse } from '@/types/monitoring'
 import { todayString } from '@/utils/date'
+import { buildMonitoringAlertKey, buildMonitoringAlertStorageKey } from '@/utils/monitoringAlerts'
 import { sortMonitoringAthletes } from '@/utils/monitoringSort'
 
 const AUTO_REFRESH_OPTIONS = [
@@ -36,6 +37,8 @@ const selectedAthleteId = ref<number | null>(null)
 const selectedAthleteDetail = ref<MonitoringAthleteDetailResponse | null>(null)
 const detailLoading = ref(false)
 const detailError = ref('')
+const dismissedAlertKeys = ref<string[]>([])
+const deletedAlertKeys = ref<string[]>([])
 
 let refreshTimerId: number | null = null
 let activeRequestId = 0
@@ -66,7 +69,19 @@ const displayedAthletes = computed<MonitoringAthleteCard[]>(() => {
   }
   return athletes
 })
-const sortedAthletes = computed(() => sortMonitoringAthletes(displayedAthletes.value))
+const hiddenAlertKeys = computed(() => Array.from(new Set([...dismissedAlertKeys.value, ...deletedAlertKeys.value])))
+const presentationAthletes = computed<MonitoringAthleteCard[]>(() => {
+  const hiddenKeySet = new Set(hiddenAlertKeys.value)
+  return displayedAthletes.value.map((athlete) => {
+    if (!hiddenKeySet.has(buildMonitoringAlertKey(monitorDate.value, athlete))) return athlete
+    return {
+      ...athlete,
+      alert_level: 'none',
+      has_alert: false,
+    }
+  })
+})
+const sortedAthletes = computed(() => sortMonitoringAthletes(presentationAthletes.value))
 const selectedAthlete = computed(() => {
   if (!selectedAthleteId.value) return null
   return sortedAthletes.value.find((athlete) => athlete.athlete_id === selectedAthleteId.value) || null
@@ -288,12 +303,70 @@ function formatMonitorDate(value: string) {
   return `${year}年${monthNumber}月${dayNumber}日`
 }
 
+function loadStoredAlertKeys(bucket: 'dismissed' | 'deleted', sessionDate: string) {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(buildMonitoringAlertStorageKey(sessionDate, bucket))
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function persistStoredAlertKeys(bucket: 'dismissed' | 'deleted', sessionDate: string, keys: string[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(buildMonitoringAlertStorageKey(sessionDate, bucket), JSON.stringify(keys))
+}
+
+function dismissAlert(key: string) {
+  if (dismissedAlertKeys.value.includes(key)) return
+  dismissedAlertKeys.value = [...dismissedAlertKeys.value, key]
+  deletedAlertKeys.value = deletedAlertKeys.value.filter((item) => item !== key)
+}
+
+function restoreAlert(key: string) {
+  dismissedAlertKeys.value = dismissedAlertKeys.value.filter((item) => item !== key)
+  deletedAlertKeys.value = deletedAlertKeys.value.filter((item) => item !== key)
+}
+
+function deleteAlert(key: string) {
+  if (deletedAlertKeys.value.includes(key)) return
+  deletedAlertKeys.value = [...deletedAlertKeys.value, key]
+  dismissedAlertKeys.value = dismissedAlertKeys.value.filter((item) => item !== key)
+}
+
 watch(sortedAthletes, (athletes) => {
   if (!selectedAthleteId.value) return
   if (!athletes.some((athlete) => athlete.athlete_id === selectedAthleteId.value)) {
     closeAthleteDetail()
   }
 })
+
+watch(
+  monitorDate,
+  (sessionDate) => {
+    dismissedAlertKeys.value = loadStoredAlertKeys('dismissed', sessionDate)
+    deletedAlertKeys.value = loadStoredAlertKeys('deleted', sessionDate)
+  },
+  { immediate: true },
+)
+
+watch(
+  dismissedAlertKeys,
+  (keys) => {
+    persistStoredAlertKeys('dismissed', monitorDate.value, keys)
+  },
+  { deep: true },
+)
+
+watch(
+  deletedAlertKeys,
+  (keys) => {
+    persistStoredAlertKeys('deleted', monitorDate.value, keys)
+  },
+  { deep: true },
+)
 
 onMounted(() => {
   pageVisible.value = !document.hidden
@@ -365,10 +438,22 @@ onBeforeUnmount(() => {
         <MonitoringAthleteBoard
           class="board-main"
           :athletes="sortedAthletes"
+          :session-date="monitorDate"
+          :dismissed-alert-keys="hiddenAlertKeys"
           :loading="loading"
           @select-athlete="handleAthleteClick"
         />
-        <MonitoringAlertPanel class="board-side" :athletes="sortedAthletes" :loading="loading" />
+        <MonitoringAlertPanel
+          class="board-side"
+          :athletes="displayedAthletes"
+          :session-date="monitorDate"
+          :dismissed-alert-keys="dismissedAlertKeys"
+          :deleted-alert-keys="deletedAlertKeys"
+          :loading="loading"
+          @dismiss-alert="dismissAlert"
+          @restore-alert="restoreAlert"
+          @delete-alert="deleteAlert"
+        />
       </section>
 
       <MonitoringAthleteDetailOverlay
@@ -437,6 +522,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
+  align-items: start;
 }
 
 .board-main,

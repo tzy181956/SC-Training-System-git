@@ -258,10 +258,10 @@ def add_template_item(
         raise not_found("Training template not found")
 
     module = _get_template_module_for_template(db, template_id, payload.module_id)
+    exercise = _get_template_item_exercise(db, payload.exercise_id)
     item = TrainingPlanTemplateItem(template_id=template_id, **payload.model_dump())
     db.add(item)
     db.flush()
-    exercise = db.query(Exercise).filter(Exercise.id == item.exercise_id).first()
     exercise_label = exercise.name if exercise else f"动作 {item.exercise_id}"
     content_change_log_service.log_content_change(
         db,
@@ -301,6 +301,8 @@ def update_template_item(
 
     if payload.module_id is not None:
         _get_template_module_for_template(db, item.template_id, payload.module_id)
+    if payload.exercise_id is not None:
+        _get_template_item_exercise(db, payload.exercise_id)
 
     before_snapshot = _serialize_template_item(item, exercise_name=item.exercise.name if item.exercise else None)
     for key, value in payload.model_dump(exclude_unset=True).items():
@@ -522,3 +524,13 @@ def _get_template_module_for_template(db: Session, template_id: int, module_id: 
     if not module:
         raise bad_request("模板模块不存在，请先刷新后重试。")
     return module
+
+
+def _get_template_item_exercise(db: Session, exercise_id: int | None) -> Exercise:
+    if not exercise_id or exercise_id <= 0:
+        raise bad_request("模板动作还没有选择训练动作，请先补全后再保存。")
+
+    exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+    if not exercise:
+        raise bad_request("所选动作不存在，请重新选择后再保存。")
+    return exercise

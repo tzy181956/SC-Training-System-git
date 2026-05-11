@@ -10,6 +10,7 @@ const props = defineProps<{
   testMetricOptions?: Array<{ id: number; label: string; name?: string; test_type_name?: string }>
   template: any | null
   saveNoticeKey?: number
+  saving?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -29,6 +30,8 @@ const removedItemIds = ref<number[]>([])
 const removedModuleIds = ref<number[]>([])
 const nextTempId = ref(-1)
 const saveNotice = ref('')
+const activeItemId = ref<number | null>(null)
+const expandedModuleIds = ref<number[]>([])
 let saveNoticeTimer: number | null = null
 
 watch(
@@ -69,6 +72,10 @@ watch(
       }))
     removedItemIds.value = []
     removedModuleIds.value = []
+    syncInteractionState({
+      preferredItemId: draftItems.value[0]?.id || null,
+      preferredExpandedModuleIds: resolvedModules[0]?.id ? [resolvedModules[0].id] : [],
+    })
   },
   { immediate: true },
 )
@@ -120,6 +127,11 @@ const moduleOptions = computed(() =>
     label: module.title ? `${module.display_label} · ${module.title}` : module.display_label,
   })),
 )
+const saveButtonLabel = computed(() => {
+  if (props.saving) return '保存中...'
+  if (saveNotice.value) return '已保存'
+  return '保存模板'
+})
 
 function buildNewModuleDraft() {
   return {
@@ -131,12 +143,17 @@ function buildNewModuleDraft() {
 }
 
 function buildNewItemDraft(moduleId: number) {
+  const moduleItems = [...draftItems.value]
+    .filter((item) => item.module_id === moduleId)
+    .sort((left, right) => left.sort_order - right.sort_order || left.id - right.id)
+  const lastItem = moduleItems[moduleItems.length - 1]
+
   return {
     id: nextTempId.value--,
     module_id: moduleId,
     exercise_id: 0,
     sort_order: draftItems.value.length + 1,
-    prescribed_sets: 4,
+    prescribed_sets: lastItem?.prescribed_sets ?? 4,
     prescribed_reps: 5,
     target_note: '',
     is_main_lift: false,
@@ -204,8 +221,78 @@ function normalizeBuilderState(modulesInput = draftModules.value, itemGroups = b
   draftItems.value = normalizedItems
 }
 
+function syncInteractionState(options: {
+  preferredItemId?: number | null
+  preferredExpandedModuleIds?: number[]
+} = {}) {
+  const moduleIdSet = new Set(draftModules.value.map((module) => module.id))
+  const nextExpanded = new Set(
+    (options.preferredExpandedModuleIds ?? expandedModuleIds.value).filter((moduleId) => moduleIdSet.has(moduleId)),
+  )
+
+  let nextActiveItemId = options.preferredItemId ?? activeItemId.value
+  if (!nextActiveItemId || !draftItems.value.some((item) => item.id === nextActiveItemId)) {
+    nextActiveItemId = draftItems.value[0]?.id ?? null
+  }
+  activeItemId.value = nextActiveItemId
+
+  const activeModuleId = draftItems.value.find((item) => item.id === activeItemId.value)?.module_id ?? null
+  if (activeModuleId && moduleIdSet.has(activeModuleId)) {
+    nextExpanded.add(activeModuleId)
+  }
+
+  if (!nextExpanded.size && draftModules.value[0]) {
+    nextExpanded.add(draftModules.value[0].id)
+  }
+
+  expandedModuleIds.value = Array.from(nextExpanded)
+}
+
+function isModuleExpanded(moduleId: number) {
+  return expandedModuleIds.value.includes(moduleId)
+}
+
+function toggleModuleExpanded(moduleId: number) {
+  if (isModuleExpanded(moduleId)) {
+    expandedModuleIds.value = expandedModuleIds.value.filter((id) => id !== moduleId)
+    if (draftItems.value.find((item) => item.id === activeItemId.value)?.module_id === moduleId) {
+      activeItemId.value = null
+    }
+    if (!expandedModuleIds.value.length && draftModules.value[0]) {
+      expandedModuleIds.value = [draftModules.value[0].id]
+    }
+    return
+  }
+
+  expandedModuleIds.value = Array.from(new Set([...expandedModuleIds.value, moduleId]))
+}
+
+function toggleItemOpen(itemId: number) {
+  if (activeItemId.value === itemId) {
+    activeItemId.value = null
+    return
+  }
+
+  activeItemId.value = itemId
+  const moduleId = draftItems.value.find((item) => item.id === itemId)?.module_id
+  if (moduleId && !expandedModuleIds.value.includes(moduleId)) {
+    expandedModuleIds.value = Array.from(new Set([...expandedModuleIds.value, moduleId]))
+  }
+}
+
+function focusItem(itemId: number) {
+  activeItemId.value = itemId
+  const moduleId = draftItems.value.find((item) => item.id === itemId)?.module_id
+  if (moduleId && !expandedModuleIds.value.includes(moduleId)) {
+    expandedModuleIds.value = Array.from(new Set([...expandedModuleIds.value, moduleId]))
+  }
+}
+
 function addModule() {
   normalizeBuilderState([...draftModules.value, buildNewModuleDraft()], buildItemGroups())
+  syncInteractionState({
+    preferredExpandedModuleIds: draftModules.value.map((module) => module.id),
+  })
 }
 
 function updateModuleDraft(moduleId: number, payload: Record<string, unknown>) {
@@ -222,6 +309,7 @@ function moveModuleDraft(moduleId: number, direction: 'up' | 'down') {
   if (index < 0 || targetIndex < 0 || targetIndex >= modules.length) return
   ;[modules[index], modules[targetIndex]] = [modules[targetIndex], modules[index]]
   normalizeBuilderState(modules, buildItemGroups())
+  syncInteractionState()
 }
 
 function removeModuleDraft(moduleId: number) {
@@ -256,12 +344,18 @@ function removeModuleDraft(moduleId: number) {
     draftModules.value.filter((module) => module.id !== moduleId),
     buildItemGroups(draftItems.value.filter((item) => item.module_id !== moduleId)),
   )
+  syncInteractionState()
 }
 
 function addItem(moduleId: number) {
   const itemGroups = buildItemGroups()
-  itemGroups.set(moduleId, [...(itemGroups.get(moduleId) || []), buildNewItemDraft(moduleId)])
+  const nextItem = buildNewItemDraft(moduleId)
+  itemGroups.set(moduleId, [...(itemGroups.get(moduleId) || []), nextItem])
   normalizeBuilderState(draftModules.value, itemGroups)
+  syncInteractionState({
+    preferredItemId: nextItem.id,
+    preferredExpandedModuleIds: Array.from(new Set([...expandedModuleIds.value, moduleId])),
+  })
 }
 
 function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
@@ -278,6 +372,10 @@ function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
     const targetModuleId = Number(payload.module_id)
     itemGroups.set(targetModuleId, [...(itemGroups.get(targetModuleId) || []), nextItem])
     normalizeBuilderState(draftModules.value, itemGroups)
+    syncInteractionState({
+      preferredItemId: itemId,
+      preferredExpandedModuleIds: Array.from(new Set([...expandedModuleIds.value, targetModuleId])),
+    })
     return
   }
 
@@ -294,6 +392,9 @@ function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
       ),
     ),
   )
+  syncInteractionState({
+    preferredItemId: itemId,
+  })
 }
 
 function removeItemDraft(itemId: number) {
@@ -318,6 +419,7 @@ function removeItemDraft(itemId: number) {
     draftModules.value,
     buildItemGroups(draftItems.value.filter((item) => item.id !== itemId)),
   )
+  syncInteractionState()
 }
 
 function moveItemDraft(itemId: number, direction: 'up' | 'down') {
@@ -331,9 +433,34 @@ function moveItemDraft(itemId: number, direction: 'up' | 'down') {
   ;[moduleItems[index], moduleItems[targetIndex]] = [moduleItems[targetIndex], moduleItems[index]]
   itemGroups.set(current.module_id, moduleItems)
   normalizeBuilderState(draftModules.value, itemGroups)
+  syncInteractionState({
+    preferredItemId: itemId,
+  })
+}
+
+function findFirstInvalidItem() {
+  for (const module of sortedModules.value) {
+    for (const item of module.items) {
+      if (Number(item.exercise_id) > 0) continue
+      return {
+        moduleId: module.id,
+        itemId: item.id,
+        displayCode: item.display_code || `${module.module_code}.${item.display_index || 1}`,
+      }
+    }
+  }
+  return null
 }
 
 function saveTemplate() {
+  if (props.saving) return
+  const invalidItem = findFirstInvalidItem()
+  if (invalidItem) {
+    expandedModuleIds.value = Array.from(new Set([...expandedModuleIds.value, invalidItem.moduleId]))
+    activeItemId.value = invalidItem.itemId
+    window.alert(`${invalidItem.displayCode} 还没有选择动作，请先补全或删除后再保存。`)
+    return
+  }
   emit('saveTemplate', {
     template: {
       name: templateForm.name,
@@ -369,6 +496,12 @@ function saveTemplate() {
   })
 }
 
+function moduleSummary(module: any) {
+  if (module.note) return module.note
+  if (module.items.length) return `${module.items.length} 个动作，点击展开继续编辑。`
+  return '当前模块还没有动作，点击展开后继续配置。'
+}
+
 function removeTemplate() {
   if (!props.template?.id) return
   const confirmed = confirmDangerousAction({
@@ -394,7 +527,7 @@ function removeTemplate() {
       </div>
       <div class="header-actions">
         <button v-if="template?.id" class="ghost-btn slim danger-btn" type="button" @click="removeTemplate">删除模板</button>
-        <button class="primary-btn slim" type="button" @click="saveTemplate">保存模板</button>
+        <button class="primary-btn slim" type="button" :disabled="saving" @click="saveTemplate">{{ saveButtonLabel }}</button>
       </div>
 
       <p v-if="saveNotice" class="save-notice">{{ saveNotice }}</p>
@@ -435,7 +568,12 @@ function removeTemplate() {
     </div>
 
     <div class="module-list">
-      <section v-for="(module, moduleIndex) in sortedModules" :key="module.id" class="panel module-card">
+      <section
+        v-for="(module, moduleIndex) in sortedModules"
+        :key="module.id"
+        class="panel module-card"
+        :class="{ 'module-card--collapsed': !isModuleExpanded(module.id) }"
+      >
         <div class="module-head">
           <div class="module-copy">
             <p class="module-eyebrow">{{ module.display_label }}</p>
@@ -443,6 +581,9 @@ function removeTemplate() {
             <p class="module-meta">{{ module.items.length }} 个动作</p>
           </div>
           <div class="header-actions">
+            <button class="ghost-btn slim-btn" type="button" @click="toggleModuleExpanded(module.id)">
+              {{ isModuleExpanded(module.id) ? '收起模块' : '展开模块' }}
+            </button>
             <button class="slim-btn" type="button" :disabled="moduleIndex === 0" @click="moveModuleDraft(module.id, 'up')">上移模块</button>
             <button
               class="slim-btn"
@@ -456,51 +597,59 @@ function removeTemplate() {
           </div>
         </div>
 
-        <div class="grid two">
-          <label class="field">
-            <span class="field-label">模块标题</span>
-            <input
-              :value="module.title"
-              class="text-input"
-              placeholder="例如：主项循环、辅助力量、速度补充"
-              @input="updateModuleDraft(module.id, { title: ($event.target as HTMLInputElement).value })"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label">模块说明</span>
-            <input
-              :value="module.note"
-              class="text-input"
-              placeholder="例如：4 个动作循环 3 轮，组间快切"
-              @input="updateModuleDraft(module.id, { note: ($event.target as HTMLInputElement).value })"
-            />
-          </label>
-        </div>
+        <p v-if="!isModuleExpanded(module.id)" class="module-collapsed-summary">{{ moduleSummary(module) }}</p>
 
-        <div class="module-actions">
-          <button class="primary-btn slim" type="button" @click="addItem(module.id)">在 {{ module.display_label }} 中添加动作</button>
-        </div>
-
-        <div class="module-items">
-          <TemplateItemCard
-            v-for="(item, itemIndex) in module.items"
-            :key="item.id"
-            :item="item"
-            :item-label="item.display_code"
-            :module-options="moduleOptions"
-            :move-up-disabled="itemIndex === 0"
-            :move-down-disabled="itemIndex === module.items.length - 1"
-            :exercises="exercises"
-            :test-metric-options="testMetricOptions || []"
-            @change="updateItemDraft"
-            @remove="removeItemDraft"
-            @move="moveItemDraft"
-          />
-          <div v-if="!module.items.length" class="empty-module">
-            <h5>{{ module.display_label }} 还没有动作</h5>
-            <p>先点击上方按钮，在这个模块里追加动作卡片。</p>
+        <template v-else>
+          <div class="grid two">
+            <label class="field">
+              <span class="field-label">模块标题</span>
+              <input
+                :value="module.title"
+                class="text-input"
+                placeholder="例如：主项循环、辅助力量、速度补充"
+                @input="updateModuleDraft(module.id, { title: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">模块说明</span>
+              <input
+                :value="module.note"
+                class="text-input"
+                placeholder="例如：4 个动作循环 3 轮，组间快切"
+                @input="updateModuleDraft(module.id, { note: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
           </div>
-        </div>
+
+          <div class="module-actions">
+            <button class="primary-btn slim" type="button" @click="addItem(module.id)">在 {{ module.display_label }} 中添加动作</button>
+          </div>
+
+          <div class="module-items">
+            <TemplateItemCard
+              v-for="(item, itemIndex) in module.items"
+              :key="`${template?.id || 'draft'}-${item.id}`"
+              :item="item"
+              :item-label="item.display_code"
+              :module-options="moduleOptions"
+              :move-up-disabled="itemIndex === 0"
+              :move-down-disabled="itemIndex === module.items.length - 1"
+              :exercises="exercises"
+              :test-metric-options="testMetricOptions || []"
+              :active="item.id === activeItemId"
+              :open="item.id === activeItemId"
+              @change="updateItemDraft"
+              @remove="removeItemDraft"
+              @move="moveItemDraft"
+              @toggle-open="toggleItemOpen"
+              @focus="focusItem"
+            />
+            <div v-if="!module.items.length" class="empty-module">
+              <h5>{{ module.display_label }} 还没有动作</h5>
+              <p>先点击上方按钮，在这个模块里追加动作卡片。</p>
+            </div>
+          </div>
+        </template>
       </section>
 
       <div v-if="!sortedModules.length" class="panel empty-panel">
@@ -588,9 +737,20 @@ function removeTemplate() {
   border: 1px solid rgba(15, 118, 110, 0.14);
 }
 
+.module-card--collapsed {
+  gap: 12px;
+}
+
 .module-actions {
   display: flex;
   justify-content: flex-start;
+}
+
+.module-collapsed-summary {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .empty-module {

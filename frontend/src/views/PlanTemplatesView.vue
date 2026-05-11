@@ -24,6 +24,8 @@ const testMetricOptions = ref<any[]>([])
 const selectedTemplateId = ref<number | null>(null)
 const keyword = ref('')
 const saveNoticeKey = ref(0)
+const savingTemplate = ref(false)
+const loadWarning = ref('')
 
 const selectedTemplate = computed(
   () => templates.value.find((template) => template.id === selectedTemplateId.value) || null,
@@ -52,14 +54,29 @@ function normalizeTestMetricOptions(catalog: any): any[] {
 }
 
 async function hydrate(preferredTemplateId?: number | null) {
-  const [templateData, exerciseData, testDefinitionCatalog] = await Promise.all([
+  loadWarning.value = ''
+  const [templateResult, exerciseResult, testDefinitionResult] = await Promise.allSettled([
     fetchPlanTemplates(),
     fetchAllExerciseListItems(),
     fetchTestDefinitions(),
   ])
-  templates.value = templateData
-  exercises.value = exerciseData
-  testMetricOptions.value = normalizeTestMetricOptions(testDefinitionCatalog)
+  if (templateResult.status !== 'fulfilled') {
+    throw templateResult.reason
+  }
+
+  templates.value = templateResult.value
+  exercises.value = exerciseResult.status === 'fulfilled' ? exerciseResult.value : []
+  testMetricOptions.value =
+    testDefinitionResult.status === 'fulfilled' ? normalizeTestMetricOptions(testDefinitionResult.value) : []
+
+  const failedBlocks = [
+    exerciseResult.status !== 'fulfilled' ? '动作目录' : '',
+    testDefinitionResult.status !== 'fulfilled' ? '测试项目目录' : '',
+  ].filter(Boolean)
+  if (failedBlocks.length) {
+    loadWarning.value = `模板已加载，但${failedBlocks.join('和')}暂时没有加载成功，当前只能先查看或修正已有模板。`
+  }
+
   if (preferredTemplateId && templates.value.some((template) => template.id === preferredTemplateId)) {
     selectedTemplateId.value = preferredTemplateId
     return
@@ -74,6 +91,7 @@ function createDraftTemplate() {
 }
 
 async function saveTemplate(payload: Record<string, any>) {
+  savingTemplate.value = true
   const templatePayload = payload.template || {}
   const modulesPayload = (payload.modules || []) as Record<string, any>[]
   const itemsPayload = (payload.items || []) as Record<string, any>[]
@@ -117,22 +135,26 @@ async function saveTemplate(payload: Record<string, any>) {
     }
   }
 
-  if (selectedTemplate.value?.id) {
-    await updatePlanTemplate(selectedTemplate.value.id, templatePayload)
-    await persistTemplateGraph(selectedTemplate.value.id)
-    await hydrate(selectedTemplate.value.id)
-    saveNoticeKey.value += 1
-    return
-  }
+  try {
+    if (selectedTemplate.value?.id) {
+      await updatePlanTemplate(selectedTemplate.value.id, templatePayload)
+      await persistTemplateGraph(selectedTemplate.value.id)
+      await hydrate(selectedTemplate.value.id)
+      saveNoticeKey.value += 1
+      return
+    }
 
-  const created = await createPlanTemplate({
-    ...templatePayload,
-    sport_id: null,
-    team_id: null,
-  })
-  await persistTemplateGraph(created.id)
-  await hydrate(created.id)
-  saveNoticeKey.value += 1
+    const created = await createPlanTemplate({
+      ...templatePayload,
+      sport_id: null,
+      team_id: null,
+    })
+    await persistTemplateGraph(created.id)
+    await hydrate(created.id)
+    saveNoticeKey.value += 1
+  } finally {
+    savingTemplate.value = false
+  }
 }
 
 async function removeTemplate(templateId: number) {
@@ -173,7 +195,7 @@ onMounted(() => hydrate())
             >
               <strong>{{ template.name }}</strong>
               <span>{{ template.description || '暂无说明' }}</span>
-              <small>{{ template.modules?.length || 0 }} 个模块 / {{ template.items.length }} 个动作</small>
+              <small>{{ template.modules?.length || 0 }} 个模块 / {{ template.items?.length || 0 }} 个动作</small>
             </button>
           </div>
         </div>
@@ -185,10 +207,12 @@ onMounted(() => hydrate())
         :exercises="exercises"
         :test-metric-options="testMetricOptions"
         :save-notice-key="saveNoticeKey"
+        :saving="savingTemplate"
         @save-template="saveTemplate"
         @delete-template="removeTemplate"
       />
     </div>
+    <p v-if="loadWarning" class="load-warning">{{ loadWarning }}</p>
   </AppShell>
 </template>
 
@@ -269,6 +293,17 @@ onMounted(() => hydrate())
 .template-row span,
 .template-row small {
   color: var(--text-soft);
+}
+
+.load-warning {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  background: rgba(255, 247, 237, 0.92);
+  color: #9a3412;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 @media (max-width: 1180px) {

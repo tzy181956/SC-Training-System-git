@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import {
   getTrainingStatusLabel,
   getTrainingStatusTone,
@@ -6,9 +8,12 @@ import {
 } from '@/constants/trainingStatus'
 import { getSessionRpeLabel, isExtremeSessionRpe, isHighSessionRpe } from '@/constants/sessionRpe'
 import type { MonitoringAlertLevel, MonitoringAthleteCard } from '@/types/monitoring'
+import { buildMonitoringAlertKey, resolveMonitoringAlertLevel } from '@/utils/monitoringAlerts'
 
 const props = defineProps<{
   athlete: MonitoringAthleteCard
+  sessionDate: string
+  dismissedAlertKeys: string[]
 }>()
 
 const emit = defineEmits<{
@@ -75,6 +80,10 @@ const alertLevelLabels: Record<MonitoringAlertLevel, string> = {
   critical: '关键',
 }
 
+const alertHidden = computed(() => props.dismissedAlertKeys.includes(buildMonitoringAlertKey(props.sessionDate, props.athlete)))
+const visibleAlertLevel = computed<MonitoringAlertLevel>(() => (alertHidden.value ? 'none' : resolveMonitoringAlertLevel(props.athlete)))
+const showAlert = computed(() => visibleAlertLevel.value !== 'none')
+
 function statusLabel() {
   return getTrainingStatusLabel(props.athlete.session_status, MONITORING_STATUS_LABEL_OVERRIDES)
 }
@@ -87,7 +96,7 @@ function statusTone() {
 <template>
   <button
     class="athlete-card"
-    :class="[statusTone(), athlete.alert_level, { alert: athlete.has_alert }]"
+    :class="[statusTone(), visibleAlertLevel, { alert: showAlert }]"
     :style="progressStyle()"
     type="button"
     @click="emit('select')"
@@ -124,8 +133,8 @@ function statusTone() {
     <div class="card-foot">
       <span class="latest-set">{{ latestSetText() }}</span>
       <div class="pill-row">
-        <span v-if="athlete.alert_level !== 'none'" class="alert-pill" :class="athlete.alert_level">
-          {{ alertLevelLabels[athlete.alert_level] }}
+        <span v-if="showAlert" class="alert-pill" :class="visibleAlertLevel">
+          {{ alertLevelLabels[visibleAlertLevel] }}
         </span>
         <span class="sync-pill" :class="athlete.sync_status">{{ syncLabel() }}</span>
       </div>

@@ -86,7 +86,7 @@ class PlanTemplateItemRead(ORMModel, PlanTemplateItemBase):
     display_code: str | None = None
     initial_load_test_metric_definition_name: str | None = None
     initial_load_test_type_name: str | None = None
-    exercise: ExerciseRead
+    exercise: ExerciseRead | None = None
 
 
 class PlanTemplateModuleRead(ORMModel, PlanTemplateModuleBase):

@@ -1837,24 +1837,23 @@ onBeforeUnmount(() => {
                   <h3>排行榜</h3>
                 </div>
               </div>
-              <div class="list-grid">
+              <div class="list-grid score-rank-list">
                 <button
                   v-for="(athlete, index) in scoreCalculation.ranking"
                   :key="athlete.athlete_id"
-                  class="row-card adaptive-card score-rank-card"
+                  class="score-rank-row"
                   :class="{ active: selectedScoreAthleteId === athlete.athlete_id }"
                   type="button"
                   @click="selectedScoreAthleteId = athlete.athlete_id"
                 >
-                  <div class="score-rank-card-head">
+                  <div class="score-rank-row-main">
                     <span class="score-rank-index">#{{ index + 1 }}</span>
+                    <strong class="score-rank-name">{{ athlete.athlete_name }}</strong>
                     <span v-if="getRankMedal(index)" class="score-rank-medal" :aria-label="`第 ${index + 1} 名奖牌`">
                       {{ getRankMedal(index) }}
                     </span>
                   </div>
-                  <strong class="adaptive-card-title">{{ athlete.athlete_name }}</strong>
-                  <span class="adaptive-card-subtitle">{{ athlete.team_name || '未分队' }}</span>
-                  <small class="adaptive-card-meta">综合评分：{{ formatScoreDisplay(athlete.overall_score) }}</small>
+                  <strong class="score-rank-score">{{ formatScoreDisplay(athlete.overall_score) }}</strong>
                 </button>
               </div>
             </section>
@@ -2753,15 +2752,35 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.score-rank-card {
-  position: relative;
+.score-rank-list {
+  gap: 8px;
 }
 
-.score-rank-card-head {
+.score-rank-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  text-align: left;
+}
+
+.score-rank-row.active {
+  border-color: rgba(15, 118, 110, 0.32);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.score-rank-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .score-rank-index {
@@ -2787,6 +2806,25 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
   font-size: 18px;
   line-height: 1;
+}
+
+.score-rank-name,
+.score-rank-score {
+  margin: 0;
+}
+
+.score-rank-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.score-rank-score {
+  flex-shrink: 0;
+  color: #0f172a;
+  font-size: 15px;
 }
 
 @media (max-width: 1100px) {
