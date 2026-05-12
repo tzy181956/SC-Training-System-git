@@ -13,11 +13,13 @@ const props = withDefaults(
     selectedSportValue?: string
     selectedSportLabel?: string
     sportOptions?: TeamOption[]
+    sportDisabled?: boolean
     sportFieldLabel?: string
     sportAriaLabel?: string
     selectedTeamValue: string
     selectedTeamLabel: string
     teamOptions: TeamOption[]
+    teamDisabled?: boolean
     teamFieldLabel?: string
     teamAriaLabel?: string
   }>(),
@@ -25,8 +27,10 @@ const props = withDefaults(
     selectedSportValue: undefined,
     selectedSportLabel: '项目',
     sportOptions: () => [],
+    sportDisabled: false,
     sportFieldLabel: '项目',
     sportAriaLabel: '项目筛选',
+    teamDisabled: false,
     teamFieldLabel: '队伍',
     teamAriaLabel: '队伍筛选',
   },
@@ -74,7 +78,7 @@ function handleTeamInput(event: Event) {
 
     <div v-if="hasSportFilter" class="training-header-filter">
       <span class="training-header-filter-label">{{ sportFieldLabel }}</span>
-      <div class="training-header-filter-shell">
+      <div class="training-header-filter-shell" :class="{ 'training-header-filter-shell--disabled': props.sportDisabled }">
         <button class="training-header-filter-pill" type="button" tabindex="-1" aria-hidden="true">
           <span class="training-header-filter-pill-text">{{ selectedSportLabel }}</span>
         </button>
@@ -83,6 +87,7 @@ function handleTeamInput(event: Event) {
           class="training-header-filter-control training-header-filter-native"
           :aria-label="sportAriaLabel"
           :title="sportAriaLabel"
+          :disabled="props.sportDisabled"
           @change="handleSportInput"
         >
           <option v-for="sport in props.sportOptions" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
@@ -92,7 +97,7 @@ function handleTeamInput(event: Event) {
 
     <div class="training-header-filter">
       <span class="training-header-filter-label">{{ teamFieldLabel }}</span>
-      <div class="training-header-filter-shell">
+      <div class="training-header-filter-shell" :class="{ 'training-header-filter-shell--disabled': props.teamDisabled }">
         <button class="training-header-filter-pill" type="button" tabindex="-1" aria-hidden="true">
           <span class="training-header-filter-pill-text">{{ selectedTeamLabel }}</span>
         </button>
@@ -101,6 +106,7 @@ function handleTeamInput(event: Event) {
           class="training-header-filter-control training-header-filter-native"
           :aria-label="teamAriaLabel"
           :title="teamAriaLabel"
+          :disabled="props.teamDisabled"
           @change="handleTeamInput"
         >
           <option v-for="team in props.teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
@@ -140,6 +146,10 @@ function handleTeamInput(event: Event) {
   min-height: var(--training-filter-height, 34px);
 }
 
+.training-header-filter-shell--disabled {
+  opacity: 0.72;
+}
+
 .training-header-filter-label {
   position: absolute;
   width: 1px;
@@ -172,6 +182,10 @@ function handleTeamInput(event: Event) {
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
+}
+
+.training-header-filter-native:disabled {
+  cursor: not-allowed;
 }
 
 .training-header-filter-pill {

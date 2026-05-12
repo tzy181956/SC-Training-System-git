@@ -13,7 +13,14 @@ import AssignmentOverviewPane from '@/components/assignment/AssignmentOverviewPa
 import AssignmentPreviewPanel from '@/components/assignment/AssignmentPreviewPanel.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import { DEFAULT_REPEAT_WEEKDAYS, REPEAT_WEEKDAY_OPTIONS, formatRepeatWeekdays } from '@/constants/repeatWeekdays'
+import { useAuthStore } from '@/stores/auth'
 import { todayString } from '@/utils/date'
+import {
+  filterTeamsBySport,
+  isSportScoped,
+  resolveInitialSportFilterValue,
+  retainVisibleTeamId,
+} from '@/utils/projectTeamScope'
 
 type AssignmentViewMode = 'builder' | 'overview'
 type ScheduleMode = 'single_day' | 'date_range' | 'weekly_repeat'
@@ -22,6 +29,7 @@ const athletes = ref<any[]>([])
 const templates = ref<any[]>([])
 const sports = ref<any[]>([])
 const teams = ref<any[]>([])
+const authStore = useAuthStore()
 const overview = ref<any>({
   assignment_groups: [],
   unassigned_athletes: [],
@@ -41,12 +49,12 @@ const selectedOverviewGroupKey = ref<string | null>(null)
 
 const overviewState = reactive({
   targetDate: todayString(),
-  sportId: 0,
+  sportId: resolveInitialSportFilterValue(authStore.currentUser?.sport_id),
   teamId: 0,
 })
 
 const builderState = reactive({
-  sportId: 0,
+  sportId: resolveInitialSportFilterValue(authStore.currentUser?.sport_id),
   teamId: 0,
   keyword: '',
   selectedOnly: false,
@@ -64,13 +72,10 @@ const viewButtons = [
   { key: 'builder', label: '新建分配' },
   { key: 'overview', label: '现有分配' },
 ] as const
+const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.sport_id))
 
-const overviewTeams = computed(() =>
-  overviewState.sportId ? teams.value.filter((team) => team.sport_id === overviewState.sportId) : teams.value,
-)
-const builderTeams = computed(() =>
-  builderState.sportId ? teams.value.filter((team) => team.sport_id === builderState.sportId) : teams.value,
-)
+const overviewTeams = computed(() => filterTeamsBySport(teams.value, overviewState.sportId))
+const builderTeams = computed(() => filterTeamsBySport(teams.value, builderState.sportId))
 
 const filteredOverviewGroups = computed(() =>
   overview.value.assignment_groups.filter((group: any) =>
@@ -263,6 +268,12 @@ async function hydrate() {
   templates.value = templateData
   sports.value = sportData
   teams.value = teamData
+  if (isSportFilterLocked.value) {
+    overviewState.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+    builderState.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+  }
+  overviewState.teamId = retainVisibleTeamId(overviewState.teamId, overviewTeams.value)
+  builderState.teamId = retainVisibleTeamId(builderState.teamId, builderTeams.value)
   await loadOverview()
 }
 
@@ -449,18 +460,20 @@ watch(
 watch(
   () => overviewState.sportId,
   () => {
-    if (overviewState.teamId && !overviewTeams.value.some((team) => team.id === overviewState.teamId)) {
-      overviewState.teamId = 0
+    if (isSportFilterLocked.value) {
+      overviewState.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
     }
+    overviewState.teamId = retainVisibleTeamId(overviewState.teamId, overviewTeams.value)
   },
 )
 
 watch(
   () => builderState.sportId,
   () => {
-    if (builderState.teamId && !builderTeams.value.some((team) => team.id === builderState.teamId)) {
-      builderState.teamId = 0
+    if (isSportFilterLocked.value) {
+      builderState.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
     }
+    builderState.teamId = retainVisibleTeamId(builderState.teamId, builderTeams.value)
   },
 )
 
@@ -531,7 +544,7 @@ function weekdayLabelFromDate(dateString: string) {
             </label>
             <label class="field compact">
               <span>项目</span>
-              <select v-model.number="overviewState.sportId" class="text-input">
+              <select v-model.number="overviewState.sportId" class="text-input" :disabled="isSportFilterLocked">
                 <option :value="0">全部项目</option>
                 <option v-for="sport in sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
               </select>
@@ -548,7 +561,7 @@ function weekdayLabelFromDate(dateString: string) {
           <template v-else>
             <label class="field compact">
               <span>项目</span>
-              <select v-model.number="builderState.sportId" class="text-input">
+              <select v-model.number="builderState.sportId" class="text-input" :disabled="isSportFilterLocked">
                 <option :value="0">全部项目</option>
                 <option v-for="sport in sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
               </select>

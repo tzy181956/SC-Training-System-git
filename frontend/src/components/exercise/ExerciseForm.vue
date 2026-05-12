@@ -8,6 +8,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{ submit: [payload: Record<string, unknown>] }>()
 
+function normalizeSingleLineText(value: unknown) {
+  return String(value || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 const form = reactive({
   name: '',
   alias: '',
@@ -42,6 +49,13 @@ watch(
     Object.assign(form, {
       ...form,
       ...value,
+      name: normalizeSingleLineText(value.name || ''),
+      alias: normalizeSingleLineText(value.alias || ''),
+      description: normalizeSingleLineText(value.description || ''),
+      video_url: normalizeSingleLineText(value.video_url || ''),
+      coaching_points: normalizeSingleLineText(value.coaching_points || ''),
+      common_errors: normalizeSingleLineText(value.common_errors || ''),
+      notes: normalizeSingleLineText(value.notes || ''),
       tag_ids: (value.tags || []).map((tag: any) => tag.id ?? tag.tag?.id),
     })
   },
@@ -49,7 +63,16 @@ watch(
 )
 
 function handleSubmit() {
-  emit('submit', { ...form })
+  emit('submit', {
+    ...form,
+    name: normalizeSingleLineText(form.name),
+    alias: normalizeSingleLineText(form.alias) || null,
+    description: normalizeSingleLineText(form.description) || null,
+    video_url: normalizeSingleLineText(form.video_url) || null,
+    coaching_points: normalizeSingleLineText(form.coaching_points) || null,
+    common_errors: normalizeSingleLineText(form.common_errors) || null,
+    notes: normalizeSingleLineText(form.notes) || null,
+  })
 }
 </script>
 
@@ -77,22 +100,22 @@ function handleSubmit() {
 
     <label class="field">
       <span class="field-label">动作描述</span>
-      <textarea v-model="form.description" class="text-input area" placeholder="可选" />
+      <input v-model="form.description" class="text-input" placeholder="可选" />
     </label>
 
     <label class="field">
       <span class="field-label">技术要点</span>
-      <textarea v-model="form.coaching_points" class="text-input area" placeholder="可选" />
+      <input v-model="form.coaching_points" class="text-input" placeholder="可选" />
     </label>
 
     <label class="field">
       <span class="field-label">常见错误</span>
-      <textarea v-model="form.common_errors" class="text-input area" placeholder="可选" />
+      <input v-model="form.common_errors" class="text-input" placeholder="可选" />
     </label>
 
     <label class="field">
       <span class="field-label">备注</span>
-      <textarea v-model="form.notes" class="text-input area" placeholder="可选" />
+      <input v-model="form.notes" class="text-input" placeholder="可选" />
     </label>
 
     <div class="tag-grid">

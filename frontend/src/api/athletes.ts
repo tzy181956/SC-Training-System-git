@@ -29,6 +29,8 @@ export type AthleteRead = {
   sport_id?: number | null
   team_id?: number | null
   full_name: string
+  birth_date?: string | null
+  age?: number | null
   gender?: string | null
   position?: string | null
   height?: number | null
@@ -48,6 +50,7 @@ export type AthletePayload = {
   sport_id?: number | null
   team_id?: number | null
   full_name: string
+  birth_date?: string | null
   gender?: string | null
   position?: string | null
   height?: number | null

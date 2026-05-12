@@ -36,6 +36,13 @@ import AppShell from '@/components/layout/AppShell.vue'
 import { useAuthStore } from '@/stores/auth'
 import { todayString } from '@/utils/date'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
+import {
+  filterTeamsBySport,
+  isSportScoped,
+  resolveInitialSportFilterValue,
+  resolveScopedSportId,
+  retainVisibleTeamId,
+} from '@/utils/projectTeamScope'
 import { getTestMetricDirectionMeta } from '@/utils/testMetricDirection'
 
 type Athlete = {
@@ -43,6 +50,7 @@ type Athlete = {
   full_name: string
   sport_id?: number | null
   team_id?: number | null
+  position?: string | null
   weight?: number | null
   sport?: { id?: number | null; name?: string | null } | null
   team?: { id?: number | null; sport_id?: number | null; name?: string | null } | null
@@ -68,6 +76,40 @@ type MetricRangePoint = {
   max_value: number
 }
 
+type TrendPeerSummary = {
+  athleteValue: number | null
+  averageValue: number | null
+  minValue: number | null
+  maxValue: number | null
+  rank: number | null
+  total: number
+}
+
+type TrendHistoryRow = {
+  record: TestRecord
+  deltaValue: number | null
+  deltaPercent: number | null
+  peerSummary: TrendPeerSummary
+}
+
+type ScoreRankingOption = {
+  value: string
+  label: string
+  level: 'overall' | 'dimension' | 'metric'
+  dimensionId?: number
+  metricDefinitionId?: number
+}
+
+type ScoreRankingEntry = {
+  athlete: ScoreCalculationResponse['ranking'][number]
+  rankingScore: number | null
+}
+
+type ScoreRankingPositionOption = {
+  value: string
+  label: string
+}
+
 type ManagedMetricDefinition = TestMetricDefinitionRead & {
   test_type_name: string
   sport_id?: number | null
@@ -82,6 +124,7 @@ const teams = ref<TeamRead[]>([])
 const records = ref<TestRecord[]>([])
 const definitions = ref<TestTypeDefinitionRead[]>([])
 const chartRef = ref<HTMLDivElement | null>(null)
+const trendDistributionChartRef = ref<HTMLDivElement | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
 const libraryTableRef = ref<HTMLElement | null>(null)
 const loading = ref(false)
@@ -114,16 +157,26 @@ const scoreProfiles = ref<ScoreProfileRead[]>([])
 const scoreCalculation = ref<ScoreCalculationResponse | null>(null)
 const scoreCalculationLoading = ref(false)
 const selectedScoreAthleteId = ref<number>(0)
+const scoreDetailsExpanded = ref(false)
+const scoreRankingMode = ref('overall')
+const scoreRankingPosition = ref('')
 const scoreRadarRef = ref<HTMLDivElement | null>(null)
 let scoreRadarChart: echarts.ECharts | null = null
+let scoreRadarChartElement: HTMLDivElement | null = null
+let scoreRadarResizeFrame: number | null = null
 let scoreAutoCalculateTimer: number | null = null
 
 let chart: echarts.ECharts | null = null
+let trendDistributionChart: echarts.ECharts | null = null
+let trendDistributionChartElement: HTMLDivElement | null = null
+let trendDistributionChartResizeFrame: number | null = null
 
 const ratioMetrics = new Set(['卧推', '卧拉', '深蹲', '挺举'])
+const scopedSportId = computed(() => resolveScopedSportId(authStore.currentUser?.sport_id))
+const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.sport_id))
 
 const trendFilters = reactive({
-  sportId: 0,
+  sportId: resolveInitialSportFilterValue(authStore.currentUser?.sport_id),
   teamId: 0,
   athleteId: 0,
   testType: '',
@@ -170,6 +223,7 @@ const metricForm = reactive({
   notes: '',
 })
 const scoreFilters = reactive({
+  sportId: resolveInitialSportFilterValue(authStore.currentUser?.sport_id),
   scoreProfileId: 0,
   teamId: 0,
   dateFrom: '',
@@ -192,9 +246,21 @@ const selectedAthlete = computed(() => athletes.value.find((item) => item.id ===
 
 const selectedTypeDefinition = computed(() => definitions.value.find((item) => item.name === trendFilters.testType) || null)
 
-const trendSportOptions = computed(() => collectTrendSportOptions())
+const trendSportOptions = computed(() =>
+  isSportFilterLocked.value
+    ? sports.value.filter((sport) => sport.id === scopedSportId.value)
+    : sports.value,
+)
 
 const trendTeamOptions = computed(() => collectTrendTeamOptions(trendFilters.sportId))
+
+const scoreSportOptions = computed(() =>
+  isSportFilterLocked.value
+    ? sports.value.filter((sport) => sport.id === scopedSportId.value)
+    : sports.value,
+)
+
+const scoreTeamOptions = computed(() => filterTeamsBySport(teams.value, scoreFilters.sportId))
 
 const availableTrendAthletes = computed(() => collectTrendAthletes(trendFilters.sportId, trendFilters.teamId))
 
@@ -233,10 +299,121 @@ const selectedMetricDefinition = computed(
 )
 
 const selectedMetricDirectionMeta = computed(() => getTestMetricDirectionMeta(selectedMetricDefinition.value))
-const selectedScoreProfile = computed(() => scoreProfiles.value.find((item) => item.id === scoreFilters.scoreProfileId) || null)
+const availableScoreProfiles = computed(() =>
+  scoreProfiles.value.filter((item) => !scoreFilters.sportId || item.sport_id == null || item.sport_id === scoreFilters.sportId),
+)
+const selectedScoreProfile = computed(
+  () => availableScoreProfiles.value.find((item) => item.id === scoreFilters.scoreProfileId) || null,
+)
+const scoreRankingOptions = computed<ScoreRankingOption[]>(() => {
+  const options: ScoreRankingOption[] = [{ value: 'overall', label: '总分', level: 'overall' }]
+  const profile = scoreCalculation.value?.profile
+
+  if (!profile) return options
+
+  const seenMetricIds = new Set<number>()
+  for (const dimension of profile.dimensions) {
+    options.push({
+      value: `dimension:${dimension.id}`,
+      label: `维度：${dimension.name}`,
+      level: 'dimension',
+      dimensionId: dimension.id,
+    })
+
+    for (const metric of dimension.metrics) {
+      const metricDefinitionId = metric.test_metric_definition_id
+      if (seenMetricIds.has(metricDefinitionId)) continue
+      seenMetricIds.add(metricDefinitionId)
+      options.push({
+        value: `metric:${metricDefinitionId}`,
+        label: `项目：${metric.test_metric_definition.name}`,
+        level: 'metric',
+        metricDefinitionId,
+      })
+    }
+  }
+
+  return options
+})
+const selectedScoreRankingOption = computed<ScoreRankingOption>(
+  () => scoreRankingOptions.value.find((item) => item.value === scoreRankingMode.value) || scoreRankingOptions.value[0],
+)
+const scoreRankingPositionOptions = computed<ScoreRankingPositionOption[]>(() => {
+  const positions = new Set<string>()
+
+  for (const athlete of scoreCalculation.value?.ranking || []) {
+    const position = resolveAthletePositionLabel(athlete.athlete_id)
+    if (position) positions.add(position)
+  }
+
+  return [
+    { value: '', label: '全部位置' },
+    ...Array.from(positions)
+      .sort((left, right) => left.localeCompare(right, 'zh-CN'))
+      .map((position) => ({
+        value: position,
+        label: position,
+      })),
+  ]
+})
+const selectedScoreRankingPositionLabel = computed(
+  () => scoreRankingPositionOptions.value.find((item) => item.value === scoreRankingPosition.value)?.label || '全部位置',
+)
+const filteredScoreRankingAthletes = computed(() => {
+  const ranking = scoreCalculation.value?.ranking || []
+  if (!scoreRankingPosition.value) return ranking
+  return ranking.filter((athlete) => resolveAthletePositionLabel(athlete.athlete_id) === scoreRankingPosition.value)
+})
+const scoreRankingList = computed<ScoreRankingEntry[]>(() => {
+  const ranking = filteredScoreRankingAthletes.value
+  const selectedOption = selectedScoreRankingOption.value
+
+  return [...ranking]
+    .map((athlete) => ({
+      athlete,
+      rankingScore: resolveScoreRankingValue(athlete, selectedOption),
+    }))
+    .sort(compareScoreRankingEntries)
+})
 const selectedScoreAthlete = computed(
   () => scoreCalculation.value?.ranking.find((item) => item.athlete_id === selectedScoreAthleteId.value) || null,
 )
+const selectedScoreAthletePositionLabel = computed(() =>
+  selectedScoreAthlete.value ? resolveAthletePositionLabel(selectedScoreAthlete.value.athlete_id) : '',
+)
+const selectedScoreAthletePositionAverageLegendLabel = computed(() =>
+  selectedScoreAthletePositionLabel.value ? '位置平均' : '未填写位置平均',
+)
+const selectedScoreAthletePositionAverageHintLabel = computed(() =>
+  selectedScoreAthletePositionLabel.value ? `${selectedScoreAthletePositionLabel.value}平均` : '未填写位置平均',
+)
+const selectedScoreAthletePositionAverageDimensions = computed(() => {
+  if (!selectedScoreAthlete.value) return []
+
+  const athleteDimensions = selectedScoreAthlete.value.dimension_scores.map((item) => ({
+    dimension_id: item.dimension_id,
+    dimension_name: item.dimension_name,
+    score: item.score,
+  }))
+  if (!athleteDimensions.length) return []
+
+  const targetPosition = selectedScoreAthletePositionLabel.value
+  const peers = (scoreCalculation.value?.ranking || []).filter(
+    (athlete) => resolveAthletePositionLabel(athlete.athlete_id) === targetPosition,
+  )
+
+  return athleteDimensions.map((dimension) => {
+    const scores = peers
+      .map((athlete) => athlete.dimension_scores.find((item) => item.dimension_id === dimension.dimension_id)?.score)
+      .filter((score): score is number => typeof score === 'number' && !Number.isNaN(score))
+
+    return {
+      dimension_id: dimension.dimension_id,
+      dimension_name: dimension.dimension_name,
+      score: scores.length ? roundScoreValue(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null,
+    }
+  })
+})
 const scoreTeamDateRange = computed(() => {
   const dates = records.value
     .filter((record) => {
@@ -285,6 +462,120 @@ const filteredTrendResultCards = computed(() =>
       if (dateCompare !== 0) return dateCompare
       return right.id - left.id
     }),
+)
+
+const scopedTrendMetricRecords = computed(() =>
+  records.value
+    .filter((item) => {
+      if (!recordMatchesTrendScope(item, { includeAthlete: false })) return false
+      if (trendFilters.testType && item.test_type !== trendFilters.testType) return false
+      if (trendFilters.metricName && item.metric_name !== trendFilters.metricName) return false
+      return true
+    })
+    .slice()
+    .sort((left, right) => {
+      const dateCompare = left.test_date.localeCompare(right.test_date)
+      if (dateCompare !== 0) return dateCompare
+      return left.id - right.id
+    }),
+)
+
+const scopedTrendPeerRecordsByDate = computed(() => {
+  const grouped = new Map<string, Map<number, TestRecord>>()
+
+  for (const record of scopedTrendMetricRecords.value) {
+    const dateRecords = grouped.get(record.test_date) || new Map<number, TestRecord>()
+    const current = dateRecords.get(record.athlete_id)
+    if (!current || current.id < record.id) {
+      dateRecords.set(record.athlete_id, record)
+    }
+    grouped.set(record.test_date, dateRecords)
+  }
+
+  return new Map(
+    Array.from(grouped.entries()).map(([testDate, athleteRecordMap]) => [
+      testDate,
+      Array.from(athleteRecordMap.values()),
+    ]),
+  )
+})
+
+const latestTrendRecord = computed(() => filteredTrendResultCards.value[0] || null)
+const previousTrendRecord = computed(() => filteredTrendResultCards.value[1] || null)
+
+const latestTrendPeerSummary = computed(() =>
+  latestTrendRecord.value ? resolveTrendPeerSummary(latestTrendRecord.value) : null,
+)
+
+const latestTrendDeltaValue = computed(() => {
+  if (!latestTrendRecord.value || !previousTrendRecord.value) return null
+  return Number(latestTrendRecord.value.result_value) - Number(previousTrendRecord.value.result_value)
+})
+
+const latestTrendDeltaPercent = computed(() => {
+  if (!previousTrendRecord.value) return null
+  const previousValue = Number(previousTrendRecord.value.result_value)
+  if (!previousValue) return null
+  return ((Number(latestTrendRecord.value?.result_value || 0) - previousValue) / previousValue) * 100
+})
+
+const latestTrendPeerBars = computed(() => {
+  if (!latestTrendRecord.value) return []
+
+  const peerRecords = scopedTrendPeerRecordsByDate.value.get(latestTrendRecord.value.test_date) || []
+  if (!peerRecords.length) return []
+
+  return [...peerRecords]
+    .map((record) => {
+      const athlete = resolveRecordAthlete(record)
+      return {
+        athleteId: record.athlete_id,
+        athleteName: athlete?.full_name || `运动员 ${record.athlete_id}`,
+        value: Number(record.result_value),
+        isSelected: record.athlete_id === latestTrendRecord.value?.athlete_id,
+      }
+    })
+    .sort((left, right) =>
+      selectedMetricDirectionMeta.value.isLowerBetter ? left.value - right.value : right.value - left.value,
+    )
+})
+
+const latestTrendDistribution = computed(() => {
+  if (!latestTrendRecord.value) return null
+
+  const summary = latestTrendPeerSummary.value
+  if (!summary || !summary.total) return null
+
+  return {
+    testDate: latestTrendRecord.value.test_date,
+    athleteValue: summary.athleteValue,
+    averageValue: summary.averageValue,
+    minValue: summary.minValue,
+    maxValue: summary.maxValue,
+    rank: summary.rank,
+    total: summary.total,
+  }
+})
+
+const trendDistributionLegendText = computed(() => {
+  if (!latestTrendPeerBars.value.length) return ''
+  return `按当前项目方向从优到弱排序，绿色为当前运动员，橙线为队均。`
+})
+
+const trendHistoryRows = computed<TrendHistoryRow[]>(() =>
+  filteredTrendResultCards.value.slice(0, 5).map((record, index, source) => {
+    const previousRecord = source[index + 1] || null
+    const deltaValue = previousRecord ? Number(record.result_value) - Number(previousRecord.result_value) : null
+    const previousValue = previousRecord ? Number(previousRecord.result_value) : 0
+    const deltaPercent = previousRecord && previousValue !== 0 ? (deltaValue! / previousValue) * 100 : null
+
+    return {
+      record,
+      deltaValue,
+      deltaPercent,
+      peerSummary: resolveTrendPeerSummary(record),
+    }
+  }),
 )
 
 const teamRangeMetricRecords = computed<MetricRangePoint[]>(() => {
@@ -537,8 +828,12 @@ function syncTrendFilterSelection(options?: {
   preferredMetricName?: string
 }) {
   const preferredSportId = options?.preferredSportId ?? trendFilters.sportId
-  const resolvedSports = collectTrendSportOptions()
-  trendFilters.sportId = preferredSportId && resolvedSports.some((item) => item.id === preferredSportId) ? preferredSportId : 0
+  const resolvedSports = trendSportOptions.value
+  if (isSportFilterLocked.value) {
+    trendFilters.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+  } else {
+    trendFilters.sportId = preferredSportId && resolvedSports.some((item) => item.id === preferredSportId) ? preferredSportId : 0
+  }
 
   const preferredTeamId = options?.preferredTeamId ?? trendFilters.teamId
   const resolvedTeams = collectTrendTeamOptions(trendFilters.sportId)
@@ -571,17 +866,32 @@ function syncTrendFilterSelection(options?: {
 }
 
 function syncScoreSelection() {
-  if (scoreFilters.teamId && teams.value.some((item) => item.id === scoreFilters.teamId)) {
-    // keep
-  } else {
-    scoreFilters.teamId = teams.value[0]?.id || 0
+  if (isSportFilterLocked.value) {
+    scoreFilters.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+  } else if (scoreFilters.sportId && !scoreSportOptions.value.some((item) => item.id === scoreFilters.sportId)) {
+    scoreFilters.sportId = 0
   }
 
-  if (scoreFilters.scoreProfileId && scoreProfiles.value.some((item) => item.id === scoreFilters.scoreProfileId)) {
+  scoreFilters.teamId = retainVisibleTeamId(scoreFilters.teamId, scoreTeamOptions.value)
+
+  if (scoreFilters.scoreProfileId && availableScoreProfiles.value.some((item) => item.id === scoreFilters.scoreProfileId)) {
     // keep
   } else {
-    scoreFilters.scoreProfileId = scoreProfiles.value[0]?.id || 0
+    scoreFilters.scoreProfileId = availableScoreProfiles.value[0]?.id || 0
   }
+}
+
+function syncSelectedScoreAthlete(preferredAthleteId = selectedScoreAthleteId.value) {
+  const ranking = scoreRankingList.value
+  if (preferredAthleteId && ranking.some((entry) => entry.athlete.athlete_id === preferredAthleteId)) {
+    selectedScoreAthleteId.value = preferredAthleteId
+    return
+  }
+  selectedScoreAthleteId.value = ranking[0]?.athlete.athlete_id || 0
+}
+
+function resolveAthletePositionLabel(athleteId: number) {
+  return normalizeAthletePosition(athleteLookup.value.get(athleteId)?.position)
 }
 
 function openScoreProfileManager() {
@@ -737,8 +1047,8 @@ async function removeScoreProfile(profile: ScoreProfileRead) {
 }
 
 async function calculateScores() {
-  if (!scoreFilters.scoreProfileId || !scoreFilters.teamId) {
-    actionMessage.value = '请先选择评分模板和队伍。'
+  if (!scoreFilters.scoreProfileId || !scoreFilters.sportId || !scoreFilters.teamId) {
+    actionMessage.value = '请先选择项目、评分模板和队伍。'
     return
   }
   const resolvedDateFrom = scoreFilters.dateFrom || scoreTeamDateRange.value?.from || ''
@@ -756,7 +1066,8 @@ async function calculateScores() {
       date_to: resolvedDateTo,
       baseline_mode: scoreFilters.baselineMode,
     })
-    selectedScoreAthleteId.value = scoreCalculation.value.ranking[0]?.athlete_id || 0
+    scoreDetailsExpanded.value = false
+    syncSelectedScoreAthlete()
     await nextTick()
     renderScoreCharts()
   } catch (error) {
@@ -771,8 +1082,10 @@ function queueAutoCalculateScores() {
     window.clearTimeout(scoreAutoCalculateTimer)
   }
 
-  if (!scoreFilters.scoreProfileId || !scoreFilters.teamId) {
+  if (!scoreFilters.scoreProfileId || !scoreFilters.sportId || !scoreFilters.teamId) {
     scoreCalculation.value = null
+    selectedScoreAthleteId.value = 0
+    scoreDetailsExpanded.value = false
     return
   }
 
@@ -792,6 +1105,9 @@ function buildScoreRadarRange() {
     ...(scoreCalculation.value?.team_average_dimensions
       .map((dimension) => dimension.score)
       .filter((score): score is number => typeof score === 'number') || []),
+    ...selectedScoreAthletePositionAverageDimensions.value
+      .map((dimension) => dimension.score)
+      .filter((score): score is number => typeof score === 'number'),
   ]
   const minValue = Math.min(...allScores, 40)
   const maxValue = Math.max(...allScores, 60)
@@ -810,54 +1126,277 @@ function buildRadarIndicators(source: Array<{ dimension_name: string; score?: nu
   }
 }
 
-function renderScoreCharts() {
-  if (selectedScoreAthlete.value && scoreRadarRef.value) {
-    const athleteDimensions = selectedScoreAthlete.value.dimension_scores.map((item) => ({
-      dimension_name: item.dimension_name,
-      score: item.score,
-    }))
-    const teamDimensionMap = new Map(
-      (scoreCalculation.value?.team_average_dimensions || []).map((item) => [item.dimension_name, item.score]),
-    )
-    const radar = buildRadarIndicators(athleteDimensions)
-    scoreRadarChart ||= echarts.init(scoreRadarRef.value)
-    scoreRadarChart.setOption({
-      tooltip: { trigger: 'item' },
-      legend: {
-        bottom: 0,
-        data: [selectedScoreAthlete.value.athlete_name, '团队平均'],
-      },
-      radar: {
-        indicator: radar.indicator,
-        radius: '60%',
-        center: ['50%', '48%'],
-        scale: true,
-      },
-      series: [
-        {
-          type: 'radar',
-          data: [
-            {
-              value: athleteDimensions.map((item) => Number(item.score ?? radar.min)),
-              name: selectedScoreAthlete.value.athlete_name,
-              areaStyle: { color: 'rgba(15,118,110,0.18)' },
-              lineStyle: { color: '#0f766e' },
-              itemStyle: { color: '#0f766e' },
-            },
-            {
-              value: athleteDimensions.map((item) => Number(teamDimensionMap.get(item.dimension_name) ?? radar.min)),
-              name: '团队平均',
-              areaStyle: { color: 'rgba(245,158,11,0.12)' },
-              lineStyle: { color: '#f59e0b' },
-              itemStyle: { color: '#f59e0b' },
-            },
-          ],
-        },
-      ],
-    })
-  } else if (scoreRadarChart) {
-    scoreRadarChart.clear()
+function disposeScoreRadarChart() {
+  if (scoreRadarResizeFrame !== null) {
+    window.cancelAnimationFrame(scoreRadarResizeFrame)
+    scoreRadarResizeFrame = null
   }
+
+  if (scoreRadarChart) {
+    scoreRadarChart.dispose()
+    scoreRadarChart = null
+  }
+
+  scoreRadarChartElement = null
+}
+
+function ensureScoreRadarChart() {
+  const element = scoreRadarRef.value
+  if (!element) return null
+
+  if (scoreRadarChart && scoreRadarChartElement !== element) {
+    scoreRadarChart.dispose()
+    scoreRadarChart = null
+  }
+
+  scoreRadarChartElement = element
+  scoreRadarChart = echarts.getInstanceByDom(element) || scoreRadarChart || echarts.init(element)
+  return scoreRadarChart
+}
+
+function scheduleScoreRadarResize() {
+  if (scoreRadarResizeFrame !== null) {
+    window.cancelAnimationFrame(scoreRadarResizeFrame)
+  }
+
+  scoreRadarResizeFrame = window.requestAnimationFrame(() => {
+    scoreRadarResizeFrame = null
+    scoreRadarChart?.resize()
+  })
+}
+
+function disposeTrendDistributionChart() {
+  if (trendDistributionChartResizeFrame !== null) {
+    window.cancelAnimationFrame(trendDistributionChartResizeFrame)
+    trendDistributionChartResizeFrame = null
+  }
+
+  if (trendDistributionChart) {
+    trendDistributionChart.dispose()
+    trendDistributionChart = null
+  }
+
+  trendDistributionChartElement = null
+}
+
+function ensureTrendDistributionChart() {
+  const element = trendDistributionChartRef.value
+  if (!element) return null
+
+  if (trendDistributionChart && trendDistributionChartElement !== element) {
+    trendDistributionChart.dispose()
+    trendDistributionChart = null
+  }
+
+  trendDistributionChartElement = element
+  trendDistributionChart = echarts.getInstanceByDom(element) || trendDistributionChart || echarts.init(element)
+  return trendDistributionChart
+}
+
+function scheduleTrendDistributionChartResize() {
+  if (trendDistributionChartResizeFrame !== null) {
+    window.cancelAnimationFrame(trendDistributionChartResizeFrame)
+  }
+
+  trendDistributionChartResizeFrame = window.requestAnimationFrame(() => {
+    trendDistributionChartResizeFrame = null
+    trendDistributionChart?.resize()
+  })
+}
+
+function formatTrendBarAthleteName(name: string) {
+  return name.trim().split('').join('\n')
+}
+
+function renderScoreCharts() {
+  if (!selectedScoreAthlete.value || !scoreRadarRef.value) {
+    disposeScoreRadarChart()
+    return
+  }
+
+  const athleteDimensions = selectedScoreAthlete.value.dimension_scores.map((item) => ({
+    dimension_name: item.dimension_name,
+    score: item.score,
+  }))
+  const teamDimensionMap = new Map(
+    (scoreCalculation.value?.team_average_dimensions || []).map((item) => [item.dimension_name, item.score]),
+  )
+  const positionAverageDimensionMap = new Map(
+    selectedScoreAthletePositionAverageDimensions.value.map((item) => [item.dimension_name, item.score]),
+  )
+  const radar = buildRadarIndicators(athleteDimensions)
+  const athleteDimensionMap = new Map(athleteDimensions.map((item) => [item.dimension_name, item.score]))
+  const athleteScoreValues = athleteDimensions.map((item) => Number(item.score ?? radar.min))
+  const teamAverageValues = athleteDimensions.map((item) => Number(teamDimensionMap.get(item.dimension_name) ?? radar.min))
+  const positionAverageValues = athleteDimensions.map((item) =>
+    Number(positionAverageDimensionMap.get(item.dimension_name) ?? radar.min),
+  )
+  const radarChart = ensureScoreRadarChart()
+
+  if (!radarChart) return
+
+  radarChart.setOption({
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: { name?: string }) => {
+        const scoreMap =
+          params.name === '团队平均'
+            ? teamDimensionMap
+            : params.name === selectedScoreAthletePositionAverageLegendLabel.value
+              ? positionAverageDimensionMap
+              : athleteDimensionMap
+        return [
+          params.name || '',
+          ...athleteDimensions.map((item) => `${item.dimension_name}：${formatScoreDisplay(scoreMap.get(item.dimension_name))}`),
+        ].join('<br/>')
+      },
+    },
+    legend: {
+      bottom: 0,
+      data: [
+        selectedScoreAthlete.value.athlete_name,
+        '团队平均',
+        selectedScoreAthletePositionAverageLegendLabel.value,
+      ],
+    },
+    radar: {
+      indicator: radar.indicator,
+      radius: '60%',
+      center: ['50%', '48%'],
+      scale: true,
+    },
+    series: [
+      {
+        type: 'radar',
+        data: [
+          {
+            value: athleteScoreValues,
+            name: selectedScoreAthlete.value.athlete_name,
+            areaStyle: { color: 'rgba(15,118,110,0.18)' },
+            lineStyle: { color: '#0f766e' },
+            itemStyle: { color: '#0f766e' },
+          },
+          {
+            value: teamAverageValues,
+            name: '团队平均',
+            areaStyle: { color: 'rgba(245,158,11,0.12)' },
+            lineStyle: { color: '#f59e0b' },
+            itemStyle: { color: '#f59e0b' },
+          },
+          {
+            value: positionAverageValues,
+            name: selectedScoreAthletePositionAverageLegendLabel.value,
+            areaStyle: { color: 'rgba(37,99,235,0.08)' },
+            lineStyle: { color: '#2563eb', type: 'dashed' },
+            itemStyle: { color: '#2563eb' },
+          },
+        ],
+      },
+    ],
+  })
+  scheduleScoreRadarResize()
+}
+
+function renderTrendDistributionChart() {
+  const peerBars = latestTrendPeerBars.value
+  if (!peerBars.length || !trendDistributionChartRef.value) {
+    disposeTrendDistributionChart()
+    return
+  }
+
+  const chartInstance = ensureTrendDistributionChart()
+  if (!chartInstance) return
+
+  const averageValue = latestTrendPeerSummary.value?.averageValue ?? null
+  const denseNames = peerBars.length > 18
+
+  chartInstance.setOption({
+    animationDuration: 220,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params: Array<{ dataIndex?: number }>) => {
+        const targetIndex = params?.[0]?.dataIndex ?? -1
+        const target = peerBars[targetIndex]
+        if (!target) return ''
+
+        return [
+          target.athleteName,
+          `成绩：${formatTrendMetricValue(target.value)}`,
+          target.isSelected ? '当前选中运动员' : '',
+          averageValue == null ? '' : `队均：${formatTrendMetricValue(averageValue)}`,
+        ]
+          .filter(Boolean)
+          .join('<br/>')
+      },
+    },
+    grid: {
+      left: 20,
+      right: 20,
+      top: 48,
+      bottom: 44,
+      containLabel: true,
+    },
+    xAxis: {
+      type: 'category',
+      data: peerBars.map((item) => item.athleteName),
+      axisTick: { alignWithLabel: true },
+      axisLabel: {
+        show: false,
+      },
+    },
+    yAxis: {
+      type: 'value',
+      name: chartMetricUnit.value || undefined,
+      splitLine: {
+        lineStyle: {
+          color: 'rgba(148, 163, 184, 0.18)',
+        },
+      },
+    },
+    series: [
+      {
+        type: 'bar',
+        barMaxWidth: denseNames ? 30 : 40,
+        data: peerBars.map((item) => ({
+          value: item.value,
+          itemStyle: {
+            color: item.isSelected ? '#0f766e' : '#93c5fd',
+            borderRadius: [8, 8, 0, 0],
+          },
+          label: {
+            color: item.isSelected ? 'rgba(255, 255, 255, 0.96)' : '#0f172a',
+          },
+        })),
+        label: {
+          show: true,
+          position: 'insideBottom',
+          distance: 10,
+          fontSize: denseNames ? 10 : 12,
+          fontWeight: 700,
+          lineHeight: denseNames ? 10 : 12,
+          formatter: (params: { name?: string }) => formatTrendBarAthleteName(params.name || ''),
+        },
+        markLine:
+          averageValue == null
+            ? undefined
+            : {
+                symbol: 'none',
+                label: {
+                  formatter: `队均 ${formatTrendMetricValue(averageValue)}`,
+                  color: '#b45309',
+                },
+                lineStyle: {
+                  color: '#f59e0b',
+                  type: 'dashed',
+                  width: 2,
+                },
+                data: [{ yAxis: Number(averageValue) }],
+              },
+      },
+    ],
+  })
+  scheduleTrendDistributionChartResize()
 }
 
 function syncEntryFormContext(options?: { resetValues?: boolean; resetUnit?: boolean }) {
@@ -998,6 +1537,9 @@ function handleTrendTestTypeChange() {
 }
 
 function handleTrendSportChange() {
+  if (isSportFilterLocked.value) {
+    trendFilters.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+  }
   const availableTeams = collectTrendTeamOptions(trendFilters.sportId)
   if (trendFilters.teamId && !availableTeams.some((item) => item.id === trendFilters.teamId)) {
     trendFilters.teamId = 0
@@ -1008,6 +1550,16 @@ function handleTrendSportChange() {
     trendFilters.athleteId = nextAthletes[0]?.id ?? 0
   } else if (!trendFilters.athleteId) {
     trendFilters.athleteId = nextAthletes[0]?.id ?? 0
+  }
+}
+
+function handleScoreSportChange() {
+  if (isSportFilterLocked.value) {
+    scoreFilters.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+  }
+  scoreFilters.teamId = retainVisibleTeamId(scoreFilters.teamId, scoreTeamOptions.value)
+  if (!availableScoreProfiles.value.some((item) => item.id === scoreFilters.scoreProfileId)) {
+    scoreFilters.scoreProfileId = availableScoreProfiles.value[0]?.id || 0
   }
 }
 
@@ -1325,6 +1877,7 @@ function collectTrendSportOptions() {
 }
 
 function collectTrendTeamOptions(sportId = 0) {
+  if (!sportId) return []
   return Array.from(
     athletes.value.reduce((accumulator, athlete) => {
       const resolvedSportId = resolveAthleteSportId(athlete)
@@ -1361,6 +1914,45 @@ function recordMatchesTrendScope(record: TestRecord, options?: { includeAthlete?
 function displayResult(record: TestRecord) {
   if (record.result_text) return record.result_text
   return `${record.result_value} ${record.unit}`
+}
+
+function resolveTrendPeerSummary(record: TestRecord): TrendPeerSummary {
+  const peerRecords = scopedTrendPeerRecordsByDate.value.get(record.test_date) || []
+  if (!peerRecords.length) {
+    return {
+      athleteValue: Number(record.result_value),
+      averageValue: null,
+      minValue: null,
+      maxValue: null,
+      rank: null,
+      total: 0,
+    }
+  }
+
+  const athleteRecord = peerRecords.find((item) => item.athlete_id === record.athlete_id) || record
+  const athleteValue = Number(athleteRecord.result_value)
+  const sortedPeerRecords = [...peerRecords].sort((left, right) =>
+    selectedMetricDirectionMeta.value.isLowerBetter
+      ? Number(left.result_value) - Number(right.result_value)
+      : Number(right.result_value) - Number(left.result_value),
+  )
+  const rank = sortedPeerRecords.findIndex((item) => item.athlete_id === athleteRecord.athlete_id) + 1
+  const total = sortedPeerRecords.length
+  const values = sortedPeerRecords.map((item) => Number(item.result_value))
+  const averageValue = values.reduce((sum, value) => sum + value, 0) / total
+
+  return {
+    athleteValue,
+    averageValue,
+    minValue: Math.min(...values),
+    maxValue: Math.max(...values),
+    rank: rank > 0 ? rank : null,
+    total,
+  }
+}
+
+function clampTrendPercent(value: number) {
+  return Math.min(100, Math.max(0, value))
 }
 
 function renderChart() {
@@ -1516,9 +2108,90 @@ function formatTooltipValue(value: unknown) {
   return value
 }
 
-function formatScoreDisplay(value: number | null | undefined) {
+function formatTrendMetricValue(value: number | null | undefined, unit = chartMetricUnit.value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '--'
-  return value.toFixed(1)
+  const formatted = new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
+  }).format(value)
+  return unit ? `${formatted} ${unit}` : formatted
+}
+
+function formatTrendDeltaValue(value: number | null | undefined, unit = chartMetricUnit.value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '--'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${formatTrendMetricValue(value, unit)}`
+}
+
+function formatTrendPercent(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '--'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(1)}%`
+}
+
+function resolveTrendDeltaTone(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value) || value === 0) return 'neutral'
+  const improved = selectedMetricDirectionMeta.value.isLowerBetter ? value < 0 : value > 0
+  return improved ? 'positive' : 'negative'
+}
+
+function roundScoreValue(value: number | null | undefined, digits = 1) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null
+  const factor = 10 ** digits
+  const rounded = Math.round((Math.abs(value) + Number.EPSILON) * factor) / factor
+  return value < 0 ? -rounded : rounded
+}
+
+function formatScoreDisplay(value: number | null | undefined) {
+  const rounded = roundScoreValue(value, 1)
+  if (rounded == null) return '--'
+  return rounded.toFixed(1)
+}
+
+function normalizeAthletePosition(value: string | null | undefined) {
+  return String(value || '').trim()
+}
+
+function toggleScoreDetailsExpanded() {
+  scoreDetailsExpanded.value = !scoreDetailsExpanded.value
+}
+
+function resolveScoreRankingValue(
+  athlete: ScoreCalculationResponse['ranking'][number],
+  option: ScoreRankingOption,
+) {
+  if (option.level === 'overall') return athlete.overall_score ?? null
+
+  if (option.level === 'dimension') {
+    return athlete.dimension_scores.find((item) => item.dimension_id === option.dimensionId)?.score ?? null
+  }
+
+  for (const dimension of athlete.dimension_scores) {
+    const matchedMetric = dimension.metrics.find((item) => item.metric_definition_id === option.metricDefinitionId)
+    if (matchedMetric) return matchedMetric.standard_score ?? null
+  }
+
+  return null
+}
+
+function compareScoreRankingEntries(left: ScoreRankingEntry, right: ScoreRankingEntry) {
+  const leftScore = left.rankingScore
+  const rightScore = right.rankingScore
+  const leftMissing = typeof leftScore !== 'number' || Number.isNaN(leftScore)
+  const rightMissing = typeof rightScore !== 'number' || Number.isNaN(rightScore)
+
+  if (leftMissing !== rightMissing) return leftMissing ? 1 : -1
+  if (!leftMissing && !rightMissing && leftScore !== rightScore) return rightScore - leftScore
+
+  const leftOverall = left.athlete.overall_score
+  const rightOverall = right.athlete.overall_score
+  const leftOverallMissing = typeof leftOverall !== 'number' || Number.isNaN(leftOverall)
+  const rightOverallMissing = typeof rightOverall !== 'number' || Number.isNaN(rightOverall)
+
+  if (leftOverallMissing !== rightOverallMissing) return leftOverallMissing ? 1 : -1
+  if (!leftOverallMissing && !rightOverallMissing && leftOverall !== rightOverall) return rightOverall - leftOverall
+
+  return left.athlete.athlete_name.localeCompare(right.athlete.athlete_name, 'zh-CN')
 }
 
 function getRankMedal(rankIndex: number) {
@@ -1549,13 +2222,42 @@ watch(
 watch(
   () => selectedScoreAthleteId.value,
   async () => {
+    scoreDetailsExpanded.value = false
     await nextTick()
     renderScoreCharts()
   },
 )
 
 watch(
+  () => scoreRankingOptions.value.map((item) => item.value).join('|'),
+  () => {
+    if (!scoreRankingOptions.value.some((item) => item.value === scoreRankingMode.value)) {
+      scoreRankingMode.value = 'overall'
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => scoreRankingPositionOptions.value.map((item) => item.value).join('|'),
+  () => {
+    if (scoreRankingPosition.value && !scoreRankingPositionOptions.value.some((item) => item.value === scoreRankingPosition.value)) {
+      scoreRankingPosition.value = ''
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => scoreRankingList.value.map((entry) => entry.athlete.athlete_id).join('|'),
+  () => {
+    syncSelectedScoreAthlete()
+  },
+)
+
+watch(
   () => [
+    scoreFilters.sportId,
     scoreFilters.scoreProfileId,
     scoreFilters.teamId,
     scoreFilters.baselineMode,
@@ -1572,6 +2274,11 @@ watch([filteredTrendRecords, teamRangeMetricRecords, chartMetricUnit, selectedMe
   renderChart()
 })
 
+watch([latestTrendPeerBars, latestTrendPeerSummary, chartMetricUnit], async () => {
+  await nextTick()
+  renderTrendDistributionChart()
+})
+
 onMounted(async () => {
   await Promise.all([hydrate(), resetAndLoadLibrary()])
   await nextTick()
@@ -1583,6 +2290,8 @@ onBeforeUnmount(() => {
   if (scoreAutoCalculateTimer !== null) {
     window.clearTimeout(scoreAutoCalculateTimer)
   }
+  disposeScoreRadarChart()
+  disposeTrendDistributionChart()
 })
 </script>
 
@@ -1621,13 +2330,18 @@ onBeforeUnmount(() => {
           <p v-if="actionMessage" class="status-banner">{{ actionMessage }}</p>
 
           <div class="two-col">
-            <label class="field">
-              <span>项目</span>
-              <select v-model.number="trendFilters.sportId" class="text-input" @change="handleTrendSportChange">
-                <option :value="0">全部项目</option>
-                <option v-for="sport in trendSportOptions" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
-              </select>
-            </label>
+              <label class="field">
+                <span>项目</span>
+                <select
+                  v-model.number="trendFilters.sportId"
+                  class="text-input"
+                  :disabled="isSportFilterLocked"
+                  @change="handleTrendSportChange"
+                >
+                  <option :value="0">全部项目</option>
+                  <option v-for="sport in trendSportOptions" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
+                </select>
+              </label>
             <label class="field">
               <span>队伍</span>
               <select v-model.number="trendFilters.teamId" class="text-input" @change="handleTrendTeamChange">
@@ -1759,23 +2473,91 @@ onBeforeUnmount(() => {
                 {{ selectedMetricDirectionMeta.label }}：{{ selectedMetricDirectionMeta.hint }}
               </p>
             </div>
-          </div>
-
-          <div ref="chartRef" class="chart"></div>
-
-          <div class="list-grid">
-            <div v-for="record in filteredTrendResultCards" :key="record.id" class="row-card adaptive-card">
-              <strong class="adaptive-card-title">{{ record.metric_name }}：{{ displayResult(record) }}</strong>
-              <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ record.test_date }} / {{ record.test_type }}</span>
-              <small v-if="computeRelativeStrength(record)" class="adaptive-card-meta adaptive-card-clamp-1">
-                力量体重比：{{ computeRelativeStrength(record) }}
-              </small>
-              <small v-else class="adaptive-card-meta adaptive-card-clamp-1">{{ record.notes || '无备注' }}</small>
             </div>
+
+            <div ref="chartRef" class="chart"></div>
+
+            <div v-if="filteredTrendResultCards.length" class="trend-insight-panel">
+              <div class="trend-summary-grid">
+                <article class="trend-summary-card">
+                  <span class="trend-summary-label">当前成绩</span>
+                  <strong class="trend-summary-value">{{ latestTrendRecord ? displayResult(latestTrendRecord) : '--' }}</strong>
+                  <small class="trend-summary-note">{{ latestTrendRecord?.test_date || '暂无日期' }}</small>
+                </article>
+                <article class="trend-summary-card">
+                  <span class="trend-summary-label">上次成绩</span>
+                  <strong class="trend-summary-value">{{ previousTrendRecord ? displayResult(previousTrendRecord) : '--' }}</strong>
+                  <small class="trend-summary-note">{{ previousTrendRecord?.test_date || '暂无上次记录' }}</small>
+                </article>
+                <article class="trend-summary-card" :class="`trend-summary-card--${resolveTrendDeltaTone(latestTrendDeltaValue)}`">
+                  <span class="trend-summary-label">较上次变化</span>
+                  <strong class="trend-summary-value">{{ formatTrendDeltaValue(latestTrendDeltaValue) }}</strong>
+                  <small class="trend-summary-note">{{ formatTrendPercent(latestTrendDeltaPercent) }}</small>
+                </article>
+                <article class="trend-summary-card">
+                  <span class="trend-summary-label">同日队均</span>
+                  <strong class="trend-summary-value">{{ formatTrendMetricValue(latestTrendPeerSummary?.averageValue) }}</strong>
+                  <small class="trend-summary-note">
+                    {{ latestTrendPeerSummary?.rank ? `队内第 ${latestTrendPeerSummary.rank} / ${latestTrendPeerSummary.total}` : '暂无队内排序' }}
+                  </small>
+                </article>
+              </div>
+
+              <section v-if="latestTrendDistribution" class="trend-distribution-card">
+                <div class="trend-distribution-head">
+                  <div>
+                    <strong>当前全队柱状图</strong>
+                    <p>{{ latestTrendDistribution.testDate }} · {{ selectedMetricDefinition?.name || trendFilters.metricName }}</p>
+                  </div>
+                  <span class="trend-distribution-rank">
+                    {{ latestTrendDistribution.rank ? `第 ${latestTrendDistribution.rank} / ${latestTrendDistribution.total}` : '暂无排名' }}
+                  </span>
+                </div>
+                <p class="trend-distribution-note">{{ trendDistributionLegendText }}</p>
+                <div ref="trendDistributionChartRef" class="trend-distribution-chart"></div>
+                <div class="trend-distribution-scale trend-distribution-scale--cards">
+                  <span>最低 {{ formatTrendMetricValue(latestTrendDistribution.minValue) }}</span>
+                  <span>当前 {{ formatTrendMetricValue(latestTrendDistribution.athleteValue) }}</span>
+                  <span>队均 {{ formatTrendMetricValue(latestTrendDistribution.averageValue) }}</span>
+                  <span>最高 {{ formatTrendMetricValue(latestTrendDistribution.maxValue) }}</span>
+                </div>
+              </section>
+
+              <section class="trend-history-card">
+                <div class="trend-history-head">
+                  <strong>最近 5 次记录</strong>
+                  <span>按当前筛选条件自动更新</span>
+                </div>
+                <div class="trend-history-table-wrap">
+                  <table class="trend-history-table">
+                    <thead>
+                      <tr>
+                        <th>日期</th>
+                        <th>成绩</th>
+                        <th>较上次</th>
+                        <th>同日队均</th>
+                        <th>排名</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in trendHistoryRows" :key="row.record.id">
+                        <td>{{ row.record.test_date }}</td>
+                        <td>{{ displayResult(row.record) }}</td>
+                        <td :class="`trend-delta-cell trend-delta-cell--${resolveTrendDeltaTone(row.deltaValue)}`">
+                          <div>{{ formatTrendDeltaValue(row.deltaValue) }}</div>
+                          <small>{{ formatTrendPercent(row.deltaPercent) }}</small>
+                        </td>
+                        <td>{{ formatTrendMetricValue(row.peerSummary.averageValue) }}</td>
+                        <td>{{ row.peerSummary.rank ? `${row.peerSummary.rank} / ${row.peerSummary.total}` : '--' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+            <p v-else class="hint-text">当前趋势筛选条件下没有测试数据。</p>
           </div>
-          <p v-if="!filteredTrendResultCards.length" class="hint-text">当前趋势筛选条件下没有测试数据。</p>
         </div>
-      </div>
 
       <div class="panel library-panel">
         <div class="section-head">
@@ -1788,28 +2570,37 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="filter-grid">
-          <select v-model.number="scoreFilters.scoreProfileId" class="text-input">
-            <option :value="0">请选择评分模板</option>
-            <option v-for="profile in scoreProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
-          </select>
-          <select v-model.number="scoreFilters.teamId" class="text-input">
-            <option :value="0">请选择队伍</option>
-            <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
-          </select>
-          <select v-model="scoreFilters.baselineMode" class="text-input">
-            <option value="current_batch">当前批次</option>
+          <div class="filter-grid">
+            <select
+              v-model.number="scoreFilters.sportId"
+              class="text-input"
+              :disabled="isSportFilterLocked"
+              @change="handleScoreSportChange"
+            >
+              <option :value="0">请选择项目</option>
+              <option v-for="sport in scoreSportOptions" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
+            </select>
+            <select v-model.number="scoreFilters.scoreProfileId" class="text-input">
+              <option :value="0">请选择评分模板</option>
+              <option v-for="profile in availableScoreProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+            </select>
+            <select v-model.number="scoreFilters.teamId" class="text-input">
+              <option :value="0">请选择队伍</option>
+              <option v-for="team in scoreTeamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
+            </select>
+            <select v-model="scoreFilters.baselineMode" class="text-input">
+              <option value="current_batch">当前批次</option>
             <option value="historical_pool">历史数据池</option>
           </select>
           <input v-model="scoreFilters.dateFrom" type="date" class="text-input" />
           <input v-model="scoreFilters.dateTo" type="date" class="text-input" />
         </div>
-        <p class="field-note">
-          评分日期留空时，默认使用当前队伍全部测试记录的日期范围
-          <template v-if="scoreTeamDateRange">（{{ scoreTeamDateRange.from }} 至 {{ scoreTeamDateRange.to }}）</template>
-          <template v-else>。</template>
-        </p>
-        <p class="field-note">选择评分模板、队伍、评分基准或日期后将自动重新计算。</p>
+          <p class="field-note">
+            评分日期留空时，默认使用当前队伍全部测试记录的日期范围
+            <template v-if="scoreTeamDateRange">（{{ scoreTeamDateRange.from }} 至 {{ scoreTeamDateRange.to }}）</template>
+            <template v-else>。</template>
+          </p>
+          <p class="field-note">先选项目，再从该项目下选择评分模板和队伍；变更后将自动重新计算。</p>
 
         <div class="entry-panel-body">
           <p class="hint-text">当前评分模式：Z 分数标准化评分</p>
@@ -1831,43 +2622,67 @@ onBeforeUnmount(() => {
 
           <div class="split-view score-split-view">
             <section class="panel">
-              <div class="section-head">
-                <div class="section-head-copy">
-                  <p class="eyebrow">综合评分</p>
-                  <h3>排行榜</h3>
+              <div class="score-rank-head">
+                <div class="section-head">
+                  <div class="section-head-copy">
+                    <p class="eyebrow">{{ selectedScoreRankingOption.level === 'overall' ? '综合评分' : '单项评分' }}</p>
+                    <h3>排行榜</h3>
+                  </div>
+                </div>
+                <div class="score-rank-controls">
+                  <label class="score-rank-filter">
+                    <span>排行维度</span>
+                    <select v-model="scoreRankingMode" class="text-input">
+                      <option v-for="option in scoreRankingOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="score-rank-filter">
+                    <span>位置筛选</span>
+                    <select v-model="scoreRankingPosition" class="text-input">
+                      <option v-for="option in scoreRankingPositionOptions" :key="option.value || 'all'" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
                 </div>
               </div>
-              <div class="list-grid score-rank-list">
+              <p class="hint-text">当前按{{ selectedScoreRankingPositionLabel }}的{{ selectedScoreRankingOption.label }}排序，共 {{ scoreRankingList.length }} 人。</p>
+              <div v-if="scoreRankingList.length" class="list-grid score-rank-list">
                 <button
-                  v-for="(athlete, index) in scoreCalculation.ranking"
-                  :key="athlete.athlete_id"
+                  v-for="(entry, index) in scoreRankingList"
+                  :key="entry.athlete.athlete_id"
                   class="score-rank-row"
-                  :class="{ active: selectedScoreAthleteId === athlete.athlete_id }"
+                  :class="{ active: selectedScoreAthleteId === entry.athlete.athlete_id }"
                   type="button"
-                  @click="selectedScoreAthleteId = athlete.athlete_id"
+                  @click="selectedScoreAthleteId = entry.athlete.athlete_id"
                 >
                   <div class="score-rank-row-main">
                     <span class="score-rank-index">#{{ index + 1 }}</span>
-                    <strong class="score-rank-name">{{ athlete.athlete_name }}</strong>
+                    <strong class="score-rank-name">{{ entry.athlete.athlete_name }}</strong>
                     <span v-if="getRankMedal(index)" class="score-rank-medal" :aria-label="`第 ${index + 1} 名奖牌`">
                       {{ getRankMedal(index) }}
                     </span>
                   </div>
-                  <strong class="score-rank-score">{{ formatScoreDisplay(athlete.overall_score) }}</strong>
+                  <strong class="score-rank-score">{{ formatScoreDisplay(entry.rankingScore) }}</strong>
                 </button>
               </div>
+              <div v-else class="empty-state">当前筛选条件下没有可展示的排行榜结果。</div>
             </section>
 
             <section class="panel">
               <div class="section-head">
                 <div class="section-head-copy">
                   <p class="eyebrow">雷达图</p>
-                  <h3>个人 vs 团队平均</h3>
+                  <h3>个人 vs 团队平均 / 位置平均</h3>
                 </div>
               </div>
               <div v-if="selectedScoreAthlete" ref="scoreRadarRef" class="chart"></div>
               <div v-else class="empty-state">当前没有可展示的个人评分结果。</div>
-              <p class="hint-text">绿色表示当前球员，橙色表示团队平均。50 为参考均值，60 约为高于均值 1 个标准差，40 约为低于均值 1 个标准差。</p>
+              <p class="hint-text">
+                绿色表示当前球员，橙色表示团队平均，蓝色表示{{ selectedScoreAthletePositionAverageHintLabel }}。50 为参考均值，60 约为高于均值 1 个标准差，40 约为低于均值 1 个标准差。
+              </p>
             </section>
           </div>
 
@@ -1877,52 +2692,60 @@ onBeforeUnmount(() => {
                 <p class="eyebrow">项目明细</p>
                 <h3>{{ selectedScoreAthlete.athlete_name }} 评分明细</h3>
               </div>
-            </div>
-
-            <div v-if="selectedScoreAthlete.missing_metrics.length" class="manager-error">
-              缺失项目：{{ selectedScoreAthlete.missing_metrics.join('；') }}
-            </div>
-
-            <div v-for="dimension in selectedScoreAthlete.dimension_scores" :key="dimension.dimension_id" class="detail-section">
-              <h4>{{ dimension.dimension_name }}：{{ dimension.score ?? '--' }}</h4>
-              <p v-if="dimension.warnings.length" class="hint-text">{{ dimension.warnings.join('；') }}</p>
-              <div class="table-scroll">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>测试项目</th>
-                      <th>原始值</th>
-                      <th>测试日期</th>
-                      <th>mean</th>
-                      <th>sd</th>
-                      <th>z</th>
-                      <th>standard_score</th>
-                      <th>权重</th>
-                      <th>缺失</th>
-                      <th>样本不足</th>
-                      <th>sd=0</th>
-                      <th>异常值提示</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="metric in dimension.metrics" :key="`${dimension.dimension_id}-${metric.metric_definition_id}`">
-                      <td>{{ metric.metric_name }}</td>
-                      <td>{{ metric.raw_value ?? '-' }}</td>
-                      <td>{{ metric.raw_test_date || '-' }}</td>
-                      <td>{{ metric.mean ?? '-' }}</td>
-                      <td>{{ metric.sd ?? '-' }}</td>
-                      <td>{{ metric.z ?? '-' }}</td>
-                      <td>{{ metric.standard_score ?? '-' }}</td>
-                      <td>{{ metric.weight ?? '-' }}</td>
-                      <td>{{ metric.is_missing ? '是' : '否' }}</td>
-                      <td>{{ metric.sample_insufficient ? '是' : '否' }}</td>
-                      <td>{{ metric.zero_variance ? '是' : '否' }}</td>
-                      <td>{{ metric.outlier_warning ? '是' : '否' }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div class="action-row">
+                <button class="ghost-btn slim" type="button" @click="toggleScoreDetailsExpanded">
+                  {{ scoreDetailsExpanded ? '收起明细' : '展开明细' }}
+                </button>
               </div>
             </div>
+
+            <template v-if="scoreDetailsExpanded">
+              <div v-if="selectedScoreAthlete.missing_metrics.length" class="manager-error">
+                缺失项目：{{ selectedScoreAthlete.missing_metrics.join('；') }}
+              </div>
+
+              <div v-for="dimension in selectedScoreAthlete.dimension_scores" :key="dimension.dimension_id" class="detail-section">
+                <h4>{{ dimension.dimension_name }}：{{ formatScoreDisplay(dimension.score) }}</h4>
+                <p v-if="dimension.warnings.length" class="hint-text">{{ dimension.warnings.join('；') }}</p>
+                <div class="table-scroll">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>测试项目</th>
+                        <th>原始值</th>
+                        <th>测试日期</th>
+                        <th>mean</th>
+                        <th>sd</th>
+                        <th>z</th>
+                        <th>standard_score</th>
+                        <th>权重</th>
+                        <th>缺失</th>
+                        <th>样本不足</th>
+                        <th>sd=0</th>
+                        <th>异常值提示</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="metric in dimension.metrics" :key="`${dimension.dimension_id}-${metric.metric_definition_id}`">
+                        <td>{{ metric.metric_name }}</td>
+                        <td>{{ metric.raw_value ?? '-' }}</td>
+                        <td>{{ metric.raw_test_date || '-' }}</td>
+                        <td>{{ formatScoreDisplay(metric.mean) }}</td>
+                        <td>{{ formatScoreDisplay(metric.sd) }}</td>
+                        <td>{{ formatScoreDisplay(metric.z) }}</td>
+                        <td>{{ formatScoreDisplay(metric.standard_score) }}</td>
+                        <td>{{ metric.weight ?? '-' }}</td>
+                        <td>{{ metric.is_missing ? '是' : '否' }}</td>
+                        <td>{{ metric.sample_insufficient ? '是' : '否' }}</td>
+                        <td>{{ metric.zero_variance ? '是' : '否' }}</td>
+                        <td>{{ metric.outlier_warning ? '是' : '否' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </template>
+            <p v-else class="hint-text">评分明细默认折叠，按需展开查看。</p>
           </section>
         </template>
       </div>
@@ -2384,11 +3207,19 @@ onBeforeUnmount(() => {
 }
 
 .test-toolbar-grid > button {
+  display: inline-flex;
+  align-items: center;
   width: 100%;
   justify-content: center;
   min-width: 0;
+  min-height: 74px;
+  padding: 18px 24px;
+  border-radius: 999px;
+  font-size: 17px;
+  font-weight: 700;
   white-space: normal;
   line-height: 1.3;
+  text-align: center;
 }
 
 .hidden-input {
@@ -2479,6 +3310,181 @@ onBeforeUnmount(() => {
 .chart {
   height: 320px;
   width: 100%;
+}
+
+.trend-insight-panel,
+.trend-summary-grid,
+.trend-history-head {
+  display: grid;
+  gap: 12px;
+}
+
+.trend-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.trend-summary-card,
+.trend-distribution-card,
+.trend-history-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.trend-summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  min-height: 96px;
+  align-content: start;
+}
+
+.trend-summary-card--positive {
+  border-color: rgba(15, 118, 110, 0.24);
+  background: rgba(236, 253, 245, 0.72);
+}
+
+.trend-summary-card--negative {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: rgba(255, 247, 237, 0.78);
+}
+
+.trend-summary-label,
+.trend-summary-note,
+.trend-distribution-head p,
+.trend-distribution-scale span,
+.trend-history-head span,
+.trend-history-table th,
+.trend-history-table td small {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.trend-summary-value {
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.trend-distribution-card,
+.trend-history-card {
+  padding: 14px 16px;
+}
+
+.trend-distribution-card {
+  display: grid;
+  gap: 14px;
+}
+
+.trend-distribution-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.trend-distribution-head strong,
+.trend-history-head strong {
+  margin: 0;
+  display: block;
+}
+
+.trend-distribution-rank {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trend-distribution-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.trend-distribution-chart {
+  width: 100%;
+  height: 320px;
+}
+
+.trend-distribution-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trend-distribution-scale--cards span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.96);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trend-history-card {
+  display: grid;
+  gap: 12px;
+}
+
+.trend-history-head {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.trend-history-table-wrap {
+  overflow-x: auto;
+}
+
+.trend-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 560px;
+}
+
+.trend-history-table th,
+.trend-history-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.trend-history-table th {
+  font-weight: 700;
+}
+
+.trend-history-table td {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.trend-delta-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.trend-delta-cell--positive {
+  color: #0f766e;
+}
+
+.trend-delta-cell--negative {
+  color: #b45309;
+}
+
+.trend-delta-cell--neutral {
+  color: var(--text);
 }
 
 .list-grid {
@@ -2756,6 +3762,35 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.score-rank-head {
+  display: grid;
+  gap: 16px;
+}
+
+.score-rank-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
+}
+
+.score-rank-filter {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.score-rank-filter span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.score-rank-filter .text-input {
+  width: 100%;
+}
+
 .score-rank-row {
   display: flex;
   align-items: center;
@@ -2831,7 +3866,8 @@ onBeforeUnmount(() => {
   .split-view,
   .two-col,
   .filter-grid,
-  .manager-dialog-body {
+  .manager-dialog-body,
+  .trend-summary-grid {
     grid-template-columns: 1fr;
   }
 }

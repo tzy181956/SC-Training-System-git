@@ -1,4 +1,6 @@
-from sqlalchemy import ForeignKey, String, Text
+from datetime import date
+
+from sqlalchemy import Date, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import ActiveMixin, BaseModel
@@ -12,6 +14,7 @@ class Athlete(BaseModel, ActiveMixin):
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     gender: Mapped[str | None] = mapped_column(String(20))
     position: Mapped[str | None] = mapped_column(String(100))
     height: Mapped[float | None] = mapped_column(nullable=True)

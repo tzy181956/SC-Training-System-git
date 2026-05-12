@@ -3,7 +3,7 @@ import * as echarts from 'echarts'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { fetchAthletes, fetchTeams } from '@/api/athletes'
+import { fetchAthletes, fetchSports, fetchTeams } from '@/api/athletes'
 import { retryTrainingSyncIssue } from '@/api/sessions'
 import { fetchTrainingReport, type TrainingReportResponse } from '@/api/trainingReports'
 import StatCard from '@/components/common/StatCard.vue'
@@ -11,10 +11,19 @@ import AppShell from '@/components/layout/AppShell.vue'
 import TrainingSessionCard from '@/components/report/TrainingSessionCard.vue'
 import { getTrainingSyncIssueLabel, isTrainingSyncConflictSummary } from '@/constants/trainingSync'
 import { getTrainingStatusLabel } from '@/constants/trainingStatus'
+import { useAuthStore } from '@/stores/auth'
 import { todayString } from '@/utils/date'
+import {
+  filterTeamsBySport,
+  isSportScoped,
+  resolveInitialSportFilterValue,
+  retainVisibleTeamId,
+} from '@/utils/projectTeamScope'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const athletes = ref<any[]>([])
+const sports = ref<any[]>([])
 const teams = ref<any[]>([])
 const loading = ref(false)
 const report = ref<TrainingReportResponse | null>(null)
@@ -28,6 +37,7 @@ let completionChart: echarts.ECharts | null = null
 const completedStatusLabel = getTrainingStatusLabel('completed')
 
 const filters = reactive({
+  sportId: parseNumberQuery(route.query.sportId) || resolveInitialSportFilterValue(authStore.currentUser?.sport_id),
   teamId: parseNumberQuery(route.query.teamId),
   athleteId: parseNumberQuery(route.query.athleteId),
   dateFrom: parseStringQuery(route.query.dateFrom) || getDateBefore(29),
@@ -36,30 +46,48 @@ const filters = reactive({
   onlyMainLift: false,
 })
 
+const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.sport_id))
 const visibleTeams = computed(() => {
   const athleteTeamIds = new Set(
     athletes.value
+      .filter((athlete) => !filters.sportId || athlete.sport_id === filters.sportId)
       .map((athlete) => athlete.team_id)
       .filter((teamId): teamId is number => typeof teamId === 'number' && teamId > 0),
   )
-  return teams.value.filter((team) => athleteTeamIds.has(team.id))
+  return filterTeamsBySport(teams.value, filters.sportId).filter((team) => athleteTeamIds.has(team.id))
 })
 
 const availableAthletes = computed(() => {
-  if (!filters.teamId) return athletes.value
-  return athletes.value.filter((athlete) => athlete.team_id === filters.teamId)
+  return athletes.value.filter((athlete) => {
+    if (filters.sportId && athlete.sport_id !== filters.sportId) return false
+    if (filters.teamId && athlete.team_id !== filters.teamId) return false
+    return true
+  })
 })
 
 async function hydrate() {
-  const [athleteData, teamData] = await Promise.all([
+  const [athleteData, sportData, teamData] = await Promise.all([
     fetchAthletes(),
+    fetchSports(),
     fetchTeams(),
   ])
   athletes.value = athleteData
+  sports.value = sportData
   teams.value = teamData
+
+  if (isSportFilterLocked.value) {
+    filters.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+  } else if (filters.sportId && !sports.value.some((sport) => sport.id === filters.sportId)) {
+    filters.sportId = 0
+  }
+  filters.teamId = retainVisibleTeamId(filters.teamId, visibleTeams.value)
 
   if (filters.athleteId) {
     const matchedAthlete = athletes.value.find((athlete) => athlete.id === filters.athleteId)
+    if (matchedAthlete?.sport_id && !filters.sportId) {
+      filters.sportId = matchedAthlete.sport_id
+      filters.teamId = retainVisibleTeamId(filters.teamId, visibleTeams.value)
+    }
     if (matchedAthlete?.team_id && !filters.teamId) {
       filters.teamId = matchedAthlete.team_id
     }
@@ -161,6 +189,17 @@ function renderCharts() {
 }
 
 watch(
+  () => filters.sportId,
+  () => {
+    if (isSportFilterLocked.value) {
+      filters.sportId = resolveInitialSportFilterValue(authStore.currentUser?.sport_id)
+    }
+    filters.teamId = retainVisibleTeamId(filters.teamId, visibleTeams.value)
+    syncAthleteSelection()
+  },
+)
+
+watch(
   () => filters.teamId,
   () => {
     syncAthleteSelection()
@@ -208,6 +247,16 @@ function parseStringQuery(value: unknown) {
           <p class="eyebrow">筛选条件</p>
           <h3>训练数据</h3>
         </div>
+
+        <label class="field">
+          <span>项目</span>
+          <select v-model.number="filters.sportId" class="text-input" :disabled="isSportFilterLocked">
+            <option :value="0">全部项目</option>
+            <option v-for="sport in sports" :key="sport.id" :value="sport.id">
+              {{ sport.name }}
+            </option>
+          </select>
+        </label>
 
         <label class="field">
           <span>队伍</span>

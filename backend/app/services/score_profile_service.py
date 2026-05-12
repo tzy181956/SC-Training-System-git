@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from math import sqrt
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -30,6 +31,13 @@ from app.schemas.score_profile import (
     ScoreTeamAverageDimensionRead,
 )
 from app.services import access_control_service, backup_service, dangerous_operation_service
+
+
+def _round_score_value(value: float | None, digits: int = 1) -> float | None:
+    if value is None:
+        return None
+    quantize_exp = Decimal("1").scaleb(-digits)
+    return float(Decimal(str(value)).quantize(quantize_exp, rounding=ROUND_HALF_UP))
 
 
 def list_score_profiles(db: Session, user: User) -> list[ScoreProfile]:
@@ -430,8 +438,8 @@ def _score_athlete(*, athlete, profile, scoped_latest_records, metric_baselines)
             value = float(record.result_value)
             z = (baseline["mean"] - value) / baseline["sd"] if definition.is_lower_better else (value - baseline["mean"]) / baseline["sd"]
             standard_score = 50 + 10 * z
-            breakdown.z = round(z, 4)
-            breakdown.standard_score = round(standard_score, 4)
+            breakdown.z = _round_score_value(z, 1)
+            breakdown.standard_score = _round_score_value(standard_score, 1)
             if abs(z) > 3:
                 breakdown.outlier_warning = True
                 breakdown.warnings.append("该项目 Z 分数绝对值大于 3，请关注是否存在极端表现或原始数据异常。")
@@ -445,7 +453,7 @@ def _score_athlete(*, athlete, profile, scoped_latest_records, metric_baselines)
                 total_weight = float(len(valid_metric_entries))
                 valid_metric_entries = [(entry, 1.0) for entry, _ in valid_metric_entries]
             dimension_score = sum((entry.standard_score or 0) * (weight / total_weight) for entry, weight in valid_metric_entries)
-            dimension_score = round(dimension_score, 4)
+            dimension_score = _round_score_value(dimension_score, 1)
             for entry, weight in valid_metric_entries:
                 entry.weight = round(weight / total_weight, 4)
         else:
@@ -463,7 +471,11 @@ def _score_athlete(*, athlete, profile, scoped_latest_records, metric_baselines)
         athlete_warnings.extend(dimension_warnings)
 
     valid_dimension_scores = [item.score for item in dimension_results if item.score is not None]
-    overall_score = round(sum(valid_dimension_scores) / len(valid_dimension_scores), 4) if valid_dimension_scores else None
+    overall_score = (
+        _round_score_value(sum(valid_dimension_scores) / len(valid_dimension_scores), 1)
+        if valid_dimension_scores
+        else None
+    )
     return ScoreAthleteResultRead(
         athlete_id=athlete.id,
         athlete_name=athlete.full_name,
@@ -485,7 +497,7 @@ def _build_team_average_dimensions(profile: ScoreProfile, athlete_results: list[
             for dimension_result in athlete_result.dimension_scores
             if dimension_result.dimension_id == dimension.id and dimension_result.score is not None
         ]
-        average_score = round(sum(scores) / len(scores), 4) if scores else None
+        average_score = _round_score_value(sum(scores) / len(scores), 1) if scores else None
         results.append(
             ScoreTeamAverageDimensionRead(
                 dimension_id=dimension.id,

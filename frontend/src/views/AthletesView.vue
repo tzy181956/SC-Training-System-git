@@ -18,6 +18,13 @@ import AppShell from '@/components/layout/AppShell.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAthletesStore } from '@/stores/athletes'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
+import {
+  filterTeamsBySport,
+  isSportScoped,
+  resolveInitialSportFilterValue,
+  resolveScopedSportId,
+  retainVisibleTeamId,
+} from '@/utils/projectTeamScope'
 
 type SportItem = SportRead
 type TeamItem = TeamRead
@@ -38,8 +45,8 @@ const teamManagerError = ref('')
 
 const filters = reactive({
   keyword: '',
-  sportId: '',
-  teamId: '',
+  sportId: resolveInitialSportFilterValue(authStore.currentUser?.sport_id),
+  teamId: 0,
   gender: '',
 })
 
@@ -48,6 +55,7 @@ const form = reactive({
   full_name: '',
   sport_id: null as number | null,
   team_id: null as number | null,
+  birth_date: '',
   gender: '',
   position: '',
   height: null as number | null,
@@ -72,16 +80,21 @@ const teamForm = reactive({
 
 onMounted(async () => {
   await store.hydrate()
+  if (isSportFilterLocked.value) {
+    filters.sportId = scopedSportId.value ?? 0
+  }
+  handleSportFilterChange()
   if (store.athletes[0]) selectAthlete(store.athletes[0] as AthleteItem)
 })
 
 const selectedAthlete = computed(() => store.athletes.find((item) => item.id === selectedId.value) as AthleteItem | undefined)
 const isAdmin = computed(() => authStore.isAdmin)
+const scopedSportId = computed(() => resolveScopedSportId(authStore.currentUser?.sport_id))
+const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.sport_id))
+const formAge = computed(() => calculateAgeFromBirthDate(form.birth_date))
+const formAgeDisplay = computed(() => (formAge.value === null ? '' : `${formAge.value} 岁`))
 
-const filteredTeams = computed(() => {
-  if (!filters.sportId) return store.teams as TeamItem[]
-  return (store.teams as TeamItem[]).filter((team) => String(team.sport_id) === filters.sportId)
-})
+const filteredTeams = computed(() => filterTeamsBySport(store.teams as TeamItem[], filters.sportId))
 
 const availableFormTeams = computed(() => {
   if (!form.sport_id) return store.teams as TeamItem[]
@@ -98,8 +111,8 @@ const filteredAthletes = computed(() =>
       }
     }
 
-    if (filters.sportId && String(athlete.sport_id || athlete.sport?.id || '') !== filters.sportId) return false
-    if (filters.teamId && String(athlete.team_id || athlete.team?.id || '') !== filters.teamId) return false
+    if (filters.sportId && Number(athlete.sport_id || athlete.sport?.id || 0) !== filters.sportId) return false
+    if (filters.teamId && Number(athlete.team_id || athlete.team?.id || 0) !== filters.teamId) return false
     if (filters.gender && String(athlete.gender || '') !== filters.gender) return false
     return true
   }),
@@ -115,6 +128,7 @@ function selectAthlete(athlete: AthleteItem) {
     full_name: athlete.full_name || '',
     sport_id: athlete.sport_id ?? null,
     team_id: athlete.team_id ?? null,
+    birth_date: athlete.birth_date || '',
     gender: athlete.gender || '',
     position: athlete.position || '',
     height: athlete.height ?? null,
@@ -131,6 +145,7 @@ async function saveAthlete() {
   try {
     const payload = {
       ...form,
+      birth_date: normalizeOptionalDate(form.birth_date),
       sport_id: isAdmin.value ? form.sport_id : authStore.currentUser?.sport_id ?? null,
       team_id: form.team_id,
     }
@@ -187,6 +202,7 @@ function resetForm() {
     full_name: '',
     sport_id: isAdmin.value ? null : authStore.currentUser?.sport_id ?? null,
     team_id: null,
+    birth_date: '',
     gender: '',
     position: '',
     height: null,
@@ -200,9 +216,10 @@ function resetForm() {
 }
 
 function handleSportFilterChange() {
-  if (filters.teamId && !filteredTeams.value.some((team) => String(team.id) === filters.teamId)) {
-    filters.teamId = ''
+  if (isSportFilterLocked.value) {
+    filters.sportId = scopedSportId.value ?? 0
   }
+  filters.teamId = retainVisibleTeamId(filters.teamId, filteredTeams.value)
 }
 
 function handleFormSportChange() {
@@ -343,8 +360,10 @@ async function removeTeam(team: TeamItem) {
 async function refreshLookupData() {
   await store.hydrate()
 
-  if (filters.sportId && !(store.sports as SportItem[]).some((sport) => String(sport.id) === filters.sportId)) {
-    filters.sportId = ''
+  if (isSportFilterLocked.value) {
+    filters.sportId = scopedSportId.value ?? 0
+  } else if (filters.sportId && !(store.sports as SportItem[]).some((sport) => sport.id === filters.sportId)) {
+    filters.sportId = 0
   }
   handleSportFilterChange()
 
@@ -375,8 +394,7 @@ function resetTeamManagerForm() {
 function resolvePreferredSportId() {
   if (form.sport_id) return form.sport_id
   if (filters.sportId) {
-    const sportId = Number(filters.sportId)
-    if (Number.isFinite(sportId)) return sportId
+    return filters.sportId
   }
   return (store.sports as SportItem[])[0]?.id ?? null
 }
@@ -398,6 +416,30 @@ function buildEntityCode(name: string, prefix: 'sport' | 'team') {
 function normalizeOptionalText(value: string) {
   const normalized = value.trim()
   return normalized || null
+}
+
+function normalizeOptionalDate(value: string) {
+  const normalized = value.trim()
+  return normalized || null
+}
+
+function calculateAgeFromBirthDate(value: string | null | undefined) {
+  if (!value) return null
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+
+  const birthYear = Number(match[1])
+  const birthMonth = Number(match[2])
+  const birthDay = Number(match[3])
+  const today = new Date()
+  let age = today.getFullYear() - birthYear
+
+  if (today.getMonth() + 1 < birthMonth || (today.getMonth() + 1 === birthMonth && today.getDate() < birthDay)) {
+    age -= 1
+  }
+
+  return age >= 0 ? age : null
 }
 
 function extractErrorMessage(error: unknown, fallback = '操作失败，请稍后重试。') {
@@ -433,16 +475,21 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
           <div class="filter-row filter-row--triple">
             <label class="field">
               <span class="field-label">项目</span>
-              <select v-model="filters.sportId" class="text-input filter-control filter-select" @change="handleSportFilterChange">
-                <option value="">全部项目</option>
-                <option v-for="sport in store.sports" :key="sport.id" :value="String(sport.id)">{{ sport.name }}</option>
+              <select
+                v-model.number="filters.sportId"
+                class="text-input filter-control filter-select"
+                :disabled="isSportFilterLocked"
+                @change="handleSportFilterChange"
+              >
+                <option :value="0">全部项目</option>
+                <option v-for="sport in store.sports" :key="sport.id" :value="sport.id">{{ sport.name }}</option>
               </select>
             </label>
             <label class="field">
               <span class="field-label">队伍</span>
-              <select v-model="filters.teamId" class="text-input filter-control filter-select">
-                <option value="">全部队伍</option>
-                <option v-for="team in filteredTeams" :key="team.id" :value="String(team.id)">{{ team.name }}</option>
+              <select v-model.number="filters.teamId" class="text-input filter-control filter-select">
+                <option :value="0">全部队伍</option>
+                <option v-for="team in filteredTeams" :key="team.id" :value="team.id">{{ team.name }}</option>
               </select>
             </label>
             <label class="field">
@@ -471,7 +518,7 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
               {{ athlete.sport?.name || '未分项目' }} / {{ athlete.team?.name || '未分队伍' }}
             </span>
             <small class="adaptive-card-meta adaptive-card-clamp-1">
-              {{ athlete.code }}{{ athlete.gender ? ` / ${athlete.gender}` : '' }}
+              {{ athlete.code }}{{ athlete.gender ? ` / ${athlete.gender}` : '' }}{{ athlete.age != null ? ` / ${athlete.age}岁` : '' }}
             </small>
           </button>
           <div v-if="!filteredAthletes.length" class="empty-state">没有符合筛选条件的运动员。</div>
@@ -513,6 +560,17 @@ function extractErrorMessage(error: unknown, fallback = '操作失败，请稍�
         </div>
 
         <p v-if="!isAdmin" class="team-lock-hint">当前账号创建和修改运动员时会自动锁定到本队。</p>
+
+        <div class="two-col">
+          <label class="field">
+            <span class="field-label">生日</span>
+            <input v-model="form.birth_date" type="date" class="text-input" />
+          </label>
+          <label class="field">
+            <span class="field-label">年龄</span>
+            <input :value="formAgeDisplay" class="text-input" placeholder="填写生日后自动计算" readonly />
+          </label>
+        </div>
 
         <div class="two-col">
           <label class="field">

@@ -106,6 +106,7 @@ const {
   teamOptions,
   selectedTeamLabel,
   filteredAthletes,
+  isSportLocked,
   syncSportFilter,
   syncTeamFilter,
   syncSelectedAthleteForFilter,
@@ -678,6 +679,7 @@ onMounted(hydrate)
         :selected-sport-value="selectedSportFilter"
         :selected-sport-label="selectedSportLabel"
         :sport-options="sportOptions"
+        :sport-disabled="isSportLocked"
         :selected-team-value="selectedTeamFilter"
         :selected-team-label="selectedTeamLabel"
         :team-options="teamOptions"

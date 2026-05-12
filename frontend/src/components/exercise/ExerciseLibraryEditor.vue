@@ -24,6 +24,13 @@ const emit = defineEmits<{
 
 const activeTab = reactive({ value: 'detail' })
 
+function normalizeSingleLineText(value: unknown) {
+  return String(value || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 const form = reactive<Record<string, any>>({
   name: '',
   name_en: '',
@@ -76,16 +83,16 @@ watch(
     const tags = Object.fromEntries(EXERCISE_TAG_FACETS.map(({ key }) => [key, [...(value?.structured_tags?.[key] || [])]]))
     Object.assign(form, {
       name: value?.name || '',
-      name_en: value?.name_en || value?.alias || '',
-      alias: value?.name_en || value?.alias || '',
-      code: value?.code || '',
+      name_en: normalizeSingleLineText(value?.name_en || value?.alias || ''),
+      alias: normalizeSingleLineText(value?.name_en || value?.alias || ''),
+      code: normalizeSingleLineText(value?.code || ''),
       source_type: value?.source_type || 'custom_manual',
       base_category_id: value?.base_category_id ?? value?.base_category?.id ?? null,
-      description: value?.description || '',
-      video_url: value?.video_url || '',
-      coaching_points: value?.coaching_points || '',
-      common_errors: value?.common_errors || '',
-      notes: value?.notes || '',
+      description: normalizeSingleLineText(value?.description || ''),
+      video_url: normalizeSingleLineText(value?.video_url || ''),
+      coaching_points: normalizeSingleLineText(value?.coaching_points || ''),
+      common_errors: normalizeSingleLineText(value?.common_errors || ''),
+      notes: normalizeSingleLineText(value?.notes || ''),
       default_increment: value?.default_increment ?? 2.5,
       is_main_lift_candidate: value?.is_main_lift_candidate ?? false,
       structured_tags: tags,
@@ -117,21 +124,21 @@ function toggleTagValue(key: string, value: string) {
 function handleSubmit() {
   if (props.readOnly) return
   emit('submit', {
-    name: form.name,
-    name_en: form.name_en || null,
-    alias: form.name_en || null,
-    code: form.code || null,
+    name: normalizeSingleLineText(form.name),
+    name_en: normalizeSingleLineText(form.name_en) || null,
+    alias: normalizeSingleLineText(form.name_en) || null,
+    code: normalizeSingleLineText(form.code) || null,
     source_type: form.source_type,
     base_category_id: form.base_category_id,
     level1_category: categoryLineage.value.level1 || props.modelValue?.level1_category || null,
     level2_category: categoryLineage.value.level2 || props.modelValue?.level2_category || null,
     base_movement: selectedCategory.value?.name_zh || props.modelValue?.base_movement || null,
     category_path: categoryLineage.value.path || props.modelValue?.category_path || null,
-    description: form.description || null,
-    video_url: form.video_url || null,
-    coaching_points: form.coaching_points || null,
-    common_errors: form.common_errors || null,
-    notes: form.notes || null,
+    description: normalizeSingleLineText(form.description) || null,
+    video_url: normalizeSingleLineText(form.video_url) || null,
+    coaching_points: normalizeSingleLineText(form.coaching_points) || null,
+    common_errors: normalizeSingleLineText(form.common_errors) || null,
+    notes: normalizeSingleLineText(form.notes) || null,
     default_increment: form.default_increment ?? null,
     is_main_lift_candidate: form.is_main_lift_candidate,
     structured_tags: form.structured_tags,
@@ -239,19 +246,19 @@ function handleDelete() {
       </label>
       <label class="field">
         <span class="field-label">动作描述</span>
-        <textarea v-model="form.description" class="text-input area" />
+        <input v-model="form.description" class="text-input" />
       </label>
       <label class="field">
         <span class="field-label">技术要点</span>
-        <textarea v-model="form.coaching_points" class="text-input area" />
+        <input v-model="form.coaching_points" class="text-input" />
       </label>
       <label class="field">
         <span class="field-label">常见错误</span>
-        <textarea v-model="form.common_errors" class="text-input area" />
+        <input v-model="form.common_errors" class="text-input" />
       </label>
       <label class="field">
         <span class="field-label">备注</span>
-        <textarea v-model="form.notes" class="text-input area" />
+        <input v-model="form.notes" class="text-input" />
       </label>
 
       <div class="detail-section">
@@ -413,10 +420,6 @@ function handleDelete() {
 .field {
   display: grid;
   gap: 8px;
-}
-
-.area {
-  min-height: 96px;
 }
 
 .eyebrow {

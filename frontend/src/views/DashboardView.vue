@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 
-import { fetchAthletes, type AthleteRead } from '@/api/athletes'
+import { fetchAthletes, fetchSports, type AthleteRead, type SportRead } from '@/api/athletes'
 import { fetchMonitoringToday } from '@/api/monitoring'
 import {
   fetchTrainingSyncIssues,
@@ -10,11 +10,12 @@ import {
   type TrainingSyncIssue,
 } from '@/api/sessions'
 import AppShell from '@/components/layout/AppShell.vue'
-import { ALL_TEAMS_VALUE } from '@/composables/useTeamFilter'
+import { ALL_SPORTS_VALUE, ALL_TEAMS_VALUE } from '@/composables/useTeamFilter'
 import { getTrainingSyncIssueLabel, isTrainingSyncConflictSummary } from '@/constants/trainingSync'
 import { useAuthStore } from '@/stores/auth'
 import type { MonitoringAthleteCard, MonitoringTeamOption, MonitoringTodayResponse } from '@/types/monitoring'
 import { todayString } from '@/utils/date'
+import { isSportScoped, resolveScopedSportId } from '@/utils/projectTeamScope'
 
 type DashboardCardTone = 'neutral' | 'progress' | 'success' | 'warning' | 'danger'
 
@@ -50,6 +51,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const dashboardDate = todayString()
+const sports = ref<SportRead[]>([])
+const selectedSportFilter = ref(ALL_SPORTS_VALUE)
 const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
 const monitoringData = ref<MonitoringTodayResponse | null>(null)
 const visibleTeams = ref<MonitoringTeamOption[]>([])
@@ -63,24 +66,53 @@ const loading = ref(false)
 const retryingIssueId = ref<number | null>(null)
 const lastRefreshAt = ref<string | null>(null)
 const syncPanelRef = ref<HTMLElement | null>(null)
+const scopedSportId = computed(() => resolveScopedSportId(authStore.currentUser?.sport_id))
+const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.sport_id))
 
 const dashboardDateLabel = formatDashboardDate(dashboardDate)
+const sportOptions = computed(() => {
+  if (isSportFilterLocked.value) {
+    const matched = sports.value.find((sport) => sport.id === scopedSportId.value)
+    return [{ id: String(scopedSportId.value), name: matched?.name || '当前项目' }]
+  }
+
+  return [
+    { id: ALL_SPORTS_VALUE, name: '全部项目' },
+    ...sports.value.map((sport) => ({
+      id: String(sport.id),
+      name: sport.name,
+    })),
+  ]
+})
+
+const selectedSportId = computed<number | null>(() => {
+  if (selectedSportFilter.value === ALL_SPORTS_VALUE) return null
+  const parsed = Number(selectedSportFilter.value)
+  return Number.isNaN(parsed) ? null : parsed
+})
+
+const selectedSportLabel = computed(() => {
+  const matched = sportOptions.value.find((sport) => sport.id === selectedSportFilter.value)
+  return matched?.name || '全部项目'
+})
 
 const teamOptions = computed(() => {
+  if (selectedSportId.value === null) {
+    return [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }]
+  }
+
   const namedTeams = visibleTeams.value.filter((team) => team.team_id !== null)
   const options = namedTeams.map((team) => ({
     id: String(team.team_id),
     name: team.team_name,
   }))
 
-  if (options.length <= 1) {
-    return options
-  }
-
   return [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }, ...options]
 })
 
-const showTeamFilter = computed(() => visibleTeams.value.filter((team) => team.team_id !== null).length > 1)
+const showTeamFilter = computed(
+  () => selectedSportId.value !== null && visibleTeams.value.filter((team) => team.team_id !== null).length > 1,
+)
 
 const selectedTeamId = computed<number | null>(() => {
   if (selectedTeamFilter.value === ALL_TEAMS_VALUE) return null
@@ -91,7 +123,6 @@ const selectedTeamId = computed<number | null>(() => {
 const selectedTeamLabel = computed(() => {
   const matched = teamOptions.value.find((team) => team.id === selectedTeamFilter.value)
   if (matched) return matched.name
-  if (teamOptions.value.length === 1) return teamOptions.value[0].name
   return '全部队伍'
 })
 
@@ -109,8 +140,12 @@ const athletesById = computed(() => (
 const monitoringAthletes = computed<MonitoringAthleteCard[]>(() => monitoringData.value?.athletes || [])
 
 const filteredSyncIssues = computed(() => {
-  if (selectedTeamId.value === null) return syncIssues.value
-  return syncIssues.value.filter((issue) => athletesById.value.get(issue.athlete_id)?.team_id === selectedTeamId.value)
+  return syncIssues.value.filter((issue) => {
+    const athlete = athletesById.value.get(issue.athlete_id)
+    if (selectedSportId.value !== null && athlete?.sport_id !== selectedSportId.value) return false
+    if (selectedTeamId.value !== null && athlete?.team_id !== selectedTeamId.value) return false
+    return true
+  })
 })
 
 const summaryMetrics = computed<DashboardSummaryMetric[]>(() => {
@@ -304,12 +339,16 @@ const syncPreviewIssues = computed(() => filteredSyncIssues.value.slice(0, 3))
 const hasSyncOverflow = computed(() => filteredSyncIssues.value.length > syncPreviewIssues.value.length)
 
 onMounted(async () => {
+  if (isSportFilterLocked.value) {
+    selectedSportFilter.value = String(scopedSportId.value)
+  }
   await hydrateDashboard()
 })
 
 async function hydrateDashboard() {
   loading.value = true
   await Promise.allSettled([
+    loadSports(),
     loadMonitoringData({ refreshTeams: true }),
     loadSyncIssues(),
     loadAthleteDirectory(),
@@ -322,6 +361,7 @@ async function loadMonitoringData(options: { refreshTeams: boolean }) {
   try {
     const nextData = await fetchMonitoringToday({
       session_date: dashboardDate,
+      sport_id: selectedSportId.value,
       team_id: selectedTeamId.value,
       include_unassigned: selectedTeamId.value === null,
     })
@@ -333,6 +373,14 @@ async function loadMonitoringData(options: { refreshTeams: boolean }) {
     lastRefreshAt.value = formatRefreshTime(new Date())
   } catch {
     monitoringError.value = '今日概况加载失败，可重新进入总览重试。'
+  }
+}
+
+async function loadSports() {
+  try {
+    sports.value = await fetchSports()
+  } catch {
+    sports.value = []
   }
 }
 
@@ -360,6 +408,16 @@ async function handleTeamFilterChange() {
   loading.value = false
 }
 
+async function handleSportFilterChange() {
+  if (isSportFilterLocked.value) {
+    selectedSportFilter.value = String(scopedSportId.value)
+  }
+  selectedTeamFilter.value = ALL_TEAMS_VALUE
+  loading.value = true
+  await loadMonitoringData({ refreshTeams: true })
+  loading.value = false
+}
+
 function syncSelectedTeamFilter() {
   const options = teamOptions.value
   if (!options.length) {
@@ -370,7 +428,7 @@ function syncSelectedTeamFilter() {
   const currentStillVisible = options.some((option) => option.id === selectedTeamFilter.value)
   if (currentStillVisible) return
 
-  selectedTeamFilter.value = options.length > 1 ? ALL_TEAMS_VALUE : options[0].id
+  selectedTeamFilter.value = ALL_TEAMS_VALUE
 }
 
 function handleTaskAction(action: DashboardTaskAction) {
@@ -441,6 +499,19 @@ function formatRefreshTime(value: Date) {
     <template #header-actions>
       <div class="dashboard-toolbar">
         <span class="toolbar-pill">日期：{{ dashboardDateLabel }}</span>
+        <label class="toolbar-select">
+          <span>项目</span>
+          <select
+            v-model="selectedSportFilter"
+            class="toolbar-select-input"
+            :disabled="isSportFilterLocked"
+            @change="handleSportFilterChange"
+          >
+            <option v-for="option in sportOptions" :key="option.id" :value="option.id">
+              {{ option.name }}
+            </option>
+          </select>
+        </label>
         <label v-if="showTeamFilter" class="toolbar-select">
           <span>队伍</span>
           <select v-model="selectedTeamFilter" class="toolbar-select-input" @change="handleTeamFilterChange">
@@ -462,7 +533,7 @@ function formatRefreshTime(value: Date) {
               <p class="dashboard-section-label">今日训练概况</p>
               <h3>先看今天谁在训练、谁需要课后处理</h3>
             </div>
-            <p class="dashboard-panel-note">当前范围：{{ selectedTeamLabel }}</p>
+            <p class="dashboard-panel-note">当前范围：{{ selectedSportLabel }} / {{ selectedTeamLabel }}</p>
           </div>
 
           <p v-if="monitoringError" class="dashboard-panel-alert dashboard-panel-alert--error">{{ monitoringError }}</p>

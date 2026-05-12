@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import { fetchSports, type SportRead } from '@/api/athletes'
 import { fetchMonitoringAthleteDetail, fetchMonitoringToday } from '@/api/monitoring'
 import MonitorShell from '@/components/layout/MonitorShell.vue'
 import MonitoringAlertPanel from '@/components/monitoring/MonitoringAlertPanel.vue'
@@ -9,9 +10,11 @@ import MonitoringAthleteBoard from '@/components/monitoring/MonitoringAthleteBoa
 import MonitoringAthleteDetailOverlay from '@/components/monitoring/MonitoringAthleteDetailOverlay.vue'
 import MonitoringSummaryCards from '@/components/monitoring/MonitoringSummaryCards.vue'
 import TrainingHeaderFilters from '@/components/training/TrainingHeaderFilters.vue'
-import { ALL_TEAMS_VALUE, UNASSIGNED_TEAM_VALUE } from '@/composables/useTeamFilter'
+import { ALL_SPORTS_VALUE, ALL_TEAMS_VALUE, UNASSIGNED_TEAM_VALUE } from '@/composables/useTeamFilter'
+import { useAuthStore } from '@/stores/auth'
 import type { MonitoringAthleteCard, MonitoringAthleteDetailResponse, MonitoringTodayResponse } from '@/types/monitoring'
 import { todayString } from '@/utils/date'
+import { isSportScoped, resolveScopedSportId } from '@/utils/projectTeamScope'
 import { buildMonitoringAlertKey, buildMonitoringAlertStorageKey } from '@/utils/monitoringAlerts'
 import { sortMonitoringAthletes } from '@/utils/monitoringSort'
 
@@ -22,7 +25,10 @@ const AUTO_REFRESH_OPTIONS = [
 ] as const
 
 const router = useRouter()
+const authStore = useAuthStore()
 const monitorDate = ref(todayString())
+const sports = ref<SportRead[]>([])
+const selectedSportFilter = ref(ALL_SPORTS_VALUE)
 const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
 const monitoringData = ref<MonitoringTodayResponse | null>(null)
 const loading = ref(false)
@@ -43,24 +49,57 @@ const deletedAlertKeys = ref<string[]>([])
 let refreshTimerId: number | null = null
 let activeRequestId = 0
 let activeDetailRequestId = 0
+const scopedSportId = computed(() => resolveScopedSportId(authStore.currentUser?.sport_id))
+const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.sport_id))
 
 type LoadMonitoringOptions = {
   background?: boolean
 }
 
-const monitorTeamOptions = computed(() => (
-  [
-    { id: ALL_TEAMS_VALUE, name: '全部队伍' },
-    ...(monitoringData.value?.teams || []).map((team) => ({
-      id: team.team_id == null ? UNASSIGNED_TEAM_VALUE : String(team.team_id),
-      name: team.team_name,
+const monitorSportOptions = computed(() => {
+  if (isSportFilterLocked.value) {
+    const matched = sports.value.find((sport) => sport.id === scopedSportId.value)
+    return [
+      {
+        id: String(scopedSportId.value),
+        name: matched?.name || '当前项目',
+      },
+    ]
+  }
+
+  return [
+    { id: ALL_SPORTS_VALUE, name: '全部项目' },
+    ...sports.value.map((sport) => ({
+      id: String(sport.id),
+      name: sport.name,
     })),
   ]
+})
+
+const monitorSportLabel = computed(
+  () => monitorSportOptions.value.find((sport) => sport.id === selectedSportFilter.value)?.name || '全部项目',
+)
+
+const monitorTeamOptions = computed(() => (
+  selectedSportId.value === null
+    ? [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }]
+    : [
+        { id: ALL_TEAMS_VALUE, name: '全部队伍' },
+        ...(monitoringData.value?.teams || []).map((team) => ({
+          id: team.team_id == null ? UNASSIGNED_TEAM_VALUE : String(team.team_id),
+          name: team.team_name,
+        })),
+      ]
 ))
 
 const monitorTeamLabel = computed(() => (
   monitorTeamOptions.value.find((team) => team.id === selectedTeamFilter.value)?.name || '全部队伍'
 ))
+const selectedSportId = computed<number | null>(() => {
+  if (selectedSportFilter.value === ALL_SPORTS_VALUE) return null
+  const parsed = Number(selectedSportFilter.value)
+  return Number.isNaN(parsed) ? null : parsed
+})
 const monitorDateLabel = computed(() => formatMonitorDate(monitorDate.value))
 const displayedAthletes = computed<MonitoringAthleteCard[]>(() => {
   const athletes = monitoringData.value?.athletes || []
@@ -110,6 +149,20 @@ async function handleDateInput(value: string) {
   restartAutoRefreshTimer()
 }
 
+async function handleSportFilterInput(value: string) {
+  if (isSportFilterLocked.value) {
+    selectedSportFilter.value = String(scopedSportId.value)
+  } else {
+    selectedSportFilter.value = value
+  }
+  selectedTeamFilter.value = ALL_TEAMS_VALUE
+  await loadMonitoringData()
+  if (selectedAthleteId.value) {
+    await loadAthleteDetail(selectedAthleteId.value)
+  }
+  restartAutoRefreshTimer()
+}
+
 async function handleTeamFilterInput(value: string) {
   selectedTeamFilter.value = value
   await loadMonitoringData()
@@ -143,6 +196,7 @@ async function loadMonitoringData(options: LoadMonitoringOptions = {}) {
   try {
     const nextData = await fetchMonitoringToday({
       session_date: monitorDate.value,
+      sport_id: selectedSportId.value,
       team_id: resolveSelectedTeamId(),
       include_unassigned: selectedTeamFilter.value !== ALL_TEAMS_VALUE ? selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE : true,
     })
@@ -370,9 +424,17 @@ watch(
 
 onMounted(() => {
   pageVisible.value = !document.hidden
+  if (isSportFilterLocked.value) {
+    selectedSportFilter.value = String(scopedSportId.value)
+  }
   document.addEventListener('visibilitychange', handleVisibilityChange)
   restartAutoRefreshTimer()
-  void loadMonitoringData()
+  void Promise.allSettled([
+    fetchSports().then((data) => {
+      sports.value = data
+    }),
+    loadMonitoringData(),
+  ])
 })
 
 onBeforeUnmount(() => {
@@ -387,12 +449,19 @@ onBeforeUnmount(() => {
       <TrainingHeaderFilters
         :session-date="monitorDate"
         :session-date-label="monitorDateLabel"
+        :selected-sport-value="selectedSportFilter"
+        :selected-sport-label="monitorSportLabel"
+        :sport-options="monitorSportOptions"
+        :sport-disabled="isSportFilterLocked"
         :selected-team-value="selectedTeamFilter"
         :selected-team-label="monitorTeamLabel"
         :team-options="monitorTeamOptions"
+        sport-field-label="监控项目"
+        sport-aria-label="监控项目筛选"
         team-field-label="监控队伍"
         team-aria-label="监控队伍筛选"
         @update:session-date="handleDateInput"
+        @update:sport-value="handleSportFilterInput"
         @update:team-value="handleTeamFilterInput"
       />
     </template>
@@ -427,6 +496,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="overview-meta">
           <span class="meta-pill">日期：{{ monitorDateLabel }}</span>
+          <span class="meta-pill">项目：{{ monitorSportLabel }}</span>
           <span class="meta-pill">队伍：{{ monitorTeamLabel }}</span>
           <span class="meta-pill">{{ refreshModeLabel }}</span>
         </div>

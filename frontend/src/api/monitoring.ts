@@ -4,6 +4,7 @@ import client from './client'
 
 export type FetchMonitoringTodayParams = {
   session_date: string
+  sport_id?: number | null
   team_id?: number | null
   include_unassigned?: boolean
 }

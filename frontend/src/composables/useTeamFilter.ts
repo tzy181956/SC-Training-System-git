@@ -1,5 +1,7 @@
 import { computed, ref, type Ref } from 'vue'
 
+import { useAuthStore } from '@/stores/auth'
+
 export type TeamFilterAthlete = {
   id: number
   sport?: {
@@ -26,9 +28,16 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
   athletes: () => T[]
   selectedAthleteId?: Ref<number>
 }) {
+  const authStore = useAuthStore()
   const selectedSportFilter = ref(ALL_SPORTS_VALUE)
   const selectedTeamFilter = ref(ALL_TEAMS_VALUE)
   const athleteList = computed(() => params.athletes() || [])
+  const scopedSportFilterValue = computed(() => {
+    const sportId = authStore.currentUser?.sport_id
+    return typeof sportId === 'number' && sportId > 0 ? String(sportId) : ''
+  })
+  const isSportLocked = computed(() => Boolean(scopedSportFilterValue.value))
+  const hasExplicitSportSelection = computed(() => selectedSportFilter.value !== ALL_SPORTS_VALUE)
 
   const sportOptions = computed<TeamFilterOption[]>(() => {
     const sports = athleteList.value
@@ -46,8 +55,9 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
       options.push({ id: UNASSIGNED_SPORT_VALUE, name: '未分项目' })
     }
 
-    if (options.length <= 1) {
-      return options
+    if (isSportLocked.value) {
+      const scopedOption = options.find((option) => option.id === scopedSportFilterValue.value)
+      return [scopedOption || { id: scopedSportFilterValue.value, name: '当前项目' }]
     }
 
     return [{ id: ALL_SPORTS_VALUE, name: '全部项目' }, ...options]
@@ -71,6 +81,10 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
   })
 
   const teamOptions = computed<TeamFilterOption[]>(() => {
+    if (!hasExplicitSportSelection.value) {
+      return [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }]
+    }
+
     const teams = sportFilteredAthletes.value
       .filter((athlete) => athlete.team?.id)
       .map((athlete) => ({
@@ -84,10 +98,6 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
 
     if (hasUnassignedAthletes) {
       options.push({ id: UNASSIGNED_TEAM_VALUE, name: '未分队' })
-    }
-
-    if (options.length <= 1) {
-      return options
     }
 
     return [{ id: ALL_TEAMS_VALUE, name: '全部队伍' }, ...options]
@@ -111,6 +121,11 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
   })
 
   function syncSportFilter() {
+    if (isSportLocked.value) {
+      selectedSportFilter.value = scopedSportFilterValue.value
+      return
+    }
+
     const options = sportOptions.value
     if (!options.length) {
       selectedSportFilter.value = ALL_SPORTS_VALUE
@@ -120,10 +135,15 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
     const currentExists = options.some((option) => option.id === selectedSportFilter.value)
     if (currentExists) return
 
-    selectedSportFilter.value = options.length === 1 ? options[0].id : ALL_SPORTS_VALUE
+    selectedSportFilter.value = ALL_SPORTS_VALUE
   }
 
   function syncTeamFilter() {
+    if (!hasExplicitSportSelection.value) {
+      selectedTeamFilter.value = ALL_TEAMS_VALUE
+      return
+    }
+
     const options = teamOptions.value
     if (!options.length) {
       selectedTeamFilter.value = ALL_TEAMS_VALUE
@@ -133,7 +153,7 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
     const currentExists = options.some((option) => option.id === selectedTeamFilter.value)
     if (currentExists) return
 
-    selectedTeamFilter.value = options.length === 1 ? options[0].id : ALL_TEAMS_VALUE
+    selectedTeamFilter.value = ALL_TEAMS_VALUE
   }
 
   function syncSelectedAthleteForFilter(onEmpty?: () => void) {
@@ -159,6 +179,7 @@ export function useTeamFilter<T extends TeamFilterAthlete>(params: {
     teamOptions,
     selectedTeamLabel,
     filteredAthletes,
+    isSportLocked,
     syncSportFilter,
     syncTeamFilter,
     syncSelectedAthleteForFilter,

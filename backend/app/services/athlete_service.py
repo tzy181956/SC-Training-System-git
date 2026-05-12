@@ -177,6 +177,7 @@ def delete_athlete(db: Session, athlete_id: int, *, actor_name: str | None = Non
             "athlete_name": athlete.full_name,
             "sport_name": athlete.sport.name if athlete.sport else None,
             "team_name": athlete.team.name if athlete.team else None,
+            "birth_date": athlete.birth_date.isoformat() if athlete.birth_date else None,
             "gender": athlete.gender,
             "is_active": athlete.is_active,
         },
