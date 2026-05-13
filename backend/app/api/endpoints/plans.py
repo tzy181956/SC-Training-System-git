@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
@@ -7,6 +7,7 @@ from app.models import User
 from app.schemas.dangerous_action import DangerousActionConfirm
 from app.schemas.training_plan import (
     PlanTemplateCreate,
+    PlanTemplateCopyPayload,
     PlanTemplateItemCreate,
     PlanTemplateItemRead,
     PlanTemplateItemUpdate,
@@ -24,11 +25,17 @@ router = APIRouter(prefix="/plan-templates", tags=["plan-templates"])
 
 @router.get("", response_model=list[PlanTemplateRead])
 def list_templates(
+    visibility: str | None = Query(default="all"),
+    owner_user_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    visible_sport_id = None if access_control_service.is_admin(current_user) else access_control_service.ensure_sport_bound_user(current_user)
-    return plan_service.list_templates(db, visible_sport_id=visible_sport_id, include_global=True)
+    return plan_service.list_templates(
+        db,
+        current_user=current_user,
+        visibility=visibility,
+        owner_user_id=owner_user_id,
+    )
 
 
 @router.post("", response_model=PlanTemplateRead)
@@ -41,7 +48,7 @@ def create_template(
         if payload.team_id is not None:
             access_control_service.get_accessible_team(db, current_user, payload.team_id)
         payload = payload.model_copy(update={"sport_id": access_control_service.ensure_sport_bound_user(current_user)})
-    return plan_service.create_template(db, payload, current_user.id, actor_name=current_user.display_name)
+    return plan_service.create_template(db, payload, current_user, actor_name=current_user.display_name)
 
 
 @router.get("/{template_id}", response_model=PlanTemplateRead)
@@ -66,7 +73,18 @@ def update_template(
         if payload.team_id is not None:
             access_control_service.get_accessible_team(db, current_user, payload.team_id)
         payload = payload.model_copy(update={"sport_id": access_control_service.ensure_sport_bound_user(current_user)})
-    return plan_service.update_template(db, template_id, payload, actor_name=current_user.display_name)
+    return plan_service.update_template(db, template_id, payload, current_user, actor_name=current_user.display_name)
+
+
+@router.post("/{template_id}/copy", response_model=PlanTemplateRead)
+def copy_template(
+    template_id: int,
+    payload: PlanTemplateCopyPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    access_control_service.get_accessible_template(db, current_user, template_id, allow_global_read=True, allow_global_write=False)
+    return plan_service.copy_template(db, template_id, payload, current_user, actor_name=current_user.display_name)
 
 
 @router.post("/{template_id}/items", response_model=PlanTemplateRead)

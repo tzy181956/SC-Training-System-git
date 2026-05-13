@@ -2,6 +2,8 @@ html,
 body,
 #app {
   height: 100%;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
 }
 
 * {
@@ -32,6 +34,19 @@ button {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+button,
+a,
+.primary-btn,
+.secondary-btn,
+.ghost-btn,
+.slim-btn,
+.small-btn,
+.backup-card,
+.scope-card {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {

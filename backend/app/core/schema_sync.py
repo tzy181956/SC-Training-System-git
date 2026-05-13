@@ -6,6 +6,16 @@ from app.services import test_definition_service
 
 
 def ensure_runtime_schema() -> None:
+    template_columns_before: set[str] = set()
+    with engine.begin() as connection:
+        try:
+            template_columns_before = {
+                row[1]
+                for row in connection.execute(text("PRAGMA table_info(training_plan_templates)")).fetchall()
+            }
+        except Exception:
+            template_columns_before = set()
+
     statements = [
         "ALTER TABLE athletes ADD COLUMN gender VARCHAR(20)",
         "ALTER TABLE exercises ADD COLUMN code VARCHAR(64)",
@@ -35,6 +45,10 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
         "ALTER TABLE test_metric_definitions ADD COLUMN is_lower_better BOOLEAN NOT NULL DEFAULT 0",
         "ALTER TABLE set_records ADD COLUMN local_record_id INTEGER",
+        "ALTER TABLE training_plan_templates ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
+        "ALTER TABLE training_plan_templates ADD COLUMN owner_user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE training_plan_templates ADD COLUMN created_by_user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE training_plan_templates ADD COLUMN source_template_id INTEGER REFERENCES training_plan_templates(id)",
         "ALTER TABLE users ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "ALTER TABLE test_type_definitions ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
@@ -98,6 +112,27 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS uq_session_item_local_record_id ON set_records(session_item_id, local_record_id)")
+        )
+        if "visibility" not in template_columns_before:
+            connection.execute(
+                text(
+                    """
+                    UPDATE training_plan_templates
+                    SET visibility = 'public',
+                        owner_user_id = NULL,
+                        created_by_user_id = NULL,
+                        source_template_id = NULL
+                    """
+                )
+            )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_training_plan_templates_visibility ON training_plan_templates(visibility)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_training_plan_templates_owner_user_id ON training_plan_templates(owner_user_id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_training_plan_templates_source_template_id ON training_plan_templates(source_template_id)")
         )
         connection.execute(
             text(

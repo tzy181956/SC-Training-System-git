@@ -11,6 +11,7 @@ const props = defineProps<{
   template: any | null
   saveNoticeKey?: number
   saving?: boolean
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -132,6 +133,7 @@ const saveButtonLabel = computed(() => {
   if (saveNotice.value) return '已保存'
   return '保存模板'
 })
+const readonlyNotice = computed(() => (props.readonly ? '公共模板只读，请先复制到我的模板后再修改。' : ''))
 
 function buildNewModuleDraft() {
   return {
@@ -289,6 +291,7 @@ function focusItem(itemId: number) {
 }
 
 function addModule() {
+  if (props.readonly) return
   normalizeBuilderState([...draftModules.value, buildNewModuleDraft()], buildItemGroups())
   syncInteractionState({
     preferredExpandedModuleIds: draftModules.value.map((module) => module.id),
@@ -296,6 +299,7 @@ function addModule() {
 }
 
 function updateModuleDraft(moduleId: number, payload: Record<string, unknown>) {
+  if (props.readonly) return
   normalizeBuilderState(
     draftModules.value.map((module) => (module.id === moduleId ? { ...module, ...payload } : module)),
     buildItemGroups(),
@@ -303,6 +307,7 @@ function updateModuleDraft(moduleId: number, payload: Record<string, unknown>) {
 }
 
 function moveModuleDraft(moduleId: number, direction: 'up' | 'down') {
+  if (props.readonly) return
   const modules = [...draftModules.value].sort((left, right) => left.sort_order - right.sort_order || left.id - right.id)
   const index = modules.findIndex((module) => module.id === moduleId)
   const targetIndex = direction === 'up' ? index - 1 : index + 1
@@ -313,6 +318,7 @@ function moveModuleDraft(moduleId: number, direction: 'up' | 'down') {
 }
 
 function removeModuleDraft(moduleId: number) {
+  if (props.readonly) return
   const targetModule = draftModules.value.find((module) => module.id === moduleId)
   if (!targetModule) return
   const moduleItems = draftItems.value.filter((item) => item.module_id === moduleId)
@@ -348,6 +354,7 @@ function removeModuleDraft(moduleId: number) {
 }
 
 function addItem(moduleId: number) {
+  if (props.readonly) return
   const itemGroups = buildItemGroups()
   const nextItem = buildNewItemDraft(moduleId)
   itemGroups.set(moduleId, [...(itemGroups.get(moduleId) || []), nextItem])
@@ -359,6 +366,7 @@ function addItem(moduleId: number) {
 }
 
 function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
+  if (props.readonly) return
   const current = draftItems.value.find((item) => item.id === itemId)
   if (!current) return
   const nextItem = {
@@ -398,6 +406,7 @@ function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
 }
 
 function removeItemDraft(itemId: number) {
+  if (props.readonly) return
   const target = draftItems.value.find((item) => item.id === itemId)
   if (!target) return
   if (
@@ -423,6 +432,7 @@ function removeItemDraft(itemId: number) {
 }
 
 function moveItemDraft(itemId: number, direction: 'up' | 'down') {
+  if (props.readonly) return
   const current = draftItems.value.find((item) => item.id === itemId)
   if (!current) return
   const itemGroups = buildItemGroups()
@@ -453,6 +463,7 @@ function findFirstInvalidItem() {
 }
 
 function saveTemplate() {
+  if (props.readonly) return
   if (props.saving) return
   const invalidItem = findFirstInvalidItem()
   if (invalidItem) {
@@ -503,6 +514,7 @@ function moduleSummary(module: any) {
 }
 
 function removeTemplate() {
+  if (props.readonly) return
   if (!props.template?.id) return
   const confirmed = confirmDangerousAction({
     title: '删除训练模板',
@@ -523,23 +535,24 @@ function removeTemplate() {
     <div class="panel builder-header">
       <div class="header-copy">
         <p class="eyebrow">模板基础信息</p>
-        <h3>{{ template?.id ? '编辑训练模板' : '新建训练模板' }}</h3>
+        <h3>{{ readonly ? '查看训练模板' : template?.id ? '编辑训练模板' : '新建训练模板' }}</h3>
       </div>
       <div class="header-actions">
-        <button v-if="template?.id" class="ghost-btn slim danger-btn" type="button" @click="removeTemplate">删除模板</button>
-        <button class="primary-btn slim" type="button" :disabled="saving" @click="saveTemplate">{{ saveButtonLabel }}</button>
+        <button v-if="template?.id && !readonly" class="ghost-btn slim danger-btn" type="button" @click="removeTemplate">删除模板</button>
+        <button v-if="!readonly" class="primary-btn slim" type="button" :disabled="saving" @click="saveTemplate">{{ saveButtonLabel }}</button>
       </div>
 
       <p v-if="saveNotice" class="save-notice">{{ saveNotice }}</p>
+      <p v-if="readonlyNotice" class="readonly-notice">{{ readonlyNotice }}</p>
 
       <div class="grid two">
         <label class="field">
           <span class="field-label">模板名称 <strong class="required-mark">*</strong></span>
-          <input v-model="templateForm.name" class="text-input" placeholder="例如：力量训练 A、下肢爆发 B" />
+          <input v-model="templateForm.name" class="text-input" :disabled="readonly" placeholder="例如：力量训练 A、下肢爆发 B" />
         </label>
         <label class="field">
           <span class="field-label">状态</span>
-          <select v-model="templateForm.is_active" class="text-input">
+          <select v-model="templateForm.is_active" class="text-input" :disabled="readonly">
             <option :value="true">启用</option>
             <option :value="false">停用</option>
           </select>
@@ -551,6 +564,7 @@ function removeTemplate() {
         <textarea
           v-model="templateForm.description"
           class="text-input area"
+          :disabled="readonly"
           placeholder="例如：适用于下肢主项日，目标是基础力量与动作质量。"
         />
       </label>
@@ -562,7 +576,7 @@ function removeTemplate() {
           <p class="eyebrow">添加模块</p>
           <h3>先建立训练模块，再在模块内追加动作</h3>
         </div>
-        <button class="primary-btn slim" type="button" @click="addModule">添加模块</button>
+        <button v-if="!readonly" class="primary-btn slim" type="button" @click="addModule">添加模块</button>
       </div>
       <p class="hint">一个模块代表一段连续训练内容，例如模块 A 中的 4 个动作循环完成后，再进入模块 B。</p>
     </div>
@@ -584,8 +598,9 @@ function removeTemplate() {
             <button class="ghost-btn slim-btn" type="button" @click="toggleModuleExpanded(module.id)">
               {{ isModuleExpanded(module.id) ? '收起模块' : '展开模块' }}
             </button>
-            <button class="slim-btn" type="button" :disabled="moduleIndex === 0" @click="moveModuleDraft(module.id, 'up')">上移模块</button>
+            <button v-if="!readonly" class="slim-btn" type="button" :disabled="moduleIndex === 0" @click="moveModuleDraft(module.id, 'up')">上移模块</button>
             <button
+              v-if="!readonly"
               class="slim-btn"
               type="button"
               :disabled="moduleIndex === sortedModules.length - 1"
@@ -593,7 +608,7 @@ function removeTemplate() {
             >
               下移模块
             </button>
-            <button class="ghost-btn slim-btn danger-btn" type="button" @click="removeModuleDraft(module.id)">删除模块</button>
+            <button v-if="!readonly" class="ghost-btn slim-btn danger-btn" type="button" @click="removeModuleDraft(module.id)">删除模块</button>
           </div>
         </div>
 
@@ -606,6 +621,7 @@ function removeTemplate() {
               <input
                 :value="module.title"
                 class="text-input"
+                :disabled="readonly"
                 placeholder="例如：主项循环、辅助力量、速度补充"
                 @input="updateModuleDraft(module.id, { title: ($event.target as HTMLInputElement).value })"
               />
@@ -615,6 +631,7 @@ function removeTemplate() {
               <input
                 :value="module.note"
                 class="text-input"
+                :disabled="readonly"
                 placeholder="例如：4 个动作循环 3 轮，组间快切"
                 @input="updateModuleDraft(module.id, { note: ($event.target as HTMLInputElement).value })"
               />
@@ -622,7 +639,7 @@ function removeTemplate() {
           </div>
 
           <div class="module-actions">
-            <button class="primary-btn slim" type="button" @click="addItem(module.id)">在 {{ module.display_label }} 中添加动作</button>
+            <button v-if="!readonly" class="primary-btn slim" type="button" @click="addItem(module.id)">在 {{ module.display_label }} 中添加动作</button>
           </div>
 
           <div class="module-items">
@@ -636,6 +653,7 @@ function removeTemplate() {
               :move-down-disabled="itemIndex === module.items.length - 1"
               :exercises="exercises"
               :test-metric-options="testMetricOptions || []"
+              :readonly="readonly"
               :active="item.id === activeItemId"
               :open="item.id === activeItemId"
               @change="updateItemDraft"
@@ -702,7 +720,8 @@ function removeTemplate() {
 .module-meta,
 .eyebrow,
 .hint,
-.save-notice {
+.save-notice,
+.readonly-notice {
   color: var(--muted);
   font-size: 13px;
 }
@@ -710,6 +729,7 @@ function removeTemplate() {
 .eyebrow,
 .hint,
 .save-notice,
+.readonly-notice,
 .module-eyebrow,
 .module-meta {
   margin: 0;
@@ -721,6 +741,14 @@ function removeTemplate() {
   background: #dcfce7;
   color: #166534;
   font-weight: 600;
+}
+
+.readonly-notice {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
 }
 
 .grid {

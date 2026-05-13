@@ -4,6 +4,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import ActiveMixin, BaseModel
 
 
+TEMPLATE_VISIBILITY_PUBLIC = "public"
+TEMPLATE_VISIBILITY_PRIVATE = "private"
+
+
 def module_code_from_sort_order(sort_order: int | None) -> str:
     value = max(int(sort_order or 1), 1)
     code = ""
@@ -21,6 +25,10 @@ class TrainingPlanTemplate(BaseModel, ActiveMixin):
     sport_id: Mapped[int | None] = mapped_column(ForeignKey("sports.id"))
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    visibility: Mapped[str] = mapped_column(String(20), default=TEMPLATE_VISIBILITY_PRIVATE, nullable=False, index=True)
+    owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    source_template_id: Mapped[int | None] = mapped_column(ForeignKey("training_plan_templates.id"), index=True)
 
     modules = relationship(
         "TrainingPlanTemplateModule",
@@ -37,7 +45,24 @@ class TrainingPlanTemplate(BaseModel, ActiveMixin):
     )
     sport = relationship("Sport")
     team = relationship("Team")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys=[created_by])
+    owner_user = relationship("User", foreign_keys=[owner_user_id])
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
+    source_template = relationship("TrainingPlanTemplate", remote_side="TrainingPlanTemplate.id", foreign_keys=[source_template_id])
+
+    @property
+    def visibility_label(self) -> str:
+        if self.visibility == TEMPLATE_VISIBILITY_PUBLIC:
+            return "公共模板"
+        return "自建模板"
+
+    @property
+    def owner_name(self) -> str | None:
+        return self.owner_user.display_name if self.owner_user else None
+
+    @property
+    def source_template_name(self) -> str | None:
+        return self.source_template.name if self.source_template else None
 
 
 class TrainingPlanTemplateModule(BaseModel):

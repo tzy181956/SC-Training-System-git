@@ -1,7 +1,12 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import ORMModel
 from app.schemas.exercise import ExerciseRead
+
+
+TemplateVisibility = Literal["public", "private"]
 
 
 class PlanTemplateModuleBase(BaseModel):
@@ -67,7 +72,16 @@ class PlanTemplateBase(BaseModel):
 
 
 class PlanTemplateCreate(PlanTemplateBase):
-    pass
+    visibility: TemplateVisibility | None = None
+    owner_user_id: int | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be empty")
+        return normalized
 
 
 class PlanTemplateUpdate(BaseModel):
@@ -76,6 +90,31 @@ class PlanTemplateUpdate(BaseModel):
     sport_id: int | None = None
     team_id: int | None = None
     is_active: bool | None = None
+    visibility: TemplateVisibility | None = None
+    owner_user_id: int | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be empty")
+        return normalized
+
+
+class PlanTemplateCopyPayload(BaseModel):
+    target_owner_user_id: int | None = None
+    name: str | None = Field(default=None, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class PlanTemplateItemRead(ORMModel, PlanTemplateItemBase):
@@ -99,5 +138,12 @@ class PlanTemplateModuleRead(ORMModel, PlanTemplateModuleBase):
 class PlanTemplateRead(ORMModel, PlanTemplateBase):
     id: int
     created_by: int | None = None
+    visibility: TemplateVisibility = "private"
+    owner_user_id: int | None = None
+    created_by_user_id: int | None = None
+    source_template_id: int | None = None
+    visibility_label: str | None = None
+    owner_name: str | None = None
+    source_template_name: str | None = None
     modules: list[PlanTemplateModuleRead] = Field(default_factory=list)
     items: list[PlanTemplateItemRead] = Field(default_factory=list)

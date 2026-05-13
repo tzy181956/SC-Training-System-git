@@ -11,6 +11,7 @@ const props = defineProps<{
   moveDownDisabled?: boolean
   active?: boolean
   open?: boolean
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -57,7 +58,7 @@ watch(
 watch(
   draft,
   () => {
-    if (syncingFromProps) return
+    if (syncingFromProps || props.readonly) return
     emit('change', props.item.id, serializeDraft())
   },
   { deep: true },
@@ -207,22 +208,26 @@ function syncExercisePicker(exerciseId: number, fallbackExercise?: any) {
 }
 
 function clearExerciseSelection() {
+  if (props.readonly) return
   draft.exercise_id = 0
   searchKeyword.value = ''
 }
 
 function handleLevel1Change(value: string) {
+  if (props.readonly) return
   level1Category.value = value
   level2Category.value = ''
   clearExerciseSelection()
 }
 
 function handleLevel2Change(value: string) {
+  if (props.readonly) return
   level2Category.value = value
   clearExerciseSelection()
 }
 
 function handleExerciseQueryInput(value: string) {
+  if (props.readonly) return
   searchKeyword.value = value
   const normalized = value.trim().toLowerCase()
   const exactMatch = searchableExercises.value.find((exercise) => exercise.optionLabel.trim().toLowerCase() === normalized)
@@ -232,6 +237,7 @@ function handleExerciseQueryInput(value: string) {
 }
 
 function openCombobox() {
+  if (props.readonly) return
   comboOpen.value = true
   searchKeyword.value = ''
   nextTick(() => {
@@ -260,14 +266,17 @@ function toggleDetailsOpen() {
 }
 
 function toggleExtraOptions() {
+  if (props.readonly) return
   extraOptionsOpen.value = !extraOptionsOpen.value
 }
 
 function toggleProgressionOpen() {
+  if (props.readonly) return
   progressionOpen.value = !progressionOpen.value
 }
 
 function selectExercise(exercise: any) {
+  if (props.readonly) return
   draft.exercise_id = exercise.id
   closeCombobox()
 }
@@ -297,10 +306,10 @@ onBeforeUnmount(() => {
         <span class="muted adaptive-card-subtitle adaptive-card-clamp-2">{{ loadModeLabel }}</span>
       </div>
       <div class="header-actions">
-        <button class="slim-btn" type="button" :disabled="moveUpDisabled" @click="emit('move', item.id, 'up')">上移</button>
-        <button class="slim-btn" type="button" :disabled="moveDownDisabled" @click="emit('move', item.id, 'down')">下移</button>
+        <button v-if="!readonly" class="slim-btn" type="button" :disabled="moveUpDisabled" @click="emit('move', item.id, 'up')">上移</button>
+        <button v-if="!readonly" class="slim-btn" type="button" :disabled="moveDownDisabled" @click="emit('move', item.id, 'down')">下移</button>
         <button class="ghost-btn slim-btn" type="button" @click="toggleDetailsOpen">{{ detailsOpen ? '收起编辑' : '展开编辑' }}</button>
-        <button class="ghost-btn slim-btn danger" type="button" @click="emit('remove', item.id)">删除</button>
+        <button v-if="!readonly" class="ghost-btn slim-btn danger" type="button" @click="emit('remove', item.id)">删除</button>
       </div>
     </header>
 
@@ -331,14 +340,14 @@ onBeforeUnmount(() => {
         <div class="detail-grid detail-grid--search">
           <label class="field module-field">
             <span>所属模块</span>
-            <select v-model.number="draft.module_id" class="text-input">
+            <select v-model.number="draft.module_id" class="text-input" :disabled="readonly">
               <option v-for="option in moduleOptions || []" :key="option.id" :value="option.id">{{ option.label }}</option>
             </select>
           </label>
           <label ref="comboRoot" class="field search-field">
             <span>动作搜索</span>
             <div class="combo-shell" :class="{ open: comboOpen }">
-              <button class="combo-trigger" type="button" @click="toggleCombobox">
+              <button class="combo-trigger" type="button" :disabled="readonly" @click="toggleCombobox">
                 <span class="combo-trigger-text">
                   {{ selectedExerciseLabel || '请选择动作' }}
                 </span>
@@ -350,6 +359,7 @@ onBeforeUnmount(() => {
                   ref="searchInput"
                   :value="searchKeyword"
                   class="text-input combo-search-input"
+                  :disabled="readonly"
                   placeholder="输入动作名、英文名、基础动作或分类搜索"
                   @input="handleExerciseQueryInput(($event.target as HTMLInputElement).value)"
                 />
@@ -360,6 +370,7 @@ onBeforeUnmount(() => {
                     class="combo-option"
                     :class="{ active: exercise.id === draft.exercise_id }"
                     type="button"
+                    :disabled="readonly"
                     @click="selectExercise(exercise)"
                   >
                     {{ exercise.optionLabel }}
@@ -374,14 +385,14 @@ onBeforeUnmount(() => {
         <div class="detail-grid detail-grid--categories">
           <label class="field">
             <span>一级分类</span>
-            <select :value="level1Category" class="text-input" @change="handleLevel1Change(($event.target as HTMLSelectElement).value)">
+            <select :value="level1Category" class="text-input" :disabled="readonly" @change="handleLevel1Change(($event.target as HTMLSelectElement).value)">
               <option value="">全部一级分类</option>
               <option v-for="option in level1Options" :key="option" :value="option">{{ option }}</option>
             </select>
           </label>
           <label class="field">
             <span>二级分类</span>
-            <select :value="level2Category" class="text-input" @change="handleLevel2Change(($event.target as HTMLSelectElement).value)">
+            <select :value="level2Category" class="text-input" :disabled="readonly" @change="handleLevel2Change(($event.target as HTMLSelectElement).value)">
               <option value="">全部二级分类</option>
               <option v-for="option in level2Options" :key="option" :value="option">{{ option }}</option>
             </select>
@@ -391,33 +402,33 @@ onBeforeUnmount(() => {
         <div class="detail-grid detail-grid--metrics">
           <label class="field metric metric--count">
             <span>组数</span>
-            <input v-model.number="draft.prescribed_sets" type="number" class="text-input" />
+            <input v-model.number="draft.prescribed_sets" type="number" class="text-input" :disabled="readonly" />
           </label>
           <label class="field metric metric--count">
             <span>次数</span>
-            <input v-model.number="draft.prescribed_reps" type="number" class="text-input" />
+            <input v-model.number="draft.prescribed_reps" type="number" class="text-input" :disabled="readonly" />
           </label>
           <label class="field metric metric--load">
             <span>{{ draft.initial_load_mode === 'percent_1rm' ? '负荷 (%)' : '负荷' }}</span>
-            <input v-model.number="draft.initial_load_value" type="number" step="0.5" class="text-input" />
+            <input v-model.number="draft.initial_load_value" type="number" step="0.5" class="text-input" :disabled="readonly" />
           </label>
           <label class="field metric metric--mode">
             <span>负荷方式</span>
-            <select v-model="draft.initial_load_mode" class="text-input">
+            <select v-model="draft.initial_load_mode" class="text-input" :disabled="readonly">
               <option value="fixed_weight">固定重量</option>
               <option value="percent_1rm">按最近测试的 1RM 百分比</option>
             </select>
           </label>
           <label v-if="draft.initial_load_mode === 'percent_1rm'" class="field metric metric--goal">
             <span>关联测试项目</span>
-            <select v-model="draft.initial_load_test_metric_definition_id" class="text-input">
+            <select v-model="draft.initial_load_test_metric_definition_id" class="text-input" :disabled="readonly">
               <option :value="null">请选择测试项目</option>
               <option v-for="option in testMetricOptions || []" :key="option.id" :value="option.id">{{ option.label }}</option>
             </select>
           </label>
           <label class="field metric metric--goal">
             <span>训练目标</span>
-            <input v-model="draft.progression_goal" class="text-input" placeholder="例如：力量、速度、技术稳定" />
+            <input v-model="draft.progression_goal" class="text-input" :disabled="readonly" placeholder="例如：力量、速度、技术稳定" />
           </label>
         </div>
       </section>
@@ -428,7 +439,7 @@ onBeforeUnmount(() => {
             <strong>更多设置</strong>
             <p class="detail-hint">低频项收在这里，避免主编辑区过满。</p>
           </div>
-          <button class="ghost-btn slim section-toggle" type="button" @click="toggleExtraOptions">
+          <button class="ghost-btn slim section-toggle" type="button" :disabled="readonly" @click="toggleExtraOptions">
             {{ extraOptionsOpen ? '收起' : '展开' }}
           </button>
         </div>
@@ -439,15 +450,16 @@ onBeforeUnmount(() => {
             <textarea
               v-model="draft.target_note"
               class="text-input note-input"
+              :disabled="readonly"
               rows="1"
               placeholder="例如：保持速度、注意动作深度、优先技术稳定"
             />
           </label>
 
           <div class="toggle-row">
-            <label><input v-model="draft.is_main_lift" type="checkbox" /> 主项动作</label>
-            <label><input v-model="draft.enable_auto_load" type="checkbox" /> 启用自动调重</label>
-            <label><input v-model="draft.ai_adjust_enabled" type="checkbox" /> 预留 AI 调整</label>
+            <label><input v-model="draft.is_main_lift" type="checkbox" :disabled="readonly" /> 主项动作</label>
+            <label><input v-model="draft.enable_auto_load" type="checkbox" :disabled="readonly" /> 启用自动调重</label>
+            <label><input v-model="draft.ai_adjust_enabled" type="checkbox" :disabled="readonly" /> 预留 AI 调整</label>
           </div>
         </div>
       </section>
@@ -458,7 +470,7 @@ onBeforeUnmount(() => {
             <strong>自动调重规则</strong>
             <p class="detail-hint">按动作单独设置 RIR、加重和回退规则。</p>
           </div>
-          <button class="ghost-btn slim section-toggle" type="button" @click="toggleProgressionOpen">
+          <button class="ghost-btn slim section-toggle" type="button" :disabled="readonly" @click="toggleProgressionOpen">
             {{ progressionOpen ? '收起' : '展开' }}
           </button>
         </div>
@@ -466,24 +478,24 @@ onBeforeUnmount(() => {
           <div class="grid two">
             <label class="field">
               <span>目标 RIR</span>
-              <input v-model.number="draft.progression_rules.target_rir" type="number" min="0" max="5" class="text-input" />
+              <input v-model.number="draft.progression_rules.target_rir" type="number" min="0" max="5" class="text-input" :disabled="readonly" />
             </label>
             <label class="field">
               <span>加重步长（千克）</span>
-              <input v-model.number="draft.progression_rules.up_step" type="number" step="0.5" class="text-input" />
+              <input v-model.number="draft.progression_rules.up_step" type="number" step="0.5" class="text-input" :disabled="readonly" />
             </label>
             <label class="field">
               <span>降重步长（千克）</span>
-              <input v-model.number="draft.progression_rules.down_step" type="number" step="0.5" class="text-input" />
+              <input v-model.number="draft.progression_rules.down_step" type="number" step="0.5" class="text-input" :disabled="readonly" />
             </label>
             <label class="field">
               <span>未完成时处理</span>
-              <input v-model="draft.progression_rules.miss_strategy" class="text-input" />
+              <input v-model="draft.progression_rules.miss_strategy" class="text-input" :disabled="readonly" />
             </label>
           </div>
           <label class="field">
             <span>连续吃力时处理</span>
-            <input v-model="draft.progression_rules.fatigue_strategy" class="text-input" />
+            <input v-model="draft.progression_rules.fatigue_strategy" class="text-input" :disabled="readonly" />
           </label>
         </div>
       </section>

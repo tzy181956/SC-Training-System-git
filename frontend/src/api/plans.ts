@@ -17,8 +17,20 @@ export type BatchAssignmentPayload = {
   notes?: string | null
 }
 
-export async function fetchPlanTemplates() {
-  const { data } = await client.get('/plan-templates')
+export type PlanTemplateVisibility = 'public' | 'private'
+
+export type PlanTemplateListParams = {
+  visibility?: PlanTemplateVisibility | 'all'
+  owner_user_id?: number | null
+}
+
+export type PlanTemplateCopyPayload = {
+  target_owner_user_id?: number | null
+  name?: string | null
+}
+
+export async function fetchPlanTemplates(params: PlanTemplateListParams = {}) {
+  const { data } = await client.get('/plan-templates', { params })
   return data
 }
 
@@ -34,6 +46,11 @@ export async function updatePlanTemplate(id: number, payload: Record<string, unk
 
 export async function deletePlanTemplate(id: number, payload: DangerousActionPayload) {
   const { data } = await client.delete(`/plan-templates/${id}`, { data: payload })
+  return data
+}
+
+export async function copyPlanTemplate(id: number, payload: PlanTemplateCopyPayload) {
+  const { data } = await client.post(`/plan-templates/${id}/copy`, payload)
   return data
 }
 

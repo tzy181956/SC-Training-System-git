@@ -21,6 +21,7 @@ from app.models import (
     TrainingSyncIssue,
     User,
 )
+from app.models.training_plan import TEMPLATE_VISIBILITY_PRIVATE, TEMPLATE_VISIBILITY_PUBLIC
 
 
 SPORT_BINDING_REQUIRED_DETAIL = "当前账号未绑定项目"
@@ -29,6 +30,9 @@ TEAM_ACCESS_DENIED_DETAIL = "无权访问其他项目下的队伍"
 GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL = "无权修改系统训练模板"
 GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL = "无权使用其他项目训练模板"
 GLOBAL_TEST_DEFINITION_EDIT_DENIED_DETAIL = "无权修改系统测试项目"
+TEMPLATE_ACCESS_DENIED_DETAIL = "无权访问该训练模板"
+PUBLIC_TEMPLATE_EDIT_DENIED_DETAIL = "公共模板只读，请复制到我的模板后再修改"
+PRIVATE_TEMPLATE_ASSIGN_DENIED_DETAIL = "无权使用其他教练的自建模板"
 
 
 def normalize_role_code(role_code: str | None) -> str:
@@ -93,10 +97,34 @@ def filter_visible_athletes(athletes: list[Athlete], user: User) -> list[Athlete
 
 
 def filter_visible_templates(templates: list[TrainingPlanTemplate], user: User) -> list[TrainingPlanTemplate]:
+    return [template for template in templates if can_view_template(user, template)]
+
+
+def can_view_template(user: User | None, template: TrainingPlanTemplate | None) -> bool:
+    if not user or not template:
+        return False
     if is_admin(user):
-        return templates
-    scoped_sport_id = ensure_sport_bound_user(user)
-    return [template for template in templates if template.sport_id in {None, scoped_sport_id}]
+        return True
+    visibility = _template_visibility(template)
+    if visibility == TEMPLATE_VISIBILITY_PUBLIC:
+        return True
+    return visibility == TEMPLATE_VISIBILITY_PRIVATE and template.owner_user_id == user.id
+
+
+def can_edit_template(user: User | None, template: TrainingPlanTemplate | None) -> bool:
+    if not user or not template:
+        return False
+    if is_admin(user):
+        return True
+    return _template_visibility(template) == TEMPLATE_VISIBILITY_PRIVATE and template.owner_user_id == user.id
+
+
+def can_delete_template(user: User | None, template: TrainingPlanTemplate | None) -> bool:
+    return can_edit_template(user, template)
+
+
+def can_copy_template(user: User | None, template: TrainingPlanTemplate | None) -> bool:
+    return can_view_template(user, template) and _template_visibility(template) == TEMPLATE_VISIBILITY_PUBLIC
 
 
 def filter_visible_assignments(assignments: list[AthletePlanAssignment], user: User) -> list[AthletePlanAssignment]:
@@ -132,6 +160,8 @@ def get_accessible_template(
         .options(
             joinedload(TrainingPlanTemplate.sport),
             joinedload(TrainingPlanTemplate.team),
+            joinedload(TrainingPlanTemplate.owner_user),
+            joinedload(TrainingPlanTemplate.source_template),
             joinedload(TrainingPlanTemplate.modules),
             joinedload(TrainingPlanTemplate.items),
         )
@@ -141,16 +171,12 @@ def get_accessible_template(
     if not template:
         raise not_found("Training template not found")
 
-    if is_admin(user):
+    requires_write = not allow_global_read or allow_global_write
+    if requires_write:
+        _ensure_template_editable(user, template)
         return template
-
-    scoped_sport_id = ensure_sport_bound_user(user)
-    if template.sport_id is None:
-        if allow_global_write or allow_global_read:
-            return template
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
-    if template.sport_id != scoped_sport_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
+    if not can_view_template(user, template):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEMPLATE_ACCESS_DENIED_DETAIL)
     return template
 
 
@@ -161,8 +187,8 @@ def ensure_template_assignable_to_athlete(
     athlete: Athlete,
 ) -> TrainingPlanTemplate:
     template = get_accessible_template(db, user, template_id, allow_global_read=True, allow_global_write=False)
-    if not is_admin(user) and template.sport_id not in {None, athlete.sport_id}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL)
+    if not can_view_template(user, template):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PRIVATE_TEMPLATE_ASSIGN_DENIED_DETAIL)
     return template
 
 
@@ -181,11 +207,8 @@ def get_accessible_assignment(db: Session, user: User, assignment_id: int) -> At
     if not assignment:
         raise not_found("未找到计划分配记录")
     ensure_sport_access(user, assignment.athlete.sport_id if assignment.athlete else None)
-    if not is_admin(user):
-        template_sport_id = assignment.template.sport_id if assignment.template else None
-        scoped_sport_id = ensure_sport_bound_user(user)
-        if template_sport_id not in {None, scoped_sport_id}:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_ASSIGN_DENIED_DETAIL)
+    if not is_admin(user) and assignment.template and not can_view_template(user, assignment.template):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PRIVATE_TEMPLATE_ASSIGN_DENIED_DETAIL)
     return assignment
 
 
@@ -211,16 +234,12 @@ def get_accessible_template_item(
     template = item.template
     if template is None:
         raise not_found("Training template not found")
-    if is_admin(user):
+    requires_write = not allow_global_read or allow_global_write
+    if requires_write:
+        _ensure_template_editable(user, template)
         return item
-
-    scoped_sport_id = ensure_sport_bound_user(user)
-    if template.sport_id is None:
-        if allow_global_write or allow_global_read:
-            return item
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
-    if template.sport_id != scoped_sport_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
+    if not can_view_template(user, template):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEMPLATE_ACCESS_DENIED_DETAIL)
     return item
 
 
@@ -246,16 +265,12 @@ def get_accessible_template_module(
     template = module.template
     if template is None:
         raise not_found("Training template not found")
-    if is_admin(user):
+    requires_write = not allow_global_read or allow_global_write
+    if requires_write:
+        _ensure_template_editable(user, template)
         return module
-
-    scoped_sport_id = ensure_sport_bound_user(user)
-    if template.sport_id is None:
-        if allow_global_write or allow_global_read:
-            return module
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEMPLATE_EDIT_DENIED_DETAIL)
-    if template.sport_id != scoped_sport_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
+    if not can_view_template(user, template):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEMPLATE_ACCESS_DENIED_DETAIL)
     return module
 
 
@@ -441,3 +456,18 @@ def _ensure_test_type_access(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_TEST_DEFINITION_EDIT_DENIED_DETAIL)
     if definition.sport_id != scoped_sport_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SPORT_ACCESS_DENIED_DETAIL)
+
+
+def _template_visibility(template: TrainingPlanTemplate | None) -> str:
+    visibility = (getattr(template, "visibility", None) or TEMPLATE_VISIBILITY_PUBLIC).strip().lower()
+    if visibility not in {TEMPLATE_VISIBILITY_PUBLIC, TEMPLATE_VISIBILITY_PRIVATE}:
+        return TEMPLATE_VISIBILITY_PRIVATE
+    return visibility
+
+
+def _ensure_template_editable(user: User, template: TrainingPlanTemplate) -> None:
+    if can_edit_template(user, template):
+        return
+    if _template_visibility(template) == TEMPLATE_VISIBILITY_PUBLIC:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PUBLIC_TEMPLATE_EDIT_DENIED_DETAIL)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TEMPLATE_ACCESS_DENIED_DETAIL)
