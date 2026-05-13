@@ -101,10 +101,18 @@ function selectBackup(filename: string) {
 
 function selectScope(scopeKey: RestoreScope['key']) {
   selectedScopeKey.value = scopeKey
+  if (scopeKey === 'full_database') {
+    selectedTeamId.value = null
+  }
 }
 
 async function handleRestore() {
   if (!selectedBackup.value || !selectedScope.value) return
+  if (selectedScopeKey.value !== 'full_database' && teamLoadError.value) {
+    actionTone.value = 'error'
+    actionMessage.value = '队伍列表加载失败。请先刷新队伍列表后再执行恢复，避免误恢复全部数据。'
+    return
+  }
   const effectiveTeamId = selectedScopeKey.value === 'full_database' ? null : selectedTeamId.value
 
   const confirmed = confirmDangerousAction({
