@@ -2,29 +2,68 @@
 import axios from 'axios'
 import { computed, onMounted, ref } from 'vue'
 
-import { fetchBackups, restoreBackup, type BackupItem, type RestoreScope } from '@/api/backups'
+import { fetchTeams, type TeamRead } from '@/api/athletes'
+import { fetchBackups, restoreBackup, type BackupItem, type BackupRestoreResponse, type RestoreScope } from '@/api/backups'
 import AppShell from '@/components/layout/AppShell.vue'
 import { confirmDangerousAction } from '@/utils/dangerousAction'
 
 const loading = ref(false)
 const restoring = ref(false)
+const teamLoading = ref(false)
 const loadError = ref('')
+const teamLoadError = ref('')
 const actionMessage = ref('')
 const actionTone = ref<'success' | 'warning' | 'error'>('success')
 const backups = ref<BackupItem[]>([])
 const restoreScopes = ref<RestoreScope[]>([])
+const teams = ref<TeamRead[]>([])
 const backupDirectory = ref('')
 const filenamePattern = ref('')
 const keepRecentDays = ref(0)
 const keepRecentWeeks = ref(0)
 const selectedBackupFilename = ref('')
 const selectedScopeKey = ref<'full_database' | 'training_records' | 'test_records'>('full_database')
+const selectedTeamId = ref<number | null>(null)
+const lastRestoreResult = ref<BackupRestoreResponse | null>(null)
 
 const selectedBackup = computed(() => backups.value.find((item) => item.filename === selectedBackupFilename.value) || null)
 const selectedScope = computed(() => restoreScopes.value.find((item) => item.key === selectedScopeKey.value) || null)
 const totalBackupSizeBytes = computed(() =>
   backups.value.reduce((total, item) => total + Math.max(item.size_bytes || 0, 0), 0),
 )
+const selectedTeam = computed(() => teams.value.find((item) => item.id === selectedTeamId.value) || null)
+const restoreConfirmationCopy = computed(() => {
+  if (selectedScopeKey.value === 'full_database') return '我确认恢复整库'
+  if (selectedScopeKey.value === 'training_records') {
+    return selectedTeam.value ? '我确认恢复该队训练数据' : '我确认恢复全部训练数据'
+  }
+  return selectedTeam.value ? '我确认恢复该队测试数据' : '我确认恢复全部测试数据'
+})
+const restoreResultRows = computed(() =>
+  Object.entries(lastRestoreResult.value?.restored_row_counts || {}).map(([tableName, counts]) => ({
+    tableName,
+    deleted: counts.deleted,
+    inserted: counts.inserted,
+  })),
+)
+
+async function loadTeams() {
+  teamLoading.value = true
+  teamLoadError.value = ''
+  try {
+    const response = await fetchTeams()
+    teams.value = [...response].sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+    if (selectedTeamId.value !== null && !teams.value.some((item) => item.id === selectedTeamId.value)) {
+      selectedTeamId.value = null
+    }
+  } catch (error) {
+    teamLoadError.value = extractErrorMessage(error, '队伍列表加载失败，当前无法按队伍限定恢复。')
+    teams.value = []
+    selectedTeamId.value = null
+  } finally {
+    teamLoading.value = false
+  }
+}
 
 async function loadBackupList() {
   loading.value = true
@@ -66,12 +105,17 @@ function selectScope(scopeKey: RestoreScope['key']) {
 
 async function handleRestore() {
   if (!selectedBackup.value || !selectedScope.value) return
+  const effectiveTeamId = selectedScopeKey.value === 'full_database' ? null : selectedTeamId.value
 
   const confirmed = confirmDangerousAction({
-    title: `恢复备份：${selectedScope.value.label}`,
+    title: restoreConfirmationCopy.value,
     impactLines: [
       `备份文件：${selectedBackup.value.filename}`,
       `恢复时间点：${formatDateTime(selectedBackup.value.restore_point_at)}`,
+      `恢复范围：${selectedScope.value.label}`,
+      selectedScopeKey.value === 'full_database'
+        ? '整库恢复会覆盖全部数据，不能限定队伍'
+        : `队伍范围：${selectedTeam.value ? selectedTeam.value.name : '全部队伍'}`,
       ...selectedScope.value.impact_summary,
     ],
     recommendation: '系统会先自动为当前正式数据库做一份兜底备份；建议在无人录课时执行恢复。',
@@ -81,6 +125,7 @@ async function handleRestore() {
 
   restoring.value = true
   actionMessage.value = ''
+  lastRestoreResult.value = null
   try {
     const result = await restoreBackup({
       confirmed: true,
@@ -88,14 +133,11 @@ async function handleRestore() {
       confirmation_text: 'RESTORE_BACKUP',
       backup_filename: selectedBackup.value.filename,
       restore_scope: selectedScope.value.key,
+      team_id: effectiveTeamId,
     })
     actionTone.value = 'success'
-    actionMessage.value = [
-      result.message,
-      result.pre_restore_backup_path ? `恢复前兜底备份：${result.pre_restore_backup_path}` : '',
-    ]
-      .filter(Boolean)
-      .join('；')
+    actionMessage.value = result.message
+    lastRestoreResult.value = result
     await loadBackupList()
     selectedBackupFilename.value = result.backup_filename
   } catch (error) {
@@ -135,6 +177,19 @@ function formatTriggerLabel(backup: BackupItem) {
   return backup.trigger_label || backup.trigger || '手动/未知来源'
 }
 
+function formatRestoreTableLabel(tableName: string) {
+  const labels: Record<string, string> = {
+    test_records: '测试记录',
+    training_sessions: '训练课',
+    training_session_items: '训练课动作项',
+    set_records: '组记录',
+    training_session_edit_logs: '训练课编辑日志',
+    training_sync_conflicts: '训练同步冲突',
+    training_sync_issues: '训练同步异常',
+  }
+  return labels[tableName] || tableName
+}
+
 function extractErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail
@@ -146,7 +201,7 @@ function extractErrorMessage(error: unknown, fallback: string) {
 }
 
 onMounted(() => {
-  void loadBackupList()
+  void Promise.all([loadBackupList(), loadTeams()])
 })
 </script>
 
@@ -278,8 +333,60 @@ onMounted(() => {
               <ul class="impact-list">
                 <li v-for="line in selectedScope.impact_summary" :key="line">{{ line }}</li>
               </ul>
+              <div v-if="selectedScopeKey === 'full_database'" class="warning-box">
+                整库恢复会覆盖全部数据，不能限定队伍。
+              </div>
+              <div v-else class="team-scope-panel">
+                <label class="team-select-field">
+                  <span class="summary-label">限定队伍（可选）</span>
+                  <select v-model="selectedTeamId" class="text-input" :disabled="teamLoading || !!teamLoadError">
+                    <option :value="null">全部队伍</option>
+                    <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</option>
+                  </select>
+                </label>
+                <p v-if="teamLoadError" class="helper-text error-text">{{ teamLoadError }}</p>
+                <p v-else-if="teamLoading" class="helper-text">队伍列表加载中…</p>
+                <p v-else class="helper-text">
+                  {{ selectedScopeKey === 'training_records' ? '不选队伍则恢复全部训练数据。' : '不选队伍则恢复全部测试数据。' }}
+                </p>
+              </div>
+              <div class="confirmation-box">
+                <span class="summary-label">恢复确认文案</span>
+                <strong>{{ restoreConfirmationCopy }}</strong>
+                <small>弹窗中仍需输入确认词 RESTORE_BACKUP 才会真正执行恢复。</small>
+              </div>
               <div class="warning-box">
                 恢复前会要求二次确认和确认词；建议在无人录课时执行，并保留系统自动生成的恢复前兜底备份。
+              </div>
+            </div>
+
+            <div v-if="actionTone === 'success' && lastRestoreResult" class="result-panel">
+              <div class="section-head">
+                <div>
+                  <p class="eyebrow">恢复结果</p>
+                  <h4>{{ lastRestoreResult.restore_scope_label }}</h4>
+                </div>
+              </div>
+              <div class="detail-grid">
+                <div class="detail-item">
+                  <span class="summary-label">恢复范围</span>
+                  <strong>{{ lastRestoreResult.restore_scope_label }}</strong>
+                </div>
+                <div v-if="lastRestoreResult.team_name" class="detail-item">
+                  <span class="summary-label">恢复队伍</span>
+                  <strong>{{ lastRestoreResult.team_name }}</strong>
+                </div>
+                <div v-if="lastRestoreResult.pre_restore_backup_path" class="detail-item detail-item-wide">
+                  <span class="summary-label">恢复前兜底备份</span>
+                  <strong>{{ lastRestoreResult.pre_restore_backup_path }}</strong>
+                </div>
+              </div>
+              <div v-if="restoreResultRows.length" class="restore-count-grid">
+                <div v-for="row in restoreResultRows" :key="row.tableName" class="restore-count-card">
+                  <strong>{{ formatRestoreTableLabel(row.tableName) }}</strong>
+                  <span>删除 {{ row.deleted }} 行</span>
+                  <span>插入 {{ row.inserted }} 行</span>
+                </div>
               </div>
             </div>
 
@@ -400,7 +507,10 @@ onMounted(() => {
 }
 
 .scope-section,
-.impact-panel {
+.impact-panel,
+.team-scope-panel,
+.result-panel,
+.confirmation-box {
   display: grid;
   gap: 12px;
 }
@@ -421,6 +531,38 @@ onMounted(() => {
   padding-left: 18px;
   display: grid;
   gap: 8px;
+}
+
+.team-select-field {
+  display: grid;
+  gap: 6px;
+}
+
+.helper-text {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.error-text {
+  color: #b91c1c;
+}
+
+.confirmation-box {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(59, 130, 246, 0.08);
+  color: #1d4ed8;
+}
+
+.confirmation-box strong,
+.confirmation-box small {
+  display: block;
+}
+
+.confirmation-box small {
+  color: inherit;
+  opacity: 0.85;
 }
 
 .warning-box,
@@ -454,6 +596,24 @@ onMounted(() => {
 .restore-actions {
   display: flex;
   justify-content: flex-start;
+}
+
+.detail-item-wide {
+  grid-column: 1 / -1;
+}
+
+.restore-count-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.restore-count-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--panel-soft);
 }
 
 @media (max-width: 1200px) {
