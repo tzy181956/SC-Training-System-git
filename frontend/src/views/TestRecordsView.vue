@@ -1312,6 +1312,7 @@ function renderTrendDistributionChart() {
 
   chartInstance.setOption({
     animationDuration: 220,
+    dataZoom: [],
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
@@ -1395,7 +1396,7 @@ function renderTrendDistributionChart() {
               },
       },
     ],
-  })
+  }, { notMerge: true })
   scheduleTrendDistributionChartResize()
 }
 
