@@ -40,6 +40,7 @@ class BackupListRead(BaseModel):
 class BackupRestorePayload(DangerousActionConfirm):
     backup_filename: str = Field(min_length=1, max_length=255)
     restore_scope: Literal["full_database", "training_records", "test_records"]
+    team_id: int | None = None
 
 
 class BackupRestoreRead(BaseModel):
@@ -48,6 +49,9 @@ class BackupRestoreRead(BaseModel):
     restore_scope: str
     restore_scope_label: str
     restore_point_at: datetime
+    team_id: int | None = None
+    team_name: str | None = None
     restored_tables: list[str] = Field(default_factory=list)
+    restored_row_counts: dict[str, dict[str, int]] = Field(default_factory=dict)
     pre_restore_backup_path: str | None = None
     message: str

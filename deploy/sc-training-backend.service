@@ -5,6 +5,11 @@ After=network.target
 [Service]
 Type=simple
 # If the deploy path changes, update WorkingDirectory, EnvironmentFile, and ExecStart together.
+# Create the dedicated service account before enabling this unit:
+#   sudo useradd --system --home /opt/sc-training-system --shell /usr/sbin/nologin sc-training
+# The backend .env must be readable by this account, and /opt/sc-training-system-data must be writable.
+User=sc-training
+Group=sc-training
 WorkingDirectory=/opt/sc-training-system/backend
 EnvironmentFile=/opt/sc-training-system/backend/.env
 Environment="PYTHONPATH=/opt/sc-training-system/backend"

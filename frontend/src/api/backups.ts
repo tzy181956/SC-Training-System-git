@@ -43,7 +43,10 @@ export interface BackupRestoreResponse {
   restore_scope: string
   restore_scope_label: string
   restore_point_at: string
+  team_id: number | null
+  team_name: string | null
   restored_tables: string[]
+  restored_row_counts: Record<string, { deleted: number; inserted: number }>
   pre_restore_backup_path: string | null
   message: string
 }
@@ -57,6 +60,7 @@ export async function restoreBackup(
   payload: DangerousActionPayload & {
     backup_filename: string
     restore_scope: 'full_database' | 'training_records' | 'test_records'
+    team_id?: number | null
   },
 ) {
   const { data } = await client.post<BackupRestoreResponse>('/backups/restore', payload)

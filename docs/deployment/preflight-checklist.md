@@ -13,8 +13,12 @@
   - [ ] `SECRET_KEY`
   - [ ] `DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db`
   - [ ] `CORS_ORIGINS=["https://your-domain.example"]`
+- [ ] `CORS_ORIGIN_REGEX` 在生产环境保持为空，除非你明确知道风险
+- [ ] 已确认 systemd 服务用户存在：`sc-training`
+- [ ] `/opt/sc-training-system/backend/.env` 对 `sc-training` 可读
 - [ ] 未继续依赖开发默认值
 - [ ] 前端未写死 `localhost`、`127.0.0.1`、局域网 IP 或公网 IP
+- [ ] 前端默认仍走同域 `/api`，没有改成直连公网 IP 或 `:8000`
 
 ## 2. 数据库与迁移
 
@@ -29,6 +33,7 @@ python scripts/migrate_db.py ensure
 ```
 
 - [ ] 已明确：生产环境启动时不会依赖 `schema_sync.py` 自动改表
+- [ ] 已明确：如果生产环境做过备份恢复，恢复后还要再执行一次 `python scripts/migrate_db.py ensure`
 - [ ] 如迁移失败，已停止继续重启生产服务
 
 ## 3. 前后端构建检查
@@ -53,6 +58,7 @@ python -m compileall app scripts
 ## 4. systemd 服务检查
 
 - [ ] 已使用最新 `deploy/sc-training-backend.service`
+- [ ] systemd 单元中的 `User=sc-training`、`Group=sc-training` 已确认
 - [ ] `WorkingDirectory`、`EnvironmentFile`、`ExecStart` 路径与服务器一致
 - [ ] 服务监听仅为 `127.0.0.1:8000`
 - [ ] Uvicorn 启动参数包含：
@@ -62,7 +68,9 @@ python -m compileall app scripts
   - [ ] `NoNewPrivileges=true`
   - [ ] `PrivateTmp=true`
   - [ ] `ProtectSystem=strict`
+  - [ ] `ProtectHome=true`
   - [ ] `ReadWritePaths=/opt/sc-training-system-data`
+- [ ] 数据目录已执行 `chown -R sc-training:sc-training /opt/sc-training-system-data`
 - [ ] 数据目录对服务进程可写，允许 SQLite 生成 `training.db-wal` / `training.db-shm`
 
 常用检查：
@@ -77,6 +85,7 @@ journalctl -u sc-training-backend -n 100 --no-pager
 ## 5. Nginx 与公网入口
 
 - [ ] 已使用最新 `deploy/nginx-sc-training.conf`
+- [ ] 公网生产优先使用 `deploy/nginx-sc-training.production.conf`，或确认基础版里的登录限流注释已真正改成生效配置
 - [ ] `/api/` 与 `/health` 反代仍指向 `127.0.0.1:8000`
 - [ ] 未开放 `8000` 端口到公网
 - [ ] 仅开放 `22`、`80`、`443`
@@ -90,7 +99,11 @@ journalctl -u sc-training-backend -n 100 --no-pager
 limit_req_zone $binary_remote_addr zone=sc_training_login:10m rate=5r/m;
 ```
 
+- [ ] 已确认 `limit_req_zone` 写在 Nginx 全局 `http {}` 中，不只是站点注释
 - [ ] `/api/auth/login` 已挂载 `limit_req`
+- [ ] `index.html` 已设置 `Cache-Control: no-store`
+- [ ] `/assets/` 已设置长缓存
+- [ ] 安全响应头已检查：`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`
 - [ ] 修改后已执行：
 
 ```bash
@@ -117,6 +130,8 @@ curl http://127.0.0.1/health
 - [ ] 已确认危险操作前会先备份
 - [ ] 已准备异地备份副本
 - [ ] 已确认恢复流程前会先备份当前生产库
+- [ ] 已明确：生产恢复后不会隐式运行 `schema_sync.py`
+- [ ] 已明确：生产恢复后必须补跑 `python scripts/migrate_db.py ensure`
 - [ ] 已知道最近一次可用备份在哪里
 
 ## 8. 登录与权限回归

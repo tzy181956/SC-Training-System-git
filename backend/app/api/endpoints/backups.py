@@ -62,19 +62,26 @@ def restore_backup(
     result = backup_service.restore_backup(
         backup_filename=payload.backup_filename,
         restore_scope_key=payload.restore_scope,
+        team_id=payload.team_id,
         actor_name=payload.actor_name or current_user.display_name,
     )
+    message = f"已按备份时间点 {result.backup_record.restore_point_at.strftime('%Y-%m-%d %H:%M:%S')} 恢复{result.scope.label}"
+    if result.post_restore_note:
+        message = f"{message}；{result.post_restore_note}"
     return BackupRestoreRead(
         backup_filename=result.backup_record.filename,
         backup_path=str(result.backup_record.path),
         restore_scope=result.scope.key,
         restore_scope_label=result.scope.label,
         restore_point_at=result.backup_record.restore_point_at,
+        team_id=result.team_id,
+        team_name=result.team_name,
         restored_tables=result.restored_tables,
+        restored_row_counts=result.restored_row_counts,
         pre_restore_backup_path=(
             str(result.pre_restore_backup.backup_path)
             if result.pre_restore_backup.backup_path
             else None
         ),
-        message=f"已按备份时间点 {result.backup_record.restore_point_at.strftime('%Y-%m-%d %H:%M:%S')} 恢复{result.scope.label}",
+        message=message,
     )

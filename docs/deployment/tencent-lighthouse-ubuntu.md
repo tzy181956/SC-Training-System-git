@@ -67,19 +67,37 @@ sudo chown -R $USER:$USER /opt/sc-training-system
 git clone <仓库地址> /opt/sc-training-system
 ```
 
-### 5.3 创建数据目录
+### 5.3 创建 systemd 服务用户
+
+```bash
+sudo useradd --system --home /opt/sc-training-system --shell /usr/sbin/nologin sc-training
+```
+
+### 5.4 创建数据目录
+
+生产环境建议把 SQLite、WAL/SHM sidecar 文件和自动备份目录统一放在独立数据目录，并交给 `sc-training` 服务用户写入：
 
 ```bash
 sudo mkdir -p /opt/sc-training-system-data
-sudo chown -R $USER:$USER /opt/sc-training-system-data
-sudo chmod 755 /opt/sc-training-system-data
+sudo chown -R sc-training:sc-training /opt/sc-training-system-data
+sudo chmod 750 /opt/sc-training-system-data
 ```
 
-### 5.4 配置后端 `.env`
+### 5.5 配置后端 `.env`
 
 路径：
 
 - `/opt/sc-training-system/backend/.env`
+- 仓库示例：`deploy/backend.env.production.example`
+
+建议直接从示例文件复制：
+
+```bash
+cd /opt/sc-training-system
+cp deploy/backend.env.production.example backend/.env
+sudo chown root:sc-training backend/.env
+sudo chmod 640 backend/.env
+```
 
 最小示例：
 
@@ -88,6 +106,7 @@ APP_ENV=production
 SECRET_KEY=replace-with-a-long-random-secret
 DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db
 CORS_ORIGINS=["https://your-domain.example"]
+CORS_ORIGIN_REGEX=
 ```
 
 说明：
@@ -95,6 +114,7 @@ CORS_ORIGINS=["https://your-domain.example"]
 - 生产环境启动前不要继续依赖开发默认值。
 - `APP_ENV=production` 启动时不会执行运行时 `schema_sync` 自动改表。
 - 生产数据库结构必须提前通过 `python scripts/migrate_db.py ensure` 收口完成。
+- 前端默认走同域 `/api`，不要在前端业务代码或 `.env` 里写死公网 IP。
 
 ## 6. 后端部署
 
@@ -137,13 +157,14 @@ npm run build
 
 - `deploy/sc-training-backend.service`
 - `deploy/nginx-sc-training.conf`
+- `deploy/nginx-sc-training.production.conf`（公网生产推荐）
 
 典型流程：
 
 ```bash
 cd /opt/sc-training-system
 sudo cp deploy/sc-training-backend.service /etc/systemd/system/sc-training-backend.service
-sudo cp deploy/nginx-sc-training.conf /etc/nginx/sites-available/sc-training
+sudo cp deploy/nginx-sc-training.production.conf /etc/nginx/sites-available/sc-training
 sudo ln -s /etc/nginx/sites-available/sc-training /etc/nginx/sites-enabled/sc-training
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo systemctl daemon-reload
@@ -155,10 +176,12 @@ sudo systemctl reload nginx
 
 生产建议：
 
+- `deploy/sc-training-backend.service` 默认使用 `User=sc-training`、`Group=sc-training`
 - `deploy/sc-training-backend.service` 已加入 `NoNewPrivileges`、`PrivateTmp`、`ProtectSystem=strict` 与 `ReadWritePaths=/opt/sc-training-system-data`
 - systemd 模板中的 Uvicorn 已增加 `--proxy-headers --forwarded-allow-ips=127.0.0.1`
+- 部署前必须确认 `/opt/sc-training-system-data` 对 `sc-training` 可写，否则 SQLite 的 `training.db`、`training.db-wal`、`training.db-shm` 和备份目录都无法正常工作
 - 不要开放 `8000` 到公网；后端只允许 Nginx 在本机回源
-- `deploy/nginx-sc-training.conf` 中已提供 `/api/auth/login` 的登录限流示例
+- `deploy/nginx-sc-training.conf` 只提供基础版和限流示例注释；公网生产应优先使用 `deploy/nginx-sc-training.production.conf`，或手动把基础版中的限流配置真正启用
 
 公网部署时，必须在 Nginx 全局 `http {}` 中声明登录限流 zone，并启用登录接口限流示例：
 
@@ -172,6 +195,11 @@ limit_req_zone $binary_remote_addr zone=sc_training_login:10m rate=5r/m;
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+注意：
+
+- 只把 `limit_req` 留在注释里不算启用
+- 如果修改了 systemd 单元文件，必须重新执行 `sudo systemctl daemon-reload`
 
 ## 9. HTTPS 与公网暴露
 
@@ -201,6 +229,18 @@ sudo systemctl reload nginx
 2. 定期把数据库备份文件同步到另一台机器、对象存储或离线介质
 3. 异地备份至少保留最近若干天可恢复版本
 4. 恢复演练时先对当前生产库再做一次备份
+
+如果生产环境执行过备份恢复，还需要在恢复完成后立即执行：
+
+```bash
+cd /opt/sc-training-system/backend
+source .venv/bin/activate
+python scripts/migrate_db.py ensure
+sudo systemctl restart sc-training-backend
+```
+
+生产恢复流程不会隐式调用 `schema_sync.py` 自动改表。
+如果恢复的是旧备份，必须依赖正式 Alembic migration 把结构收口到当前代码版本。
 
 ## 11. 更新标准流程
 
@@ -247,6 +287,7 @@ curl http://127.0.0.1/health
 ## 13. 当前注意事项
 
 - 不要在前端业务代码中写死 `localhost`、局域网 IP 或服务器公网 IP
+- 不要把前端 API 改成直连公网 IP；默认应保持同域 `/api`
 - 任何迁移、恢复、覆盖数据库前先备份
 - 当前正式迁移主路径是 Alembic + `python scripts/migrate_db.py ensure`
 - 公网部署必须启用登录限流

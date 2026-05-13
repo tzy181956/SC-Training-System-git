@@ -80,6 +80,39 @@ class RestoreResult:
     scope: RestoreScopeDefinition
     restored_tables: list[str]
     pre_restore_backup: BackupResult
+    restored_row_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    team_id: int | None = None
+    team_name: str | None = None
+    post_restore_note: str | None = None
+
+
+@dataclass(slots=True)
+class TeamRestoreContext:
+    team_id: int
+    team_name: str
+    team_code: str
+    sport_id: int
+
+
+@dataclass(slots=True)
+class PartialRestoreResult:
+    restored_tables: list[str] = field(default_factory=list)
+    restored_row_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    team_id: int | None = None
+    team_name: str | None = None
+
+
+@dataclass(slots=True)
+class TableRestoreExecutionResult:
+    restored: bool
+    deleted: int
+    inserted: int
+
+
+PRODUCTION_RESTORE_MIGRATION_NOTE = (
+    "生产环境恢复后不会隐式执行 schema_sync；"
+    "请立即运行 python scripts/migrate_db.py ensure，或使用正式 Alembic migration 完成结构收口。"
+)
 
 
 RESTORE_SCOPE_DEFINITIONS: dict[str, RestoreScopeDefinition] = {
@@ -298,10 +331,20 @@ def restore_backup(
     *,
     backup_filename: str,
     restore_scope_key: str,
+    team_id: int | None = None,
     actor_name: str | None = None,
 ) -> RestoreResult:
     backup_record = get_backup_catalog_record(backup_filename)
     restore_scope = get_restore_scope(restore_scope_key)
+    if restore_scope.key == "full_database" and team_id is not None:
+        raise bad_request("整库恢复不能限定队伍，请选择训练数据恢复或测试数据恢复并指定队伍")
+
+    settings = get_settings()
+    post_restore_note: str | None = None
+    restored_tables: list[str] = []
+    restored_row_counts: dict[str, dict[str, int]] = {}
+    restored_team_id: int | None = None
+    restored_team_name: str | None = None
 
     with _RESTORE_LOCK:
         pre_restore_backup = create_pre_dangerous_operation_backup(
@@ -316,28 +359,55 @@ def restore_backup(
             )
             restored_tables = ["*"]
         else:
-            restored_tables = restore_partial_scope_from_backup_path(
+            partial_result = restore_partial_scope_from_backup_path(
                 source_backup_path=backup_record.path,
                 target_db_path=database_path,
                 restore_scope=restore_scope,
+                team_id=team_id,
             )
+            restored_tables = partial_result.restored_tables
+            restored_row_counts = partial_result.restored_row_counts
+            restored_team_id = partial_result.team_id
+            restored_team_name = partial_result.team_name
 
-        from app.core.schema_sync import ensure_runtime_schema
+        if settings.app_env == "development":
+            from app.core.schema_sync import ensure_runtime_schema
 
-        ensure_runtime_schema()
-        _log_restore_operation(
-            backup_record=backup_record,
-            restore_scope=restore_scope,
-            pre_restore_backup=pre_restore_backup,
-            restored_tables=restored_tables,
-            actor_name=actor_name,
-        )
+            ensure_runtime_schema()
+        else:
+            post_restore_note = PRODUCTION_RESTORE_MIGRATION_NOTE
+            print(f"[RESTORE] {PRODUCTION_RESTORE_MIGRATION_NOTE}")
+
+        try:
+            _log_restore_operation(
+                backup_record=backup_record,
+                restore_scope=restore_scope,
+                pre_restore_backup=pre_restore_backup,
+                restored_tables=restored_tables,
+                restored_row_counts=restored_row_counts,
+                team_id=restored_team_id,
+                team_name=restored_team_name,
+                actor_name=actor_name,
+                post_restore_note=post_restore_note,
+            )
+        except Exception as exc:
+            if settings.app_env != "development":
+                print(
+                    "[RESTORE] 已完成生产恢复，但恢复日志写入失败；"
+                    f"请先执行 Alembic ensure 后再检查日志。原因：{exc}"
+                )
+            else:
+                raise
 
     return RestoreResult(
         backup_record=backup_record,
         scope=restore_scope,
         restored_tables=restored_tables,
         pre_restore_backup=pre_restore_backup,
+        restored_row_counts=restored_row_counts,
+        team_id=restored_team_id,
+        team_name=restored_team_name,
+        post_restore_note=post_restore_note,
     )
 
 
@@ -380,23 +450,50 @@ def restore_partial_scope_from_backup_path(
     source_backup_path: Path,
     target_db_path: Path,
     restore_scope: RestoreScopeDefinition,
-) -> list[str]:
+    team_id: int | None = None,
+) -> PartialRestoreResult:
     if restore_scope.key == "full_database":
         raise bad_request("整库恢复不应走部分恢复路径")
 
     engine.dispose()
     connection = sqlite3.connect(target_db_path)
+    connection.row_factory = sqlite3.Row
     try:
         connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute("ATTACH DATABASE ? AS restore_source", (str(source_backup_path),))
-        restored_tables: list[str] = []
+        restore_result = PartialRestoreResult()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            _validate_restore_dependencies(connection, restore_scope)
-            for table_name in restore_scope.tables:
-                restored = _replace_table_data_from_backup(connection, table_name)
-                if restored:
-                    restored_tables.append(table_name)
+            if team_id is None:
+                _validate_restore_dependencies(connection, restore_scope)
+                for table_name in restore_scope.tables:
+                    execution_result = _replace_table_data_from_backup(connection, table_name)
+                    restore_result.restored_row_counts[table_name] = {
+                        "deleted": execution_result.deleted,
+                        "inserted": execution_result.inserted,
+                    }
+                    if execution_result.restored:
+                        restore_result.restored_tables.append(table_name)
+            else:
+                team_context = _validate_restore_team_context(connection, team_id)
+                restore_result.team_id = team_context.team_id
+                restore_result.team_name = team_context.team_name
+                if restore_scope.key == "test_records":
+                    _validate_team_scoped_test_restore_dependencies(connection, team_context)
+                    restore_result.restored_tables = ["test_records"]
+                    restore_result.restored_row_counts = _restore_team_scoped_test_records(
+                        connection,
+                        team_context,
+                    )
+                elif restore_scope.key == "training_records":
+                    _validate_team_scoped_training_restore_dependencies(connection, team_context)
+                    restore_result.restored_tables = restore_scope.tables.copy()
+                    restore_result.restored_row_counts = _restore_team_scoped_training_records(
+                        connection,
+                        team_context,
+                    )
+                else:
+                    raise bad_request("当前恢复范围暂不支持限定队伍")
             connection.commit()
         except Exception:
             connection.rollback()
@@ -404,7 +501,7 @@ def restore_partial_scope_from_backup_path(
         finally:
             connection.execute("DETACH DATABASE restore_source")
             connection.execute("PRAGMA foreign_keys = ON")
-        return restored_tables
+        return restore_result
     finally:
         connection.close()
 
@@ -498,7 +595,11 @@ def _log_restore_operation(
     restore_scope: RestoreScopeDefinition,
     pre_restore_backup: BackupResult,
     restored_tables: list[str],
+    restored_row_counts: dict[str, dict[str, int]],
+    team_id: int | None,
+    team_name: str | None,
     actor_name: str | None,
+    post_restore_note: str | None,
 ) -> None:
     from app.services import dangerous_operation_service
 
@@ -511,6 +612,11 @@ def _log_restore_operation(
         "restore_scope_label": restore_scope.label,
         "restore_point_at": restored_point,
         "restored_tables": restored_tables,
+        "restored_row_counts": restored_row_counts,
+        "team_id": team_id,
+        "team_name": team_name,
+        "post_restore_note": post_restore_note,
+        "pre_restore_backup_path": str(pre_restore_backup.backup_path) if pre_restore_backup.backup_path else None,
     }
 
     with SessionLocal() as db:
@@ -530,6 +636,15 @@ def _log_restore_operation(
                 "backup_name": backup_record.filename,
                 "restore_point_at": restored_point,
                 "restored_tables": restored_tables,
+                "restored_row_counts": restored_row_counts,
+                "team_id": team_id,
+                "team_name": team_name,
+                "pre_restore_backup_path": (
+                    str(pre_restore_backup.backup_path)
+                    if pre_restore_backup.backup_path
+                    else None
+                ),
+                "post_restore_note": post_restore_note,
             },
         )
         db.commit()
@@ -612,23 +727,356 @@ def _validate_restore_dependencies(connection: sqlite3.Connection, restore_scope
         )
 
 
-def _replace_table_data_from_backup(connection: sqlite3.Connection, table_name: str) -> bool:
+def _validate_restore_team_context(connection: sqlite3.Connection, team_id: int) -> TeamRestoreContext:
+    current_team = _get_team_record(connection, "main", team_id)
+    if current_team is None:
+        raise bad_request("当前数据库不存在指定队伍，不能按队伍范围恢复")
+
+    backup_team = _get_team_record(connection, "restore_source", team_id)
+    if backup_team is None:
+        raise bad_request("备份文件中不存在指定队伍，不能按队伍范围恢复")
+
+    if current_team["sport_id"] != backup_team["sport_id"] or current_team["code"] != backup_team["code"]:
+        raise bad_request("当前队伍与备份中的队伍标识不一致，不能按队伍范围恢复")
+
+    return TeamRestoreContext(
+        team_id=team_id,
+        team_name=str(current_team["name"]),
+        team_code=str(current_team["code"]),
+        sport_id=int(current_team["sport_id"]),
+    )
+
+
+def _validate_team_scoped_test_restore_dependencies(
+    connection: sqlite3.Connection,
+    team_context: TeamRestoreContext,
+) -> None:
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="test_records",
+        source_column="athlete_id",
+        target_table="athletes",
+        dependency_label="指定队伍运动员",
+        source_filter_sql=f"source.athlete_id IN ({_team_athlete_ids_subquery('restore_source')})",
+        source_filter_params=(team_context.team_id,),
+        target_filter_sql="target.team_id = ?",
+        target_filter_params=(team_context.team_id,),
+    )
+
+
+def _validate_team_scoped_training_restore_dependencies(
+    connection: sqlite3.Connection,
+    team_context: TeamRestoreContext,
+) -> None:
+    team_session_filter_sql = f"source.athlete_id IN ({_team_athlete_ids_subquery('restore_source')})"
+    team_session_filter_params = (team_context.team_id,)
+    team_item_filter_sql = f"source.session_id IN ({_team_session_ids_subquery('restore_source')})"
+    team_item_filter_params = (team_context.team_id,)
+    sync_filter_sql = _team_sync_filter_sql("source", "restore_source")
+    sync_filter_params = (team_context.team_id, team_context.team_id)
+
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_sessions",
+        source_column="athlete_id",
+        target_table="athletes",
+        dependency_label="指定队伍运动员",
+        source_filter_sql=team_session_filter_sql,
+        source_filter_params=team_session_filter_params,
+        target_filter_sql="target.team_id = ?",
+        target_filter_params=(team_context.team_id,),
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_sessions",
+        source_column="assignment_id",
+        target_table="athlete_plan_assignments",
+        dependency_label="计划分配",
+        source_filter_sql=team_session_filter_sql,
+        source_filter_params=team_session_filter_params,
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_sessions",
+        source_column="template_id",
+        target_table="training_plan_templates",
+        dependency_label="训练模板",
+        source_filter_sql=team_session_filter_sql,
+        source_filter_params=team_session_filter_params,
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_session_items",
+        source_column="template_item_id",
+        target_table="training_plan_template_items",
+        dependency_label="模板动作项",
+        source_filter_sql=team_item_filter_sql,
+        source_filter_params=team_item_filter_params,
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_session_items",
+        source_column="exercise_id",
+        target_table="exercises",
+        dependency_label="动作",
+        source_filter_sql=team_item_filter_sql,
+        source_filter_params=team_item_filter_params,
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_sync_conflicts",
+        source_column="athlete_id",
+        target_table="athletes",
+        dependency_label="指定队伍运动员",
+        source_filter_sql=sync_filter_sql,
+        source_filter_params=sync_filter_params,
+        target_filter_sql="target.team_id = ?",
+        target_filter_params=(team_context.team_id,),
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_sync_conflicts",
+        source_column="assignment_id",
+        target_table="athlete_plan_assignments",
+        dependency_label="计划分配",
+        source_filter_sql=sync_filter_sql,
+        source_filter_params=sync_filter_params,
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_sync_issues",
+        source_column="athlete_id",
+        target_table="athletes",
+        dependency_label="指定队伍运动员",
+        source_filter_sql=sync_filter_sql,
+        source_filter_params=sync_filter_params,
+        target_filter_sql="target.team_id = ?",
+        target_filter_params=(team_context.team_id,),
+    )
+    _ensure_filtered_reference_ids_exist(
+        connection,
+        source_table="training_sync_issues",
+        source_column="assignment_id",
+        target_table="athlete_plan_assignments",
+        dependency_label="计划分配",
+        source_filter_sql=sync_filter_sql,
+        source_filter_params=sync_filter_params,
+    )
+
+
+def _restore_team_scoped_test_records(
+    connection: sqlite3.Connection,
+    team_context: TeamRestoreContext,
+) -> dict[str, dict[str, int]]:
+    execution_result = _replace_filtered_table_data_from_backup(
+        connection,
+        "test_records",
+        delete_where_sql=f"athlete_id IN ({_team_athlete_ids_subquery('main')})",
+        delete_params=(team_context.team_id,),
+        source_query_sql=(
+            f'FROM restore_source.{_quote_identifier("test_records")} AS source '
+            'JOIN main.athletes AS current_athlete '
+            'ON current_athlete.id = source.athlete_id AND current_athlete.team_id = ? '
+            f'WHERE source.athlete_id IN ({_team_athlete_ids_subquery("restore_source")})'
+        ),
+        source_params=(team_context.team_id, team_context.team_id),
+    )
+    return {
+        "test_records": {
+            "deleted": execution_result.deleted,
+            "inserted": execution_result.inserted,
+        }
+    }
+
+
+def _restore_team_scoped_training_records(
+    connection: sqlite3.Connection,
+    team_context: TeamRestoreContext,
+) -> dict[str, dict[str, int]]:
+    row_counts = {
+        table_name: {"deleted": 0, "inserted": 0}
+        for table_name in (
+            "training_sessions",
+            "training_session_items",
+            "set_records",
+            "training_session_edit_logs",
+            "training_sync_conflicts",
+            "training_sync_issues",
+        )
+    }
+
+    delete_specs = [
+        ("set_records", f"session_item_id IN ({_team_session_item_ids_subquery('main')})", (team_context.team_id,)),
+        ("training_session_edit_logs", f"session_id IN ({_team_session_ids_subquery('main')})", (team_context.team_id,)),
+        ("training_session_items", f"session_id IN ({_team_session_ids_subquery('main')})", (team_context.team_id,)),
+        (
+            "training_sync_conflicts",
+            _team_sync_filter_sql("", "main"),
+            (team_context.team_id, team_context.team_id),
+        ),
+        (
+            "training_sync_issues",
+            _team_sync_filter_sql("", "main"),
+            (team_context.team_id, team_context.team_id),
+        ),
+        ("training_sessions", f"athlete_id IN ({_team_athlete_ids_subquery('main')})", (team_context.team_id,)),
+    ]
+    for table_name, where_sql, params in delete_specs:
+        row_counts[table_name]["deleted"] = _delete_rows(
+            connection,
+            table_name,
+            where_sql=where_sql,
+            params=params,
+        )
+
+    insert_specs = [
+        (
+            "training_sessions",
+            (
+                f'FROM restore_source.{_quote_identifier("training_sessions")} AS source '
+                'JOIN main.athletes AS current_athlete '
+                'ON current_athlete.id = source.athlete_id AND current_athlete.team_id = ? '
+                f'WHERE source.athlete_id IN ({_team_athlete_ids_subquery("restore_source")})'
+            ),
+            (team_context.team_id, team_context.team_id),
+        ),
+        (
+            "training_session_items",
+            (
+                f'FROM restore_source.{_quote_identifier("training_session_items")} AS source '
+                f'WHERE source.session_id IN ({_team_session_ids_subquery("restore_source")})'
+            ),
+            (team_context.team_id,),
+        ),
+        (
+            "set_records",
+            (
+                f'FROM restore_source.{_quote_identifier("set_records")} AS source '
+                f'WHERE source.session_item_id IN ({_team_session_item_ids_subquery("restore_source")})'
+            ),
+            (team_context.team_id,),
+        ),
+        (
+            "training_session_edit_logs",
+            (
+                f'FROM restore_source.{_quote_identifier("training_session_edit_logs")} AS source '
+                f'WHERE source.session_id IN ({_team_session_ids_subquery("restore_source")})'
+            ),
+            (team_context.team_id,),
+        ),
+        (
+            "training_sync_conflicts",
+            (
+                f'FROM restore_source.{_quote_identifier("training_sync_conflicts")} AS source '
+                f'WHERE {_team_sync_filter_sql("source", "restore_source")}'
+            ),
+            (team_context.team_id, team_context.team_id),
+        ),
+        (
+            "training_sync_issues",
+            (
+                f'FROM restore_source.{_quote_identifier("training_sync_issues")} AS source '
+                f'WHERE {_team_sync_filter_sql("source", "restore_source")}'
+            ),
+            (team_context.team_id, team_context.team_id),
+        ),
+    ]
+    for table_name, source_query_sql, params in insert_specs:
+        execution_result = _insert_filtered_table_rows_from_backup(
+            connection,
+            table_name,
+            source_query_sql=source_query_sql,
+            source_params=params,
+        )
+        row_counts[table_name]["inserted"] = execution_result.inserted
+
+    return row_counts
+
+
+def _replace_table_data_from_backup(connection: sqlite3.Connection, table_name: str) -> TableRestoreExecutionResult:
+    return _replace_filtered_table_data_from_backup(
+        connection,
+        table_name,
+        delete_where_sql=None,
+        delete_params=(),
+        source_query_sql=f'FROM restore_source.{_quote_identifier(table_name)} AS source',
+        source_params=(),
+    )
+
+
+def _replace_filtered_table_data_from_backup(
+    connection: sqlite3.Connection,
+    table_name: str,
+    *,
+    delete_where_sql: str | None,
+    delete_params: tuple,
+    source_query_sql: str,
+    source_params: tuple,
+) -> TableRestoreExecutionResult:
+    deleted = _delete_rows(connection, table_name, where_sql=delete_where_sql, params=delete_params)
+    inserted_result = _insert_filtered_table_rows_from_backup(
+        connection,
+        table_name,
+        source_query_sql=source_query_sql,
+        source_params=source_params,
+    )
+    return TableRestoreExecutionResult(
+        restored=inserted_result.restored,
+        deleted=deleted,
+        inserted=inserted_result.inserted,
+    )
+
+
+def _insert_filtered_table_rows_from_backup(
+    connection: sqlite3.Connection,
+    table_name: str,
+    *,
+    source_query_sql: str,
+    source_params: tuple,
+) -> TableRestoreExecutionResult:
+    common_columns = _get_compatible_restore_columns(connection, table_name)
+    if not common_columns:
+        return TableRestoreExecutionResult(restored=False, deleted=0, inserted=0)
+
+    columns_sql = ", ".join(_quote_identifier(column_name) for column_name in common_columns)
+    select_columns_sql = ", ".join(f'source.{_quote_identifier(column_name)}' for column_name in common_columns)
+    inserted = _execute_write(
+        connection,
+        f"INSERT INTO main.{_quote_identifier(table_name)} ({columns_sql}) "
+        f"SELECT {select_columns_sql} {source_query_sql}",
+        source_params,
+    )
+    return TableRestoreExecutionResult(restored=True, deleted=0, inserted=inserted)
+
+
+def _delete_rows(
+    connection: sqlite3.Connection,
+    table_name: str,
+    *,
+    where_sql: str | None,
+    params: tuple,
+) -> int:
     if not _table_exists(connection, "main", table_name):
         raise bad_request(f"当前数据库缺少表：{table_name}")
 
-    source_exists = _table_exists(connection, "restore_source", table_name)
+    sql = f"DELETE FROM main.{_quote_identifier(table_name)}"
+    if where_sql:
+        sql = f"{sql} WHERE {where_sql}"
+    return _execute_write(connection, sql, params)
+
+
+def _get_compatible_restore_columns(connection: sqlite3.Connection, table_name: str) -> list[str]:
+    if not _table_exists(connection, "main", table_name):
+        raise bad_request(f"当前数据库缺少表：{table_name}")
+    if not _table_exists(connection, "restore_source", table_name):
+        return []
+
     target_columns = _get_table_columns(connection, "main", table_name)
-
-    connection.execute(f'DELETE FROM main.{_quote_identifier(table_name)}')
-
-    if not source_exists:
-        return False
-
     source_columns = _get_table_columns(connection, "restore_source", table_name)
     source_column_names = {column["name"] for column in source_columns}
     common_columns = [column["name"] for column in target_columns if column["name"] in source_column_names]
     if not common_columns:
-        return False
+        return []
 
     missing_required_columns = [
         column["name"]
@@ -640,13 +1088,7 @@ def _replace_table_data_from_backup(connection: sqlite3.Connection, table_name: 
     if missing_required_columns:
         joined_columns = "、".join(missing_required_columns[:5])
         raise bad_request(f"备份文件过旧，无法恢复表 {table_name}；缺少必填字段：{joined_columns}")
-
-    columns_sql = ", ".join(_quote_identifier(column_name) for column_name in common_columns)
-    connection.execute(
-        f"INSERT INTO main.{_quote_identifier(table_name)} ({columns_sql}) "
-        f"SELECT {columns_sql} FROM restore_source.{_quote_identifier(table_name)}"
-    )
-    return True
+    return common_columns
 
 
 def _ensure_reference_ids_exist(
@@ -685,6 +1127,94 @@ def _ensure_reference_ids_exist(
     )
 
 
+def _ensure_filtered_reference_ids_exist(
+    connection: sqlite3.Connection,
+    *,
+    source_table: str,
+    source_column: str,
+    target_table: str,
+    dependency_label: str,
+    source_filter_sql: str,
+    source_filter_params: tuple,
+    target_filter_sql: str | None = None,
+    target_filter_params: tuple = (),
+) -> None:
+    if not _table_exists(connection, "restore_source", source_table):
+        return
+
+    source_table_sql = _quote_identifier(source_table)
+    source_column_sql = _quote_identifier(source_column)
+    target_table_sql = _quote_identifier(target_table)
+    join_filter_sql = f" AND {target_filter_sql}" if target_filter_sql else ""
+    rows = connection.execute(
+        f"""
+        SELECT DISTINCT source.{source_column_sql}
+        FROM restore_source.{source_table_sql} AS source
+        LEFT JOIN main.{target_table_sql} AS target
+            ON target.id = source.{source_column_sql}{join_filter_sql}
+        WHERE source.{source_column_sql} IS NOT NULL
+          AND ({source_filter_sql})
+          AND target.id IS NULL
+        ORDER BY source.{source_column_sql}
+        LIMIT 5
+        """,
+        (*target_filter_params, *source_filter_params),
+    ).fetchall()
+    if not rows:
+        return
+
+    sample_ids = "、".join(str(row[0]) for row in rows)
+    raise bad_request(
+        f"当前数据库缺少备份内引用的{dependency_label}，不能按队伍范围恢复。"
+        f"缺失示例 ID：{sample_ids}。"
+    )
+
+
+def _get_team_record(connection: sqlite3.Connection, schema_name: str, team_id: int) -> sqlite3.Row | None:
+    if not _table_exists(connection, schema_name, "teams"):
+        return None
+    return connection.execute(
+        f"SELECT id, sport_id, name, code FROM {schema_name}.teams WHERE id = ? LIMIT 1",
+        (team_id,),
+    ).fetchone()
+
+
+def _team_athlete_ids_subquery(schema_name: str) -> str:
+    return f"SELECT id FROM {schema_name}.athletes WHERE team_id = ?"
+
+
+def _team_session_ids_subquery(schema_name: str) -> str:
+    return (
+        f"SELECT session.id "
+        f"FROM {schema_name}.training_sessions AS session "
+        f"JOIN {schema_name}.athletes AS athlete ON athlete.id = session.athlete_id "
+        f"WHERE athlete.team_id = ?"
+    )
+
+
+def _team_session_item_ids_subquery(schema_name: str) -> str:
+    return (
+        f"SELECT item.id "
+        f"FROM {schema_name}.training_session_items AS item "
+        f"WHERE item.session_id IN ({_team_session_ids_subquery(schema_name)})"
+    )
+
+
+def _team_sync_filter_sql(alias: str, schema_name: str) -> str:
+    athlete_column = f"{alias}.athlete_id" if alias else "athlete_id"
+    session_column = f"{alias}.session_id" if alias else "session_id"
+    return (
+        f"({athlete_column} IN ({_team_athlete_ids_subquery(schema_name)}) "
+        f"OR {session_column} IN ({_team_session_ids_subquery(schema_name)}))"
+    )
+
+
+def _execute_write(connection: sqlite3.Connection, sql: str, params: tuple = ()) -> int:
+    connection.execute(sql, params)
+    row = connection.execute("SELECT changes()").fetchone()
+    return int(row[0]) if row else 0
+
+
 def _table_exists(connection: sqlite3.Connection, schema_name: str, table_name: str) -> bool:
     row = connection.execute(
         f"SELECT 1 FROM {schema_name}.sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
@@ -694,9 +1224,7 @@ def _table_exists(connection: sqlite3.Connection, schema_name: str, table_name: 
 
 
 def _get_table_columns(connection: sqlite3.Connection, schema_name: str, table_name: str) -> list[dict]:
-    rows = connection.execute(
-        f'PRAGMA {schema_name}.table_info("{table_name}")'
-    ).fetchall()
+    rows = connection.execute(f'PRAGMA {schema_name}.table_info("{table_name}")').fetchall()
     return [
         {
             "name": row[1],
