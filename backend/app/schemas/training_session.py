@@ -156,6 +156,7 @@ class SetRecordRead(ORMModel):
     final_weight: float
     completed_at: datetime
     notes: str | None = None
+    local_record_id: int | None = None
 
 
 class SessionItemSnapshotRead(ORMModel):

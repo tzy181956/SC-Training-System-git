@@ -16,7 +16,7 @@ def _normalize_repeat_weekdays(value: object) -> list[int]:
     if not isinstance(value, (list, tuple, set)):
         raise ValueError("循环星期格式不正确")
 
-    normalized: list[int] = []
+    normalized: list[int] = list()
     seen: set[int] = set()
     for raw in value:
         try:
