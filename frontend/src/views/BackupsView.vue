@@ -22,6 +22,9 @@ const selectedScopeKey = ref<'full_database' | 'training_records' | 'test_record
 
 const selectedBackup = computed(() => backups.value.find((item) => item.filename === selectedBackupFilename.value) || null)
 const selectedScope = computed(() => restoreScopes.value.find((item) => item.key === selectedScopeKey.value) || null)
+const totalBackupSizeBytes = computed(() =>
+  backups.value.reduce((total, item) => total + Math.max(item.size_bytes || 0, 0), 0),
+)
 
 async function loadBackupList() {
   loading.value = true
@@ -171,6 +174,10 @@ onMounted(() => {
           <div class="summary-item">
             <span class="summary-label">当前备份数</span>
             <strong>{{ backups.length }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">当前占用空间</span>
+            <strong>{{ formatFileSize(totalBackupSizeBytes) }}</strong>
           </div>
         </div>
       </section>
