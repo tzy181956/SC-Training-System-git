@@ -16,12 +16,22 @@ frontend/.env.*
 # Runtime data / databases
 backend/training.db
 backend/*.db
+backend/*.db-*
+backend/*.db.*
 backend/*.sqlite3
+backend/*.sqlite3-*
+backend/*.sqlite3.*
 backend/tmp*.db
 backend/*tmp*.db
 backend/backups/
 backend/backups/*.db
 backend/_private_runtime_backup/
+*.db
+*.db-*
+*.db.*
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.*
 
 # Frontend runtime-generated files
 frontend/public/runtime-access.json
