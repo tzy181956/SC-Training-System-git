@@ -110,9 +110,12 @@ python scripts\check_text_encoding.py
 
 ## Git 与数据库协作
 
-- `backend/training.db` 已纳入 Git 跟踪
-- 需要跨电脑同步数据时，应提交数据库文件
-- SQLite 不适合多人同时改同一份库；如发生并行修改，需要手工决定保留哪一份数据库变更
+- 本地开发数据库不通过 Git 同步
+- 生产数据库不通过 Git 同步
+- 生产数据库以 `/opt/sc-training-system-data/training.db` 为唯一真实数据源
+- 数据同步应通过数据库备份、导入导出或后续专门迁移工具完成
+- GitHub 只同步代码和文档，不同步运行时数据库
+- SQLite 不适合多人同时修改同一份数据库文件；生产环境以服务器上的数据库为准
 
 ## 中文与编码注意事项
 

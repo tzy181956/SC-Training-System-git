@@ -34,6 +34,7 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE athlete_plan_assignments ADD COLUMN repeat_weekdays JSON",
         "ALTER TABLE test_records ADD COLUMN result_text VARCHAR(80)",
         "ALTER TABLE test_metric_definitions ADD COLUMN is_lower_better BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE set_records ADD COLUMN local_record_id INTEGER",
         "ALTER TABLE users ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "ALTER TABLE test_type_definitions ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
@@ -94,6 +95,9 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ix_athletes_code_unique ON athletes(code)")
+        )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS uq_session_item_local_record_id ON set_records(session_item_id, local_record_id)")
         )
         connection.execute(
             text(

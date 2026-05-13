@@ -100,9 +100,14 @@ def retry_sync_issue(db: Session, issue_id: int) -> tuple[dict, object, bool]:
 
     try:
         payload = SessionFullSyncPayload.model_validate(issue.sync_payload)
+        payload.force_overwrite = True
         session, conflict_logged = session_service.sync_session_snapshot(db, payload)
     except Exception as exc:
         detail = getattr(exc, "detail", None)
+        db.rollback()
+        issue = db.get(TrainingSyncIssue, issue_id)
+        if issue is None:
+            raise HTTPException(status_code=404, detail="未找到同步异常记录")
         issue.issue_status = "manual_retry_required"
         issue.failure_count = max(issue.failure_count, 0) + 1
         issue.last_error = str(detail or exc)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 from app.schemas.exercise import ExerciseRead
@@ -93,11 +93,11 @@ class PlanTemplateModuleRead(ORMModel, PlanTemplateModuleBase):
     id: int
     module_code: str
     display_label: str
-    items: list[PlanTemplateItemRead] = []
+    items: list[PlanTemplateItemRead] = Field(default_factory=list)
 
 
 class PlanTemplateRead(ORMModel, PlanTemplateBase):
     id: int
     created_by: int | None = None
-    modules: list[PlanTemplateModuleRead] = []
-    items: list[PlanTemplateItemRead] = []
+    modules: list[PlanTemplateModuleRead] = Field(default_factory=list)
+    items: list[PlanTemplateItemRead] = Field(default_factory=list)

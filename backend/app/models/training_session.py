@@ -114,7 +114,10 @@ class TrainingSessionItem(BaseModel):
 
 class SetRecord(BaseModel):
     __tablename__ = "set_records"
-    __table_args__ = (UniqueConstraint("session_item_id", "set_number", name="uq_session_item_set_number"),)
+    __table_args__ = (
+        UniqueConstraint("session_item_id", "set_number", name="uq_session_item_set_number"),
+        UniqueConstraint("session_item_id", "local_record_id", name="uq_session_item_local_record_id"),
+    )
 
     session_item_id: Mapped[int] = mapped_column(ForeignKey("training_session_items.id"), nullable=False)
     set_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -129,5 +132,6 @@ class SetRecord(BaseModel):
     final_weight: Mapped[float] = mapped_column(Float, nullable=False)
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    local_record_id: Mapped[int | None] = mapped_column(Integer)
 
     session_item = relationship("TrainingSessionItem", back_populates="records")

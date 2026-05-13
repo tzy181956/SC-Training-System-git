@@ -19,37 +19,39 @@ class SuggestionRead(BaseModel):
 
 
 class SetRecordCreate(BaseModel):
-    actual_weight: float
-    actual_reps: int
-    actual_rir: int
+    actual_weight: float = Field(ge=0)
+    actual_reps: int = Field(ge=0)
+    actual_rir: int = Field(ge=0, le=10)
     user_decision: str | None = None
-    final_weight: float | None = None
-    notes: str | None = None
+    final_weight: float | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=500)
+    local_record_id: int | None = None
 
 
 class SetRecordUpdate(BaseModel):
-    actual_weight: float
-    actual_reps: int
-    actual_rir: int
-    final_weight: float | None = None
-    notes: str | None = None
+    actual_weight: float = Field(ge=0)
+    actual_reps: int = Field(ge=0)
+    actual_rir: int = Field(ge=0, le=10)
+    final_weight: float | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class CoachSetRecordUpdate(BaseModel):
-    actual_weight: float
-    actual_reps: int
-    actual_rir: int
-    final_weight: float | None = None
-    notes: str | None = None
+    actual_weight: float = Field(ge=0)
+    actual_reps: int = Field(ge=0)
+    actual_rir: int = Field(ge=0, le=10)
+    final_weight: float | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=500)
     actor_name: str | None = None
 
 
 class CoachSetRecordCreate(BaseModel):
-    actual_weight: float
-    actual_reps: int
-    actual_rir: int
-    final_weight: float | None = None
-    notes: str | None = None
+    actual_weight: float = Field(ge=0)
+    actual_reps: int = Field(ge=0)
+    actual_rir: int = Field(ge=0, le=10)
+    final_weight: float | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=500)
+    local_record_id: int | None = None
     actor_name: str | None = None
 
 
@@ -70,20 +72,20 @@ class SessionSetSyncOperation(BaseModel):
     session_item_id: int | None = None
     record_id: int | None = None
     local_record_id: int | None = None
-    actual_weight: float | None = None
-    actual_reps: int | None = None
-    actual_rir: int | None = None
-    final_weight: float | None = None
-    notes: str | None = None
+    actual_weight: float | None = Field(default=None, ge=0)
+    actual_reps: int | None = Field(default=None, ge=0)
+    actual_rir: int | None = Field(default=None, ge=0, le=10)
+    final_weight: float | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class SessionFullSyncRecord(BaseModel):
-    set_number: int
-    actual_weight: float
-    actual_reps: int
-    actual_rir: int
-    final_weight: float
-    notes: str | None = None
+    set_number: int = Field(ge=1)
+    actual_weight: float = Field(ge=0)
+    actual_reps: int = Field(ge=0)
+    actual_rir: int = Field(ge=0, le=10)
+    final_weight: float = Field(ge=0)
+    notes: str | None = Field(default=None, max_length=500)
     completed_at: datetime
 
 
@@ -98,7 +100,7 @@ class SessionFullSyncItem(BaseModel):
     enable_auto_load: bool
     status: str
     initial_load: float | None = None
-    records: list[SessionFullSyncRecord] = []
+    records: list[SessionFullSyncRecord] = Field(default_factory=list)
 
 
 class SessionFullSyncPayload(BaseModel):
@@ -114,8 +116,9 @@ class SessionFullSyncPayload(BaseModel):
     session_feedback: str | None = Field(default=None, max_length=500)
     last_server_updated_at: datetime | None = None
     last_server_signature: str | None = None
+    force_overwrite: bool = False
     trigger_reason: Literal['manual', 'fallback'] = 'manual'
-    items: list[SessionFullSyncItem] = []
+    items: list[SessionFullSyncItem] = Field(default_factory=list)
 
     @field_validator("session_feedback", mode="before")
     @classmethod
@@ -174,7 +177,7 @@ class SessionItemSnapshotRead(ORMModel):
     initial_load: float | None = None
     status: str
     exercise: ExerciseRead
-    records: list[SetRecordRead] = []
+    records: list[SetRecordRead] = Field(default_factory=list)
 
 
 class SessionModuleRead(BaseModel):
@@ -184,7 +187,7 @@ class SessionModuleRead(BaseModel):
     title: str | None = None
     note: str | None = None
     display_label: str
-    items: list[SessionItemSnapshotRead] = []
+    items: list[SessionItemSnapshotRead] = Field(default_factory=list)
 
 
 class SessionSnapshotRead(ORMModel):
@@ -202,8 +205,8 @@ class SessionSnapshotRead(ORMModel):
     session_feedback: str | None = None
     coach_note: str | None = None
     athlete_note: str | None = None
-    modules: list[SessionModuleRead] = []
-    items: list[SessionItemSnapshotRead] = []
+    modules: list[SessionModuleRead] = Field(default_factory=list)
+    items: list[SessionItemSnapshotRead] = Field(default_factory=list)
 
 
 class SessionItemRead(SessionItemSnapshotRead):
@@ -212,7 +215,7 @@ class SessionItemRead(SessionItemSnapshotRead):
 
 class SessionRead(SessionSnapshotRead):
     id: int
-    items: list[SessionItemRead] = []
+    items: list[SessionItemRead] = Field(default_factory=list)
 
 
 class TrainingPlanAssignmentRead(AssignmentRead):
@@ -221,7 +224,7 @@ class TrainingPlanAssignmentRead(AssignmentRead):
 
 class TrainingAthleteRead(AthleteRead):
     training_status: str = "no_plan"
-    assignments: list[TrainingPlanAssignmentRead] = []
+    assignments: list[TrainingPlanAssignmentRead] = Field(default_factory=list)
 
 
 class TrainingModePlanListRead(BaseModel):

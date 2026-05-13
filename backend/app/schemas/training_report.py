@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.athlete import AthleteRead
 from app.schemas.training_session import TrainingSyncIssueRead
@@ -63,7 +63,7 @@ class TrainingReportSessionRead(BaseModel):
     completed_sets: int
     total_sets: int
     items: list[TrainingReportItemRead]
-    edit_logs: list[TrainingSessionEditLogRead] = []
+    edit_logs: list[TrainingSessionEditLogRead] = Field(default_factory=list)
 
 
 class TrainingReportSummaryRead(BaseModel):

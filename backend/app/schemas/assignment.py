@@ -68,7 +68,7 @@ class AssignmentBase(BaseModel):
 
 
 class AssignmentCreate(AssignmentBase):
-    overrides: list[AssignmentOverrideCreate] = []
+    overrides: list[AssignmentOverrideCreate] = Field(default_factory=list)
 
 
 class AssignmentUpdate(BaseModel):
@@ -92,7 +92,7 @@ class AssignmentRead(ORMModel, AssignmentBase):
     id: int
     athlete: AthleteRead
     template: PlanTemplateRead
-    overrides: list[AssignmentOverrideRead] = []
+    overrides: list[AssignmentOverrideRead] = Field(default_factory=list)
 
 
 class BatchAssignmentCreate(BaseModel):

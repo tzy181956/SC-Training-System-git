@@ -1,5 +1,7 @@
 from datetime import date, datetime, timezone
 
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
@@ -14,6 +16,7 @@ from app.models import (
     TrainingSessionEditLog,
     TrainingSessionItem,
     TrainingSyncConflict,
+    TrainingSyncIssue,
 )
 from app.schemas.training_session import (
     CoachSetRecordCreate,
@@ -44,6 +47,8 @@ from app.services.session_state_utils import (
     serialize_session_snapshot,
 )
 DEFAULT_POST_CLASS_ACTOR = "管理端"
+FULL_SYNC_CONFLICT_REJECT_SUMMARY = "检测到服务器端在本地最后一次确认同步后已更新，已暂停自动覆盖，等待教练或管理员手动处理。"
+FULL_SYNC_CONFLICT_REJECT_DETAIL = "服务器端训练课在本地最后一次确认同步后已更新，已拒绝自动覆盖，请手动重试或由管理员处理。"
 
 SESSION_DETAIL_OPTIONS = (
     joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
@@ -123,7 +128,7 @@ def _ensure_session_for_assignment(db: Session, assignment, session_date: date) 
         db.commit()
         return existing
 
-    session = _prepare_session_for_assignment(db, assignment, session_date)
+    session = _prepare_session_for_assignment_with_conflict_recovery(db, assignment, session_date)
     db.commit()
     return get_session(db, session.id)
 
@@ -145,6 +150,18 @@ def _prepare_session_for_assignment(db: Session, assignment, session_date: date)
 
     db.flush()
     return session
+
+
+def _prepare_session_for_assignment_with_conflict_recovery(db: Session, assignment, session_date: date) -> TrainingSession:
+    assignment_id = assignment.id
+    try:
+        return _prepare_session_for_assignment(db, assignment, session_date)
+    except IntegrityError:
+        db.rollback()
+        existing = _find_session_by_assignment_and_date(db, assignment_id, session_date)
+        if existing is not None:
+            return existing
+        raise
 
 
 def _build_session_preview(assignment, session_date: date) -> dict:
@@ -259,19 +276,30 @@ def get_session(db: Session, session_id: int) -> TrainingSession:
 
 
 def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
-    item = _get_session_item(db, item_id)
-    record = _append_set_record(item, payload)
-    db.flush()
-    _recompute_item_records(item)
-    _recompute_session_status(item.session)
-    item.session.started_at = item.session.started_at or record.completed_at
-    _refresh_training_loads(db, item.session)
-    db.commit()
+    if payload.local_record_id is not None:
+        existing_record = _find_set_record_by_local_record_id(db, item_id, payload.local_record_id)
+        if existing_record is not None:
+            return _build_set_record_result(db, item_id, existing_record.id)
 
-    refreshed_item = _get_session_item(db, item_id)
-    refreshed_record = db.query(SetRecord).filter(SetRecord.id == record.id).first()
-    refreshed_session = get_session(db, item.session_id)
-    return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
+    item = _get_session_item(db, item_id)
+    try:
+        record = _append_set_record(item, payload)
+        db.flush()
+        _recompute_item_records(item)
+        _recompute_session_status(item.session)
+        item.session.started_at = item.session.started_at or record.completed_at
+        _refresh_training_loads(db, item.session)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if payload.local_record_id is None:
+            raise
+        existing_record = _find_set_record_by_local_record_id(db, item_id, payload.local_record_id)
+        if existing_record is None:
+            raise
+        return _build_set_record_result(db, item_id, existing_record.id)
+
+    return _build_set_record_result(db, item_id, record.id)
 
 
 def update_set_record(db: Session, record_id: int, payload: SetRecordUpdate):
@@ -440,6 +468,7 @@ def sync_session_operation(db: Session, payload: SessionSetSyncOperation):
                 actual_rir=payload.actual_rir,
                 final_weight=payload.final_weight,
                 notes=payload.notes,
+                local_record_id=payload.local_record_id,
             ),
         )
 
@@ -482,7 +511,17 @@ def sync_session_snapshot(db: Session, payload: SessionFullSyncPayload):
     session = _resolve_session_for_full_sync(db, payload)
     previous_athlete_id = session.athlete_id
     previous_session_date = session.session_date
-    conflict_logged = _detect_full_sync_conflict(db, session, payload)
+    conflict = _detect_full_sync_conflict(db, session, payload)
+    if conflict and conflict["reject_overwrite"]:
+        _upsert_sync_issue_for_full_sync_conflict(
+            db,
+            session=session,
+            payload=payload,
+            summary=FULL_SYNC_CONFLICT_REJECT_SUMMARY,
+            last_error=FULL_SYNC_CONFLICT_REJECT_DETAIL,
+        )
+        db.commit()
+        raise HTTPException(status_code=409, detail=FULL_SYNC_CONFLICT_REJECT_DETAIL)
     _overwrite_session_from_snapshot(session, payload)
     _refresh_training_loads(
         db,
@@ -491,7 +530,7 @@ def sync_session_snapshot(db: Session, payload: SessionFullSyncPayload):
         previous_session_date=previous_session_date,
     )
     db.commit()
-    return get_session(db, session.id), conflict_logged
+    return get_session(db, session.id), bool(conflict)
 
 
 def complete_session_item(db: Session, item_id: int) -> TrainingSessionItem:
@@ -595,7 +634,7 @@ def _resolve_session_for_create_set(db: Session, payload: SessionSetSyncOperatio
     existing = _find_session_by_assignment_and_date(db, assignment.id, payload.session_date)
     if existing:
         return existing
-    return _prepare_session_for_assignment(db, assignment, payload.session_date)
+    return _prepare_session_for_assignment_with_conflict_recovery(db, assignment, payload.session_date)
 
 
 def _resolve_item_for_create_set(db: Session, session: TrainingSession, payload: SessionSetSyncOperation) -> TrainingSessionItem:
@@ -629,7 +668,7 @@ def _resolve_session_for_completion(db: Session, payload: SessionSetSyncOperatio
     existing = _find_session_by_assignment_and_date(db, assignment.id, payload.session_date)
     if existing:
         return existing
-    return _prepare_session_for_assignment(db, assignment, payload.session_date)
+    return _prepare_session_for_assignment_with_conflict_recovery(db, assignment, payload.session_date)
 
 
 def _resolve_session_for_full_sync(db: Session, payload: SessionFullSyncPayload) -> TrainingSession:
@@ -654,7 +693,7 @@ def _resolve_session_for_full_sync(db: Session, payload: SessionFullSyncPayload)
     existing = _find_session_by_assignment_and_date(db, assignment.id, payload.session_date)
     if existing:
         return existing
-    return _prepare_session_for_assignment(db, assignment, payload.session_date)
+    return _prepare_session_for_assignment_with_conflict_recovery(db, assignment, payload.session_date)
 
 
 def _get_session_item(db: Session, item_id: int) -> TrainingSessionItem:
@@ -715,9 +754,27 @@ def _append_set_record(item: TrainingSessionItem, payload: SetRecordCreate | Coa
         final_weight=final_weight,
         completed_at=datetime.now(timezone.utc),
         notes=payload.notes,
+        local_record_id=getattr(payload, "local_record_id", None),
     )
     item.records.append(record)
     return record
+
+
+def _find_set_record_by_local_record_id(db: Session, item_id: int, local_record_id: int) -> SetRecord | None:
+    return (
+        db.query(SetRecord)
+        .filter(SetRecord.session_item_id == item_id, SetRecord.local_record_id == local_record_id)
+        .first()
+    )
+
+
+def _build_set_record_result(db: Session, item_id: int, record_id: int):
+    refreshed_item = _get_session_item(db, item_id)
+    refreshed_record = db.query(SetRecord).filter(SetRecord.id == record_id).first()
+    if refreshed_record is None:
+        raise not_found("Set record not found")
+    refreshed_session = get_session(db, refreshed_item.session_id)
+    return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
 
 
 def _apply_set_record_update(record: SetRecord, payload: SetRecordUpdate | CoachSetRecordUpdate) -> None:
@@ -913,17 +970,18 @@ def _format_session_status_label(status: str) -> str:
     }.get(status, status)
 
 
-def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: SessionFullSyncPayload) -> bool:
+def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: SessionFullSyncPayload) -> dict | None:
     remote_snapshot = serialize_session_snapshot(session)
     local_snapshot = serialize_full_sync_payload(payload)
     if remote_snapshot == local_snapshot:
-        return False
+        return None
 
     remote_has_data = any(item["records"] for item in remote_snapshot["items"]) or remote_snapshot["status"] in FINAL_SESSION_STATUSES
     remote_signature = build_snapshot_signature(remote_snapshot)
     remote_updated_at = session.updated_at
     conflict_type: str | None = None
     summary: str | None = None
+    reject_overwrite = False
 
     if payload.last_server_signature is None and payload.last_server_updated_at is None and remote_has_data:
         conflict_type = "remote_session_exists_before_local_overwrite"
@@ -933,9 +991,14 @@ def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: S
         )
     elif payload.last_server_signature is not None and payload.last_server_signature != remote_signature:
         conflict_type = "remote_changed_since_last_sync"
+        reject_overwrite = not payload.force_overwrite
         summary = (
             "后端训练课在最近一次确认同步签名之后发生了变化。"
-            "系统已保留本地草稿，并用本地快照覆盖了后端记录。"
+            + (
+                "系统已暂停自动覆盖，等待教练或管理员手动处理。"
+                if reject_overwrite
+                else "系统已保留本地草稿，并用本地快照覆盖了后端记录。"
+            )
         )
     elif (
         payload.last_server_signature is None
@@ -950,7 +1013,7 @@ def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: S
         )
 
     if not conflict_type or not summary:
-        return False
+        return None
 
     db.add(
         TrainingSyncConflict(
@@ -966,7 +1029,56 @@ def _detect_full_sync_conflict(db: Session, session: TrainingSession, payload: S
         )
     )
     db.flush()
-    return True
+    return {
+        "conflict_type": conflict_type,
+        "summary": summary,
+        "reject_overwrite": reject_overwrite,
+    }
+
+
+def _upsert_sync_issue_for_full_sync_conflict(
+    db: Session,
+    *,
+    session: TrainingSession,
+    payload: SessionFullSyncPayload,
+    summary: str,
+    last_error: str,
+) -> TrainingSyncIssue:
+    session_key = _build_training_sync_issue_key(payload)
+    issue = db.query(TrainingSyncIssue).filter(TrainingSyncIssue.session_key == session_key).first()
+    sync_payload = payload.model_copy(update={"session_id": session.id}).model_dump(mode="json")
+    if issue is None:
+        issue = TrainingSyncIssue(
+            athlete_id=payload.athlete_id,
+            assignment_id=payload.assignment_id,
+            session_id=session.id,
+            session_date=payload.session_date,
+            session_key=session_key,
+            issue_status="manual_retry_required",
+            summary=summary,
+            failure_count=1,
+            last_error=last_error,
+            sync_payload=sync_payload,
+            resolved_at=None,
+        )
+        db.add(issue)
+        return issue
+
+    issue.athlete_id = payload.athlete_id
+    issue.assignment_id = payload.assignment_id
+    issue.session_id = session.id
+    issue.session_date = payload.session_date
+    issue.issue_status = "manual_retry_required"
+    issue.summary = summary
+    issue.failure_count = max(issue.failure_count, 0) + 1
+    issue.last_error = last_error
+    issue.sync_payload = sync_payload
+    issue.resolved_at = None
+    return issue
+
+
+def _build_training_sync_issue_key(payload: SessionFullSyncPayload) -> str:
+    return f"athlete:{payload.athlete_id}:assignment:{payload.assignment_id}:date:{payload.session_date.isoformat()}"
 
 
 def _overwrite_session_from_snapshot(session: TrainingSession, payload: SessionFullSyncPayload) -> None:
