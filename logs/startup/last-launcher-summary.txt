@@ -1,5 +1,5 @@
 ﻿Training Platform launcher success summary
-Time: 2026-05-13 15:31:56
+Time: 2026-05-13 15:42:35
 Mode: start
 Result: Startup finish
 Detail: Browser entry prepared at http://127.0.0.1:5173/

@@ -371,14 +371,6 @@ onMounted(async () => {
                 <small>{{ template.modules?.length || 0 }} 个模块 / {{ template.items?.length || 0 }} 个动作</small>
                 <small v-if="templateSourceLabel(template)">{{ templateSourceLabel(template) }}</small>
               </button>
-              <button
-                v-if="resolveTemplateVisibility(template) === 'public'"
-                class="ghost-btn slim-btn"
-                type="button"
-                @click.stop="openCopyDialog(template)"
-              >
-                {{ isAdmin ? '复制给教练' : '复制到我的模板' }}
-              </button>
             </article>
           </div>
         </div>
