@@ -31,7 +31,7 @@ app.include_router(api_router, prefix=settings.api_prefix)
 @app.on_event("startup")
 def startup_sync_schema() -> None:
     global _daily_backup_task
-    ensure_runtime_schema()
+    _apply_startup_schema_strategy()
     registered_paths = {route.path for route in app.routes}
     expected_paths = {
         f"{settings.api_prefix}/exercise-categories",
@@ -80,6 +80,18 @@ def _close_due_sessions_on_startup() -> None:
         raise
     finally:
         db.close()
+
+
+def _apply_startup_schema_strategy() -> None:
+    if settings.is_production:
+        print(
+            "[STARTUP] APP_ENV=production detected; runtime schema sync disabled. "
+            "Apply Alembic migrations with `python scripts/migrate_db.py ensure` before startup."
+        )
+        return
+
+    print("[STARTUP] APP_ENV=development detected; runtime schema fallback is enabled.")
+    ensure_runtime_schema()
 
 
 async def _daily_backup_loop() -> None:

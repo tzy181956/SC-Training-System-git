@@ -87,8 +87,14 @@ sudo chmod 755 /opt/sc-training-system-data
 APP_ENV=production
 SECRET_KEY=replace-with-a-long-random-secret
 DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db
-CORS_ORIGINS=["http://服务器地址"]
+CORS_ORIGINS=["https://your-domain.example"]
 ```
+
+说明：
+
+- 生产环境启动前不要继续依赖开发默认值。
+- `APP_ENV=production` 启动时不会执行运行时 `schema_sync` 自动改表。
+- 生产数据库结构必须提前通过 `python scripts/migrate_db.py ensure` 收口完成。
 
 ## 6. 后端部署
 
@@ -99,6 +105,23 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python scripts/migrate_db.py ensure
 ```
+
+这是生产环境首次启动前必须执行的正式迁移步骤。
+
+不要把 `backend/app/core/schema_sync.py` 当作生产迁移路径。
+它只保留开发环境兜底职责；生产环境必须依赖 Alembic migration。
+
+当前 SQLite 生产连接会自动启用：
+
+- `PRAGMA foreign_keys=ON`
+- `PRAGMA journal_mode=WAL`
+- `PRAGMA busy_timeout=5000`
+
+因此数据目录必须允许后端服务写入：
+
+- `training.db`
+- `training.db-wal`
+- `training.db-shm`
 
 ## 7. 前端部署
 
@@ -130,7 +153,56 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## 9. 更新标准流程
+生产建议：
+
+- `deploy/sc-training-backend.service` 已加入 `NoNewPrivileges`、`PrivateTmp`、`ProtectSystem=strict` 与 `ReadWritePaths=/opt/sc-training-system-data`
+- systemd 模板中的 Uvicorn 已增加 `--proxy-headers --forwarded-allow-ips=127.0.0.1`
+- 不要开放 `8000` 到公网；后端只允许 Nginx 在本机回源
+- `deploy/nginx-sc-training.conf` 中已提供 `/api/auth/login` 的登录限流示例
+
+公网部署时，必须在 Nginx 全局 `http {}` 中声明登录限流 zone，并启用登录接口限流示例：
+
+```nginx
+limit_req_zone $binary_remote_addr zone=sc_training_login:10m rate=5r/m;
+```
+
+启用后再次执行：
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+## 9. HTTPS 与公网暴露
+
+如果系统要通过公网访问，建议在正式使用前完成 HTTPS：
+
+1. 准备真实域名并更新 `server_name`
+2. 使用 Nginx + 证书工具（如 Certbot）签发证书
+3. 把前端访问入口与 `CORS_ORIGINS` 改成正式 `https://` 域名
+4. 保留后端监听 `127.0.0.1:8000`，不要把 `8000` 暴露到公网
+
+最低要求：
+
+- 对外仅开放 `80/443`
+- 业务登录与训练数据传输不应长期停留在纯 HTTP
+
+## 10. 备份与异地备份
+
+生产环境至少要同时具备：
+
+- 服务器本机日常备份
+- 危险操作前备份
+- 异地备份副本
+
+建议做法：
+
+1. 保留 `/opt/sc-training-system-data` 本机备份目录
+2. 定期把数据库备份文件同步到另一台机器、对象存储或离线介质
+3. 异地备份至少保留最近若干天可恢复版本
+4. 恢复演练时先对当前生产库再做一次备份
+
+## 11. 更新标准流程
 
 ```bash
 cd /opt/sc-training-system
@@ -150,7 +222,14 @@ sudo systemctl reload nginx
 curl http://127.0.0.1/health
 ```
 
-## 10. 本地开发与服务器分工
+更新原则：
+
+- 先备份，再迁移，再重启服务
+- `python scripts/migrate_db.py ensure` 必须在每次生产启动或更新前执行
+- 如果迁移失败，不要继续重启生产服务
+- 不要指望启动时的 `schema_sync` 自动补表来兜底生产更新
+
+## 12. 本地开发与服务器分工
 
 ### 本地开发
 
@@ -165,8 +244,11 @@ curl http://127.0.0.1/health
 - 后端必须走同域 `/api`
 - 生产数据不通过 GitHub 同步
 
-## 11. 当前注意事项
+## 13. 当前注意事项
 
 - 不要在前端业务代码中写死 `localhost`、局域网 IP 或服务器公网 IP
 - 任何迁移、恢复、覆盖数据库前先备份
 - 当前正式迁移主路径是 Alembic + `python scripts/migrate_db.py ensure`
+- 公网部署必须启用登录限流
+- `schema_sync.py` 不是生产迁移路径
+- 不要开放 `8000` 端口

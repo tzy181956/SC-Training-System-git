@@ -8,9 +8,16 @@ Type=simple
 WorkingDirectory=/opt/sc-training-system/backend
 EnvironmentFile=/opt/sc-training-system/backend/.env
 Environment="PYTHONPATH=/opt/sc-training-system/backend"
-ExecStart=/opt/sc-training-system/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Environment="PYTHONDONTWRITEBYTECODE=1"
+ExecStart=/opt/sc-training-system/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Keep the SQLite database, WAL/SHM sidecar files, and backup directories writable.
+ReadWritePaths=/opt/sc-training-system-data
 
 [Install]
 WantedBy=multi-user.target

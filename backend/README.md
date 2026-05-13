@@ -49,6 +49,7 @@ set PYTHONPATH=.
 - 初始化入口：`backend/scripts/init_db.py`
 
 运行时 `backend/app/core/schema_sync.py` 目前仍保留为过渡期兜底，但不再作为长期正式迁移方案。
+它当前只应用于开发环境启动兜底；`APP_ENV=production` 启动时不会自动改表，生产数据库结构必须通过 Alembic + `backend/scripts/migrate_db.py` 管理。
 对已有历史库的正式接管应优先通过 `backend/scripts/migrate_db.py` 完成；`bootstrap` 会先标记 Alembic 基线，再补跑后续 revisions，避免把缺失迁移直接“盖过去”。
 
 推荐命令：
