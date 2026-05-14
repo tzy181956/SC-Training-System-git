@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 
 import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
+import AppCopyrightFooter from '@/components/common/AppCopyrightFooter.vue'
 import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 import { useAuthStore } from '@/stores/auth'
 import type { UserRoleCode } from '@/types/auth'
@@ -41,7 +42,7 @@ const managementModeLabel = getAppModeDisplayLabel('management')
   <div class="shell">
     <aside class="shell-nav">
       <div class="shell-nav-inner">
-        <div>
+        <div class="shell-brand">
           <p class="eyebrow">{{ managementModeLabel }}</p>
           <h1>体能训练管理平台</h1>
         </div>
@@ -82,6 +83,8 @@ const managementModeLabel = getAppModeDisplayLabel('management')
       <div class="shell-body">
         <slot />
       </div>
+
+      <AppCopyrightFooter />
     </main>
   </div>
 </template>
@@ -115,6 +118,11 @@ const managementModeLabel = getAppModeDisplayLabel('management')
 }
 
 .shell-links {
+  display: grid;
+  gap: 10px;
+}
+
+.shell-brand {
   display: grid;
   gap: 10px;
 }
@@ -159,10 +167,11 @@ const managementModeLabel = getAppModeDisplayLabel('management')
 .shell-main {
   padding: 22px;
   display: grid;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
   min-width: 0;
-  align-content: start;
+  min-height: 100vh;
+  align-content: stretch;
 }
 
 .shell-body {

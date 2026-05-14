@@ -1,6 +1,7 @@
 {
   "name": "training-platform-frontend",
   "version": "1.0.0",
+  "author": "@TZY",
   "private": true,
   "type": "module",
   "scripts": {

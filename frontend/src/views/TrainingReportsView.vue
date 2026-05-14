@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { fetchAthletes, fetchSports, fetchTeams } from '@/api/athletes'
+import { fetchAllExerciseListItems } from '@/api/exercises'
 import { retryTrainingSyncIssue } from '@/api/sessions'
 import { fetchTrainingReport, type TrainingReportResponse } from '@/api/trainingReports'
 import StatCard from '@/components/common/StatCard.vue'
@@ -11,6 +12,7 @@ import AppShell from '@/components/layout/AppShell.vue'
 import TrainingSessionCard from '@/components/report/TrainingSessionCard.vue'
 import { getTrainingSyncIssueLabel, isTrainingSyncConflictSummary } from '@/constants/trainingSync'
 import { useAuthStore } from '@/stores/auth'
+import type { ExerciseListItem } from '@/types/exerciseLibrary'
 import { todayString } from '@/utils/date'
 import {
   filterTeamsBySport,
@@ -24,6 +26,7 @@ const authStore = useAuthStore()
 const athletes = ref<any[]>([])
 const sports = ref<any[]>([])
 const teams = ref<any[]>([])
+const exerciseOptions = ref<ExerciseListItem[]>([])
 const loading = ref(false)
 const report = ref<TrainingReportResponse | null>(null)
 const reportNotice = ref('')
@@ -32,9 +35,12 @@ const retryingIssueId = ref<number | null>(null)
 const mainLiftChartRef = ref<HTMLDivElement | null>(null)
 const completionChartRef = ref<HTMLDivElement | null>(null)
 const trackedExercisePickerOpen = ref(false)
+const trackedExerciseSearch = ref('')
 const selectedTrackedExerciseNames = ref<string[]>([])
+const exerciseOptionLoadError = ref('')
 let mainLiftChart: echarts.ECharts | null = null
 let completionChart: echarts.ECharts | null = null
+const TRACKED_EXERCISE_STORAGE_KEY = 'training-report-tracked-exercise-names-v1'
 
 const filters = reactive({
   sportId: parseNumberQuery(route.query.sportId) || resolveInitialSportFilterValue(authStore.currentUser?.sport_id),
@@ -154,20 +160,39 @@ const trackedExerciseSummaries = computed(() => {
   })
 })
 
-const defaultTrackedExerciseNames = computed(() => {
-  const mainLiftNames = trackedExerciseSummaries.value
-    .filter((item) => item.is_main_lift)
-    .map((item) => item.exercise_name)
-  const fallbackNames = trackedExerciseSummaries.value.map((item) => item.exercise_name)
-  return [...new Set([...mainLiftNames, ...fallbackNames])].slice(0, 3)
+const displayedTrackedExerciseSummaries = computed(() => {
+  const selectedSet = new Set(selectedTrackedExerciseNames.value)
+  return trackedExerciseSummaries.value.filter((item) => selectedSet.has(item.exercise_name))
 })
 
-const displayedTrackedExerciseSummaries = computed(() => {
-  const selectedNames = selectedTrackedExerciseNames.value.length
-    ? selectedTrackedExerciseNames.value
-    : defaultTrackedExerciseNames.value
-  const selectedSet = new Set(selectedNames)
-  return trackedExerciseSummaries.value.filter((item) => selectedSet.has(item.exercise_name))
+const selectedTrackedExerciseRecordMissingCount = computed(() => (
+  Math.max(selectedTrackedExerciseNames.value.length - displayedTrackedExerciseSummaries.value.length, 0)
+))
+
+const filteredTrackedExerciseOptions = computed(() => {
+  const keyword = trackedExerciseSearch.value.trim().toLowerCase()
+  const selected = new Set(selectedTrackedExerciseNames.value)
+  return exerciseOptions.value
+    .filter((exercise) => {
+      if (!keyword) return true
+      return [
+        exercise.name,
+        exercise.name_en,
+        exercise.alias,
+        exercise.level1_category,
+        exercise.level2_category,
+        exercise.category_path,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword))
+    })
+    .sort((a, b) => {
+      const selectedA = selected.has(a.name)
+      const selectedB = selected.has(b.name)
+      if (selectedA !== selectedB) return selectedA ? -1 : 1
+      return a.name.localeCompare(b.name, 'zh-Hans-CN')
+    })
+    .slice(0, 40)
 })
 
 const latestSessionBrief = computed(() => {
@@ -186,6 +211,9 @@ const latestSessionBrief = computed(() => {
 })
 
 async function hydrate() {
+  loadStoredTrackedExercises()
+  void loadExerciseOptions()
+
   const [athleteData, sportData, teamData] = await Promise.all([
     fetchAthletes(),
     fetchSports(),
@@ -219,6 +247,16 @@ async function hydrate() {
   }
   if (filters.athleteId) {
     await loadReport()
+  }
+}
+
+async function loadExerciseOptions() {
+  exerciseOptionLoadError.value = ''
+  try {
+    exerciseOptions.value = await fetchAllExerciseListItems(100)
+  } catch {
+    exerciseOptions.value = []
+    exerciseOptionLoadError.value = '动作库加载失败，请刷新页面后再选择关注动作。'
   }
 }
 
@@ -270,12 +308,6 @@ function syncAthleteSelection() {
   filters.athleteId = availableAthletes.value[0].id
 }
 
-function syncTrackedExerciseSelection() {
-  const availableNames = new Set(trackedExerciseSummaries.value.map((item) => item.exercise_name))
-  const retainedNames = selectedTrackedExerciseNames.value.filter((name) => availableNames.has(name))
-  selectedTrackedExerciseNames.value = retainedNames.length ? retainedNames : defaultTrackedExerciseNames.value
-}
-
 function toggleTrackedExercise(name: string) {
   const selected = new Set(selectedTrackedExerciseNames.value)
   if (selected.has(name)) {
@@ -284,6 +316,26 @@ function toggleTrackedExercise(name: string) {
     selected.add(name)
   }
   selectedTrackedExerciseNames.value = [...selected]
+}
+
+function loadStoredTrackedExercises() {
+  try {
+    const raw = window.localStorage.getItem(TRACKED_EXERCISE_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    selectedTrackedExerciseNames.value = Array.isArray(parsed)
+      ? parsed.map((item) => String(item).trim()).filter(Boolean)
+      : []
+  } catch {
+    selectedTrackedExerciseNames.value = []
+  }
+}
+
+function persistTrackedExercises() {
+  try {
+    window.localStorage.setItem(TRACKED_EXERCISE_STORAGE_KEY, JSON.stringify(selectedTrackedExerciseNames.value))
+  } catch {
+    // 本地存储不可用时不阻断训练数据查看。
+  }
 }
 
 function normalizeNumber(value: number | string | null | undefined) {
@@ -393,12 +445,7 @@ watch(
   },
 )
 
-watch(
-  () => trackedExerciseSummaries.value.map((item) => item.exercise_name).join('|'),
-  () => {
-    syncTrackedExerciseSelection()
-  },
-)
+watch(selectedTrackedExerciseNames, persistTrackedExercises, { deep: true })
 
 onMounted(hydrate)
 
@@ -507,19 +554,33 @@ function parseStringQuery(value: unknown) {
                   <small>{{ item.latest_date }} · {{ item.latest_reps ?? '暂无' }} 次 · RIR {{ formatRir(item.latest_rir) }}</small>
                 </div>
               </div>
-              <p v-else class="tracked-empty">当前筛选范围内暂无可展示的动作组记录。</p>
+              <p v-else-if="selectedTrackedExerciseNames.length" class="tracked-empty">
+                已选择 {{ selectedTrackedExerciseNames.length }} 个关注动作，当前运动员在筛选时间内暂无这些动作的训练记录。
+              </p>
+              <p v-else class="tracked-empty">请选择教练长期关注的动作，例如深蹲、硬拉、卧推。</p>
+              <p v-if="selectedTrackedExerciseRecordMissingCount" class="tracked-empty">
+                另有 {{ selectedTrackedExerciseRecordMissingCount }} 个已选动作当前没有记录，已自动隐藏。
+              </p>
 
               <div v-if="trackedExercisePickerOpen" class="tracked-picker" @click.stop>
-                <p>选择要放在卡片里的动作，可多选。</p>
-                <label v-for="item in trackedExerciseSummaries" :key="item.exercise_name" class="tracked-picker-option">
+                <p>选择要放在卡片里的动作，可多选。选择会在所有运动员页面通用。</p>
+                <input
+                  v-model="trackedExerciseSearch"
+                  class="text-input tracked-search-input"
+                  type="search"
+                  placeholder="搜索动作，例如深蹲、硬拉、卧推"
+                />
+                <label v-for="item in filteredTrackedExerciseOptions" :key="item.id" class="tracked-picker-option">
                   <input
                     type="checkbox"
-                    :checked="selectedTrackedExerciseNames.includes(item.exercise_name)"
-                    @change="toggleTrackedExercise(item.exercise_name)"
+                    :checked="selectedTrackedExerciseNames.includes(item.name)"
+                    @change="toggleTrackedExercise(item.name)"
                   />
-                  <span>{{ item.exercise_name }}</span>
-                  <em>{{ formatWeight(item.latest_weight) }}</em>
+                  <span>{{ item.name }}</span>
+                  <em>{{ item.category_path || item.level2_category || item.level1_category || '未分类' }}</em>
                 </label>
+                <p v-if="exerciseOptionLoadError" class="tracked-empty tracked-empty--error">{{ exerciseOptionLoadError }}</p>
+                <p v-if="!filteredTrackedExerciseOptions.length" class="tracked-empty">没有匹配动作，请换一个关键词。</p>
               </div>
             </article>
             <StatCard label="平均 RIR" :value="formatRir(averageRir)" hint="越低代表接近力竭，需结合动作表现判断" />
@@ -755,6 +816,11 @@ function parseStringQuery(value: unknown) {
   margin: 0;
   color: var(--text-soft);
   font-size: 12px;
+}
+
+.tracked-empty--error {
+  color: #b91c1c;
+  font-weight: 700;
 }
 
 .main-lift-tag {

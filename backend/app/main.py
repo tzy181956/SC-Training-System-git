@@ -7,13 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.project_meta import PROJECT_AUTHOR_HANDLE
 from app.core.schema_sync import ensure_runtime_schema
 from app.services import backup_service
 from app.services.session_service import close_due_sessions
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name)
+app = FastAPI(title=settings.app_name, contact={"name": PROJECT_AUTHOR_HANDLE})
 AUTO_BACKUP_INTERVAL_SECONDS = 3600
 _daily_backup_task: asyncio.Task | None = None
 

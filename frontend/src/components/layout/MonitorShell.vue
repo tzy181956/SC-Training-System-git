@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
+import AppCopyrightFooter from '@/components/common/AppCopyrightFooter.vue'
 import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 
 const monitorModeLabel = getAppModeDisplayLabel('monitor')
@@ -29,6 +30,8 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
     <main class="monitor-body">
       <slot />
     </main>
+
+    <AppCopyrightFooter />
   </div>
 </template>
 
@@ -42,7 +45,7 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
   --training-filter-gap: 8px;
   min-height: 100vh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
   padding: 18px;
   background:
