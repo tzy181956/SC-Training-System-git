@@ -317,6 +317,27 @@ git log --oneline --decorate -n 5
 - 确认 `DEPLOY_PATH` 的 `origin` 地址正确：`git remote -v`
 - 这个错误不是 `SSH_PRIVATE_KEY` 配错。`SSH_PRIVATE_KEY` 只负责 Actions 登录腾讯云服务器。
 
+### git fetch / git pull 超时或 GnuTLS recv error
+
+含义：腾讯云服务器到 GitHub 的 HTTPS 连接不稳定或被中断。
+
+检查：
+
+```bash
+cd <DEPLOY_PATH>
+timeout 60 git fetch --prune origin 服务器端
+curl -I --max-time 20 https://github.com
+curl -I --max-time 20 https://api.github.com
+```
+
+当前 workflow 会对远程 `git fetch` 和 `git pull` 做 3 次重试，每次最多等待 90 秒。
+
+如果仍长期失败，建议给服务器配置 GitHub Deploy Key，并把 `origin` 改成 SSH 地址：
+
+```bash
+git remote set-url origin git@github.com:tzy181956/SC-Training-System-git.git
+```
+
 ## 9. GitHub 网页手动操作清单
 
 你需要在 GitHub 网页完成：
