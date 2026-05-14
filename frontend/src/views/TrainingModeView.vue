@@ -199,11 +199,11 @@ onMounted(hydrate)
         <template v-else-if="selectedPreview">
           <strong>当前选中：{{ selectedPreview.template.name }}</strong>
           <span>
-            点击左侧计划卡片会直接打开当天训练记录。红色表示未开始，黄色表示仍有未完成动作，绿色表示当天计划已经完成。
+            点击计划卡片会直接打开当天训练记录。红色表示未开始，黄色表示仍有未完成动作，绿色表示当天计划已经完成。
           </span>
         </template>
         <template v-else>
-          <strong>先选择日期、项目、队伍和队员，再点击左侧计划开始录入。</strong>
+          <strong>选择日期、项目、队伍和队员后，可点击计划开始录入。</strong>
           <span>列表里的颜色会直接提醒教练今天哪些人还没开始，哪些人做了一半，哪些人已经全部完成。</span>
         </template>
       </section>

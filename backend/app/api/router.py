@@ -11,6 +11,7 @@ from app.api.endpoints import (
     monitoring,
     plans,
     sessions,
+    system,
     tags,
     test_definitions,
     test_records,
@@ -33,6 +34,7 @@ api_router.include_router(monitoring.router)
 api_router.include_router(plans.router)
 api_router.include_router(assignments.router)
 api_router.include_router(sessions.router)
+api_router.include_router(system.router)
 api_router.include_router(test_definitions.router)
 api_router.include_router(test_records.router)
 api_router.include_router(test_scores.router)

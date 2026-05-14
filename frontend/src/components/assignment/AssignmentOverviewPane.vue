@@ -118,7 +118,7 @@ function selectedCount(group: any) {
 
         <div v-else class="overview-empty">
           <strong>当前筛选条件下没有有效计划组</strong>
-          <p class="muted">先切到新建分配，为队员安排模板和执行周期。</p>
+          <p class="muted">可在新建分配中为队员安排模板和执行周期。</p>
           <button class="primary-btn" type="button" @click="emit('switchToBuilder')">去新建分配</button>
         </div>
       </section>
@@ -208,7 +208,7 @@ function selectedCount(group: any) {
           <div class="pane-head">
             <div>
               <p class="eyebrow">未分配摘要</p>
-              <h3>先选一个计划组查看详情</h3>
+              <h3>选择计划组查看详情</h3>
             </div>
             <span class="muted">当前还有 {{ unassignedAthletes.length }} 人未分配</span>
           </div>
@@ -217,7 +217,7 @@ function selectedCount(group: any) {
             <div class="detail-section-head">
               <div>
                 <p class="eyebrow">待补齐对象</p>
-                <h4>前 8 名未分配队员</h4>
+                <h4>未分配队员</h4>
               </div>
             </div>
             <div class="athlete-list athlete-list--readonly">

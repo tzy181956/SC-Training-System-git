@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 
 import { fetchAthletes, fetchSports, type AthleteRead, type SportRead } from '@/api/athletes'
@@ -9,6 +9,7 @@ import {
   retryTrainingSyncIssue,
   type TrainingSyncIssue,
 } from '@/api/sessions'
+import { fetchDashboardMemo, fetchServerTime, updateDashboardMemo } from '@/api/system'
 import AppShell from '@/components/layout/AppShell.vue'
 import { ALL_SPORTS_VALUE, ALL_TEAMS_VALUE } from '@/composables/useTeamFilter'
 import { getTrainingSyncIssueLabel, isTrainingSyncConflictSummary } from '@/constants/trainingSync'
@@ -66,8 +67,21 @@ const loading = ref(false)
 const retryingIssueId = ref<number | null>(null)
 const lastRefreshAt = ref<string | null>(null)
 const syncPanelRef = ref<HTMLElement | null>(null)
+const serverTimeBaseMs = ref<number | null>(null)
+const serverTimeFetchedAtMs = ref<number | null>(null)
+const serverTimeOffsetMinutes = ref(0)
+const serverTimeZone = ref('')
+const displayedServerTimeMs = ref<number | null>(null)
+const serverTimeError = ref('')
+const coachMemo = ref('')
+const coachMemoSavedAt = ref('')
+const coachMemoError = ref('')
+const coachMemoSaving = ref(false)
 const scopedSportId = computed(() => resolveScopedSportId(authStore.currentUser?.sport_id))
 const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.sport_id))
+let serverTimeTimerId: number | null = null
+let coachMemoSaveTimerId: number | null = null
+let coachMemoSaveRequestId = 0
 
 const dashboardDateLabel = formatDashboardDate(dashboardDate)
 const sportOptions = computed(() => {
@@ -111,7 +125,7 @@ const teamOptions = computed(() => {
 })
 
 const showTeamFilter = computed(
-  () => selectedSportId.value !== null && visibleTeams.value.filter((team) => team.team_id !== null).length > 1,
+  () => selectedSportId.value !== null,
 )
 
 const selectedTeamId = computed<number | null>(() => {
@@ -132,6 +146,23 @@ const refreshStatusLabel = computed(() => {
   if (!lastRefreshAt.value) return '尚未刷新'
   return `最近刷新 ${lastRefreshAt.value}`
 })
+
+const serverTimeLabel = computed(() => {
+  if (serverTimeError.value) return serverTimeError.value
+  if (displayedServerTimeMs.value === null) return '服务器时间：校准中'
+  const timezoneLabel = serverTimeZone.value || formatUtcOffset(serverTimeOffsetMinutes.value)
+  return `服务器时间：${formatServerDateTime(displayedServerTimeMs.value, serverTimeOffsetMinutes.value)} ${timezoneLabel}`
+})
+
+const coachMemoStatusLabel = computed(() => (
+  coachMemoError.value
+    ? coachMemoError.value
+    : coachMemoSaving.value
+      ? '保存中...'
+      : coachMemoSavedAt.value
+        ? `已保存 ${coachMemoSavedAt.value}`
+        : '服务器自动保存'
+))
 
 const athletesById = computed(() => (
   new Map(athleteDirectory.value.map((athlete) => [athlete.id, athlete]))
@@ -342,7 +373,15 @@ onMounted(async () => {
   if (isSportFilterLocked.value) {
     selectedSportFilter.value = String(scopedSportId.value)
   }
+  startServerTimeTicker()
   await hydrateDashboard()
+})
+
+onBeforeUnmount(() => {
+  stopServerTimeTicker()
+  if (coachMemoSaveTimerId !== null) {
+    void saveCoachMemoNow()
+  }
 })
 
 async function hydrateDashboard() {
@@ -352,6 +391,8 @@ async function hydrateDashboard() {
     loadMonitoringData({ refreshTeams: true }),
     loadSyncIssues(),
     loadAthleteDirectory(),
+    loadServerTime(),
+    loadCoachMemo(),
   ])
   loading.value = false
 }
@@ -404,7 +445,10 @@ async function loadAthleteDirectory() {
 
 async function handleTeamFilterChange() {
   loading.value = true
-  await loadMonitoringData({ refreshTeams: selectedTeamId.value === null })
+  await Promise.allSettled([
+    loadMonitoringData({ refreshTeams: selectedTeamId.value === null }),
+    loadServerTime(),
+  ])
   loading.value = false
 }
 
@@ -414,8 +458,43 @@ async function handleSportFilterChange() {
   }
   selectedTeamFilter.value = ALL_TEAMS_VALUE
   loading.value = true
-  await loadMonitoringData({ refreshTeams: true })
+  await Promise.allSettled([
+    loadMonitoringData({ refreshTeams: true }),
+    loadServerTime(),
+  ])
   loading.value = false
+}
+
+async function loadServerTime() {
+  try {
+    const result = await fetchServerTime()
+    const parsedTime = new Date(result.server_time).getTime()
+    if (Number.isNaN(parsedTime)) {
+      throw new Error('Invalid server time')
+    }
+    serverTimeBaseMs.value = parsedTime
+    serverTimeFetchedAtMs.value = Date.now()
+    serverTimeOffsetMinutes.value = result.utc_offset_minutes
+    serverTimeZone.value = result.timezone
+    displayedServerTimeMs.value = parsedTime
+    serverTimeError.value = ''
+  } catch {
+    serverTimeError.value = '服务器时间：获取失败'
+  }
+}
+
+function startServerTimeTicker() {
+  stopServerTimeTicker()
+  serverTimeTimerId = window.setInterval(() => {
+    if (serverTimeBaseMs.value === null || serverTimeFetchedAtMs.value === null) return
+    displayedServerTimeMs.value = serverTimeBaseMs.value + (Date.now() - serverTimeFetchedAtMs.value)
+  }, 1000)
+}
+
+function stopServerTimeTicker() {
+  if (serverTimeTimerId === null) return
+  window.clearInterval(serverTimeTimerId)
+  serverTimeTimerId = null
 }
 
 function syncSelectedTeamFilter() {
@@ -460,6 +539,59 @@ function handleQuickAction(route: RouteLocationRaw) {
   void router.push(route)
 }
 
+function handleCoachMemoInput(event: Event) {
+  coachMemo.value = (event.target as HTMLTextAreaElement).value
+  scheduleCoachMemoSave()
+}
+
+async function loadCoachMemo() {
+  coachMemoError.value = ''
+  try {
+    const result = await fetchDashboardMemo()
+    coachMemo.value = result.content
+    coachMemoSavedAt.value = result.updated_at ? formatStoredSaveTime(result.updated_at) : ''
+  } catch {
+    coachMemoError.value = '加载失败，请稍后重试'
+  }
+}
+
+function scheduleCoachMemoSave() {
+  coachMemoError.value = ''
+  coachMemoSaving.value = true
+  if (coachMemoSaveTimerId !== null) {
+    window.clearTimeout(coachMemoSaveTimerId)
+  }
+  coachMemoSaveTimerId = window.setTimeout(() => {
+    void saveCoachMemoNow()
+  }, 500)
+}
+
+async function saveCoachMemoNow() {
+  if (coachMemoSaveTimerId !== null) {
+    window.clearTimeout(coachMemoSaveTimerId)
+    coachMemoSaveTimerId = null
+  }
+
+  const requestId = coachMemoSaveRequestId + 1
+  coachMemoSaveRequestId = requestId
+  coachMemoSaving.value = true
+
+  try {
+    const result = await updateDashboardMemo(coachMemo.value)
+    if (requestId !== coachMemoSaveRequestId) return
+    coachMemoSavedAt.value = result.updated_at ? formatStoredSaveTime(result.updated_at) : formatRefreshTime(new Date())
+    coachMemoError.value = ''
+  } catch {
+    if (requestId === coachMemoSaveRequestId) {
+      coachMemoError.value = '保存失败，请检查服务器连接'
+    }
+  } finally {
+    if (requestId === coachMemoSaveRequestId) {
+      coachMemoSaving.value = false
+    }
+  }
+}
+
 async function retrySyncIssue(issueId: number) {
   retryingIssueId.value = issueId
   try {
@@ -492,6 +624,35 @@ function formatDashboardDate(value: string) {
 function formatRefreshTime(value: Date) {
   return value.toLocaleTimeString('zh-CN', { hour12: false })
 }
+
+function formatStoredSaveTime(value: string) {
+  const parsedTime = new Date(value)
+  if (Number.isNaN(parsedTime.getTime())) return ''
+  return formatRefreshTime(parsedTime)
+}
+
+function formatServerDateTime(timestampMs: number, utcOffsetMinutes: number) {
+  const serverDate = new Date(timestampMs + utcOffsetMinutes * 60 * 1000)
+  const year = serverDate.getUTCFullYear()
+  const month = padDatePart(serverDate.getUTCMonth() + 1)
+  const day = padDatePart(serverDate.getUTCDate())
+  const hours = padDatePart(serverDate.getUTCHours())
+  const minutes = padDatePart(serverDate.getUTCMinutes())
+  const seconds = padDatePart(serverDate.getUTCSeconds())
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
+function padDatePart(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+function formatUtcOffset(offsetMinutes: number) {
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absoluteMinutes = Math.abs(offsetMinutes)
+  const hours = padDatePart(Math.floor(absoluteMinutes / 60))
+  const minutes = padDatePart(absoluteMinutes % 60)
+  return `UTC${sign}${hours}:${minutes}`
+}
 </script>
 
 <template>
@@ -521,6 +682,7 @@ function formatRefreshTime(value: Date) {
           </select>
         </label>
         <span v-else class="toolbar-pill">队伍：{{ selectedTeamLabel }}</span>
+        <span class="toolbar-pill toolbar-pill--time">{{ serverTimeLabel }}</span>
         <span class="toolbar-pill toolbar-pill--muted">{{ refreshStatusLabel }}</span>
       </div>
     </template>
@@ -531,7 +693,7 @@ function formatRefreshTime(value: Date) {
           <div class="dashboard-panel-head">
             <div>
               <p class="dashboard-section-label">今日训练概况</p>
-              <h3>先看今天谁在训练、谁需要课后处理</h3>
+              <h3>今日训练状态</h3>
             </div>
             <p class="dashboard-panel-note">当前范围：{{ selectedSportLabel }} / {{ selectedTeamLabel }}</p>
           </div>
@@ -556,7 +718,7 @@ function formatRefreshTime(value: Date) {
           <div class="dashboard-panel-head">
             <div>
               <p class="dashboard-section-label">现在要处理</p>
-              <h3>把今天真正需要你动手的事情排在前面</h3>
+              <h3>待处理事项</h3>
             </div>
           </div>
 
@@ -590,6 +752,26 @@ function formatRefreshTime(value: Date) {
             </button>
           </article>
         </section>
+
+        <section class="panel memo-panel">
+          <div class="dashboard-panel-head">
+            <div>
+              <p class="dashboard-section-label">教练白板</p>
+              <h3>近期重点和训练提醒</h3>
+            </div>
+            <span class="dashboard-panel-note">{{ coachMemoStatusLabel }}</span>
+          </div>
+
+          <textarea
+            :value="coachMemo"
+            class="dashboard-memo-input"
+            rows="9"
+            maxlength="1200"
+            placeholder="例如：重点关注张三深蹲膝内扣；周三前复核一队核心力量；本周卧推主项保守加重。"
+            aria-label="教练白板备忘"
+            @input="handleCoachMemoInput"
+          ></textarea>
+        </section>
       </section>
 
       <aside class="workbench-side">
@@ -597,7 +779,7 @@ function formatRefreshTime(value: Date) {
           <div class="dashboard-panel-head">
             <div>
               <p class="dashboard-section-label">高频入口</p>
-              <h3>只保留最常进的四个地方</h3>
+              <h3>常用入口</h3>
             </div>
           </div>
 
@@ -652,7 +834,7 @@ function formatRefreshTime(value: Date) {
 
           <div v-else class="dashboard-empty-card">
             <strong>当前没有待处理的同步异常</strong>
-            <p>训练端如果出现长时间未恢复的同步问题，会优先出现在这里。</p>
+            <p>训练端长时间未恢复的同步问题会显示在这里。</p>
           </div>
 
           <button
@@ -752,6 +934,7 @@ function formatRefreshTime(value: Date) {
 
 .dashboard-workbench .overview-panel,
 .dashboard-workbench .tasks-panel,
+.dashboard-workbench .memo-panel,
 .dashboard-workbench .quick-panel,
 .dashboard-workbench .sync-panel,
 .dashboard-workbench .admin-panel {
@@ -935,6 +1118,32 @@ function formatRefreshTime(value: Date) {
   margin: 6px 0 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.dashboard-memo-input {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(transparent 31px, rgba(15, 118, 110, 0.08) 32px),
+    #fffdf7;
+  background-size: 100% 32px;
+  padding: 14px 16px;
+  color: var(--text);
+  line-height: 32px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.dashboard-memo-input::placeholder {
+  color: rgba(100, 116, 139, 0.78);
+}
+
+.dashboard-memo-input:focus {
+  border-color: rgba(15, 118, 110, 0.42);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
 .dashboard-quick-grid {

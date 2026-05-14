@@ -330,8 +330,8 @@ function resetRecordDraft(record: any) {
       <strong>第 {{ currentSetNumber }} 组 / 共 {{ item.prescribed_sets }} 组</strong>
     </div>
     <div v-else class="empty-state">
-      <strong>先从中间选择一个训练动作。</strong>
-      <span>右侧会显示该动作的实时录入区和已提交组数据。</span>
+      <strong>请选择一个训练动作。</strong>
+      <span>选择后可录入当前组并查看已提交组数据。</span>
     </div>
 
     <template v-if="item">

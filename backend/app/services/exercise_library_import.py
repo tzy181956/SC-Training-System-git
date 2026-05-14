@@ -33,6 +33,12 @@ TAG_FIELD_MAP = {
     "标签_FMS阶段": "fmsPhase",
     "标签_FMS等级": "fmsLevel",
 }
+TAG_LABEL_MAP = {
+    target_key: source_key.removeprefix("标签_")
+    for source_key, target_key in TAG_FIELD_MAP.items()
+}
+NOT_APPLICABLE_TAG_VALUE = "不适用"
+VIBRATION_EQUIPMENT_TAG_VALUE = "振动器材"
 
 ORIGINAL_ENGLISH_FIELDS = {
     "movementTypeCategoryEn": "一级分类_EN",
@@ -73,6 +79,31 @@ def _split_multi_values(value: object) -> list[str]:
     return normalized
 
 
+def _remove_not_applicable_tags(tags: dict[str, list[str]]) -> dict[str, list[str]]:
+    cleaned: dict[str, list[str]] = {}
+    for key, values in tags.items():
+        normalized_values = [
+            item
+            for item in values
+            if _normalize_text(item) and _normalize_text(item) != NOT_APPLICABLE_TAG_VALUE
+        ]
+        cleaned[key] = normalized_values
+    return cleaned
+
+
+def _build_tag_text(tags: dict[str, list[str]]) -> str:
+    parts = [
+        f"{TAG_LABEL_MAP[key]}:{'|'.join(values)}"
+        for key, values in tags.items()
+        if values and key in TAG_LABEL_MAP
+    ]
+    return "；".join(parts)
+
+
+def _has_vibration_equipment(tags: dict[str, list[str]]) -> bool:
+    return VIBRATION_EQUIPMENT_TAG_VALUE in tags.get("equipment", [])
+
+
 def _load_sheet_rows(source_path: Path) -> tuple[list[str], list[dict[str, str]]]:
     workbook = load_workbook(source_path, read_only=True, data_only=True)
     worksheet = workbook["动作库_标签版"]
@@ -90,15 +121,18 @@ def _load_sheet_rows(source_path: Path) -> tuple[list[str], list[dict[str, str]]
 
 
 def _normalize_row(row: dict[str, str]) -> dict:
-    tags = {
+    tags = _remove_not_applicable_tags({
         target_key: _split_multi_values(row.get(source_key))
         for source_key, target_key in TAG_FIELD_MAP.items()
-    }
+    })
     search_keywords = _split_multi_values(row.get("标签_检索关键词"))
-    for source_key in ("动作名称", "动作英文原名", "标签词条", "分类路径"):
+    for source_key in ("动作名称", "动作英文原名", "分类路径"):
         value = _normalize_text(row.get(source_key))
         if value and value not in search_keywords:
             search_keywords.append(value)
+    tag_text = _build_tag_text(tags)
+    if tag_text and tag_text not in search_keywords:
+        search_keywords.append(tag_text)
 
     return {
         "code": _normalize_text(row.get("动作ID建议")),
@@ -112,7 +146,7 @@ def _normalize_row(row: dict[str, str]) -> dict:
         },
         "tags": tags,
         "searchKeywords": search_keywords,
-        "tagText": _normalize_text(row.get("标签词条")),
+        "tagText": tag_text,
         "categoryPath": " / ".join(
             item
             for item in (
@@ -135,6 +169,8 @@ def _preview_rows(source_path: Path) -> tuple[list[dict], ExerciseImportPreview]
 
     for row in raw_rows:
         normalized = _normalize_row(row)
+        if _has_vibration_equipment(normalized["tags"]):
+            continue
         if not normalized["code"] or not normalized["nameZh"]:
             continue
         if normalized["code"] in unique_codes:

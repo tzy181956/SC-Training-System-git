@@ -493,9 +493,8 @@ watch(
               </div>
               <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ exercise.name_en || exercise.alias || '无英文名' }}</span>
               <small class="adaptive-card-meta adaptive-card-clamp-2">
-                {{ exercise.level1_category || '未分类' }} / {{ exercise.level2_category || '未分类' }}
+                {{ exercise.category_path || `${exercise.level1_category || '未分类'} / ${exercise.level2_category || '未分类'}` }}
               </small>
-              <small class="adaptive-card-meta adaptive-card-clamp-2">{{ exercise.category_path || '无分类路径' }}</small>
               <div class="tag-line">
                 <span v-for="tag in summarizeExerciseListTags(exercise)" :key="tag" class="tag-chip">{{ tag }}</span>
               </div>
@@ -601,6 +600,14 @@ watch(
   justify-content: space-between;
 }
 
+.row-head {
+  min-width: 0;
+}
+
+.row-head .adaptive-card-title {
+  min-width: 0;
+}
+
 .toolbar {
   align-items: start;
 }
@@ -647,6 +654,14 @@ watch(
   padding: 0 12px;
   display: inline-flex;
   align-items: center;
+}
+
+.visibility-badge {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 10px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .facet-chip,

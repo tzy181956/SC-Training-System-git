@@ -715,7 +715,7 @@ onMounted(hydrate)
               <span class="sync-indicator-dot"></span>
               <span>同步{{ syncIndicatorLabel }}</span>
             </div>
-            <p v-else class="hero-inline-hint">点击左侧计划即可继续或切换当天训练记录。</p>
+            <p v-else class="hero-inline-hint">选择计划即可继续或切换当天训练记录。</p>
             <p v-if="manualRetryHint" class="session-notice warning">{{ manualRetryHint }}</p>
             <p v-if="sessionNotice" class="session-notice" :class="sessionNoticeTone">{{ sessionNotice }}</p>
           </div>

@@ -509,8 +509,8 @@ function saveTemplate() {
 
 function moduleSummary(module: any) {
   if (module.note) return module.note
-  if (module.items.length) return `${module.items.length} 个动作，点击展开继续编辑。`
-  return '当前模块还没有动作，点击展开后继续配置。'
+  if (module.items.length) return `${module.items.length} 个动作`
+  return '当前模块还没有动作。'
 }
 
 function removeTemplate() {
@@ -574,7 +574,7 @@ function removeTemplate() {
       <div class="quick-header">
         <div>
           <p class="eyebrow">添加模块</p>
-          <h3>先建立训练模块，再在模块内追加动作</h3>
+          <h3>训练模块</h3>
         </div>
         <button v-if="!readonly" class="primary-btn slim" type="button" @click="addModule">添加模块</button>
       </div>
@@ -664,7 +664,7 @@ function removeTemplate() {
             />
             <div v-if="!module.items.length" class="empty-module">
               <h5>{{ module.display_label }} 还没有动作</h5>
-              <p>先点击上方按钮，在这个模块里追加动作卡片。</p>
+              <p>可在这个模块中添加动作。</p>
             </div>
           </div>
         </template>
@@ -672,7 +672,7 @@ function removeTemplate() {
 
       <div v-if="!sortedModules.length" class="panel empty-panel">
         <h4>当前模板还没有模块</h4>
-        <p>先填写模板基础信息，再点击上方“添加模块”，每个模块里再单独添加动作。</p>
+        <p>填写模板基础信息后，可添加训练模块和动作。</p>
       </div>
     </div>
   </section>

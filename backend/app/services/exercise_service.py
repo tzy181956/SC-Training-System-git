@@ -31,11 +31,13 @@ EXERCISE_FACET_KEYS = (
 VALID_EXERCISE_VISIBILITIES = {EXERCISE_VISIBILITY_PUBLIC, EXERCISE_VISIBILITY_PRIVATE}
 PUBLIC_EXERCISE_EDIT_DENIED_DETAIL = "公共动作只允许管理员维护，请新建自建动作后再调整"
 PRIVATE_EXERCISE_ACCESS_DENIED_DETAIL = "无权访问其他教练的自建动作"
+NOT_APPLICABLE_TAG_VALUE = "不适用"
 
 
 def _normalize_exercise_payload_defaults(data: dict) -> dict:
     data.setdefault("structured_tags", {})
     data.setdefault("search_keywords", [])
+    data["structured_tags"] = _remove_not_applicable_tag_values(data.get("structured_tags"))
     return data
 
 
@@ -45,6 +47,26 @@ def _normalize_exercise_record(exercise: Exercise) -> Exercise:
     if exercise.search_keywords is None:
         exercise.search_keywords = []
     return exercise
+
+
+def _remove_not_applicable_tag_values(structured_tags: dict | None) -> dict:
+    if not isinstance(structured_tags, dict):
+        return {}
+
+    cleaned: dict[str, list[str]] = {}
+    for key, raw_values in structured_tags.items():
+        if not isinstance(raw_values, list):
+            continue
+        values: list[str] = []
+        seen: set[str] = set()
+        for raw_value in raw_values:
+            value = str(raw_value or "").strip()
+            if not value or value == NOT_APPLICABLE_TAG_VALUE or value in seen:
+                continue
+            seen.add(value)
+            values.append(value)
+        cleaned[key] = values
+    return cleaned
 
 
 def normalize_exercise_visibility(value: str | None) -> str:

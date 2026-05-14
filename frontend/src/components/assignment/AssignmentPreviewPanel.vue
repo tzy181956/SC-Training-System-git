@@ -121,7 +121,7 @@ function formatNumber(value: number) {
     <div class="section-head">
       <div>
         <p class="eyebrow">分配摘要</p>
-        <h3>右侧随时确认本次分配</h3>
+        <h3>分配预览</h3>
       </div>
     </div>
 
@@ -199,7 +199,7 @@ function formatNumber(value: number) {
           </div>
         </div>
         <div v-else class="helper-panel">
-          <p class="muted">先在左侧选择队员，右侧会同步更新分配摘要。</p>
+          <p class="muted">选择队员后将生成分配摘要。</p>
         </div>
       </article>
 
@@ -215,7 +215,7 @@ function formatNumber(value: number) {
         </div>
 
         <div v-if="!displayTemplate" class="helper-panel">
-          <p class="muted">模板选中后，这里显示模块与动作摘要；默认折叠，避免遮挡主流程。</p>
+          <p class="muted">选择模板后将显示模块与动作摘要。</p>
         </div>
 
         <div v-else-if="detailsExpanded" class="module-grid">
@@ -247,7 +247,7 @@ function formatNumber(value: number) {
           {{ submitting ? '正在提交...' : '确认分配计划' }}
         </button>
         <p v-if="validationMessage" class="muted">{{ validationMessage }}</p>
-        <p v-else class="muted">确认前请核对模板、对象人数和日期摘要。右侧按钮会始终保留在可视区域附近。</p>
+        <p v-else class="muted">确认前请核对模板、对象人数和日期摘要。</p>
       </article>
     </div>
   </section>

@@ -54,7 +54,7 @@ async function handleSubmit() {
   <div class="login-page">
     <section class="login-card">
       <div class="hero-copy">
-        <p class="eyebrow">训练现场稳定优先</p>
+        <p class="eyebrow">账号登录</p>
         <h1>体能训练管理平台</h1>
         <p class="hint">请输入管理员或教练账号登录。系统不开放自助注册。</p>
       </div>

@@ -219,7 +219,7 @@ onMounted(() => {
       <section class="panel summary-panel">
         <div>
           <p class="eyebrow">备份恢复</p>
-          <h3>恢复页基础版</h3>
+          <h3>数据库备份与恢复</h3>
         </div>
         <div class="summary-grid">
           <div class="summary-item">
@@ -315,7 +315,7 @@ onMounted(() => {
             <div class="scope-section">
               <div>
                 <p class="eyebrow">恢复范围</p>
-                <h4>整库恢复 / 某类数据恢复</h4>
+                <h4>选择恢复范围</h4>
               </div>
               <div class="scope-grid">
                 <button

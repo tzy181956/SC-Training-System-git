@@ -520,7 +520,7 @@ function weekdayLabelFromDate(dateString: string) {
         <div class="control-head">
           <div>
             <p class="eyebrow">计划分配工作台</p>
-            <h3>{{ activeView === 'builder' ? '先完成新分配，再切回现有计划查看结果' : '先看现状，再决定是否补齐未分配对象' }}</h3>
+            <h3>{{ activeView === 'builder' ? '新建计划分配' : '计划分配概览' }}</h3>
           </div>
           <div class="view-switch" role="tablist" aria-label="计划分配视图切换">
             <button
@@ -621,7 +621,7 @@ function weekdayLabelFromDate(dateString: string) {
             </div>
 
             <p class="muted helper-copy">
-              当前可选 {{ builderBaseAthletes.length }} 人。先用上方项目、队伍和姓名搜索缩小范围，再手动点选或批量加入。
+              当前可选 {{ builderBaseAthletes.length }} 人。可使用项目、队伍和姓名搜索缩小范围，再手动点选或批量加入。
             </p>
 
             <div class="athlete-grid">
@@ -665,7 +665,7 @@ function weekdayLabelFromDate(dateString: string) {
               </select>
             </label>
             <p class="muted helper-copy">
-              {{ selectedTemplate ? `${selectedTemplate.name}${selectedTemplate.description ? `：${selectedTemplate.description}` : ''}` : '先选模板，右侧再查看折叠后的模块动作摘要。' }}
+              {{ selectedTemplate ? `${selectedTemplate.name}${selectedTemplate.description ? `：${selectedTemplate.description}` : ''}` : '选择模板后将显示模块动作摘要。' }}
             </p>
           </section>
 
@@ -777,7 +777,7 @@ function weekdayLabelFromDate(dateString: string) {
                 <strong>风险提示</strong>
                 <span v-if="previewHasManualControl">存在训练时需现场控制的动作，请优先核对右侧提示。</span>
                 <span v-else-if="builderValidationMessage">{{ builderValidationMessage }}</span>
-                <span v-else>当前可以提交，右侧会保留主按钮用于最终确认。</span>
+                <span v-else>当前可以提交，请核对分配预览后确认。</span>
               </div>
             </div>
 
@@ -978,6 +978,8 @@ function weekdayLabelFromDate(dateString: string) {
 
 .athlete-card--unassigned:not(.active) {
   background: rgba(240, 253, 250, 0.8);
+  border-color: rgba(15, 118, 110, 0.14);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.045);
 }
 
 .state-pill {

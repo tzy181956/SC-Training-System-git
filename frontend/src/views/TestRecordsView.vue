@@ -2325,7 +2325,7 @@ onBeforeUnmount(() => {
           <input ref="importInputRef" class="hidden-input" type="file" accept=".xlsx" @change="handleImport" />
 
           <p class="hint-text">
-            左侧先用来筛选趋势；手动补录保留在下方折叠区。开始日期和结束日期留空时，表示查看全部日期。
+            筛选测试趋势；手动补录在下方展开。开始日期和结束日期留空时，表示查看全部日期。
           </p>
 
           <p v-if="actionMessage" class="status-banner">{{ actionMessage }}</p>
@@ -2527,7 +2527,7 @@ onBeforeUnmount(() => {
               <section class="trend-history-card">
                 <div class="trend-history-head">
                   <strong>最近 5 次记录</strong>
-                  <span>按当前筛选条件自动更新</span>
+                  <span>按当前筛选条件显示</span>
                 </div>
                 <div class="trend-history-table-wrap">
                   <table class="trend-history-table">
@@ -2604,10 +2604,8 @@ onBeforeUnmount(() => {
           <p class="field-note">先选项目，再从该项目下选择评分模板和队伍；变更后将自动重新计算。</p>
 
         <div class="entry-panel-body">
-          <p class="hint-text">当前评分模式：Z 分数标准化评分</p>
-          <p class="hint-text">T 分数解释：50 表示参考数据平均水平，每 10 分约等于 1 个标准差。</p>
-          <p class="hint-text">分数未做截断，极高或极低分可能代表真实极端表现，也可能提示需要检查原始数据。</p>
-          <p class="hint-text">当前评分取值口径：每个项目使用所选日期范围内最新一次测试记录。</p>
+          <p class="hint-text">评分口径：Z 分数标准化；T 分数 50 为参考均值，每 10 分约为 1 个标准差。</p>
+          <p class="hint-text">每个项目使用所选日期范围内最新一次测试记录；极端分数需结合原始数据复核。</p>
         </div>
 
         <template v-if="scoreCalculation">
@@ -2746,7 +2744,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </template>
-            <p v-else class="hint-text">评分明细默认折叠，按需展开查看。</p>
+              <p v-else class="hint-text">展开后查看评分明细。</p>
           </section>
         </template>
       </div>

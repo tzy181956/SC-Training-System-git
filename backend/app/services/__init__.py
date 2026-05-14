@@ -15,6 +15,7 @@ __all__ = [
     "backup_service",
     "content_change_log_service",
     "dangerous_operation_service",
+    "dashboard_memo_service",
     "exercise_category_service",
     "exercise_service",
     "log_service",

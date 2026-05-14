@@ -316,6 +316,24 @@ def ensure_runtime_schema() -> None:
         connection.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS dashboard_memos (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL UNIQUE,
+                    content TEXT NOT NULL DEFAULT '',
+                    source VARCHAR(30) NOT NULL DEFAULT 'dashboard',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_dashboard_memos_user_id ON dashboard_memos(user_id)")
+        )
+        connection.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS test_type_definitions (
                     id INTEGER PRIMARY KEY,
                     name VARCHAR(80) NOT NULL,
