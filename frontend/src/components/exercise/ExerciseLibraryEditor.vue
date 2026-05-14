@@ -38,10 +38,7 @@ const form = reactive<Record<string, any>>({
   source_type: 'custom_manual',
   category_level1_id: null as number | null,
   category_level2_id: null as number | null,
-  description: '',
   video_url: '',
-  coaching_points: '',
-  common_errors: '',
   notes: '',
   default_increment: 2.5,
   is_main_lift_candidate: false,
@@ -95,10 +92,7 @@ watch(
       code: normalizeSingleLineText(value?.code || ''),
       source_type: value?.source_type || 'custom_manual',
       ...categorySelection,
-      description: normalizeSingleLineText(value?.description || ''),
       video_url: normalizeSingleLineText(value?.video_url || ''),
-      coaching_points: normalizeSingleLineText(value?.coaching_points || ''),
-      common_errors: normalizeSingleLineText(value?.common_errors || ''),
       notes: normalizeSingleLineText(value?.notes || ''),
       default_increment: value?.default_increment ?? 2.5,
       is_main_lift_candidate: value?.is_main_lift_candidate ?? false,
@@ -149,10 +143,7 @@ function handleSubmit() {
     level1_category: categoryLineage.value.level1 || props.modelValue?.level1_category || null,
     level2_category: categoryLineage.value.level2 || props.modelValue?.level2_category || null,
     category_path: categoryLineage.value.path || props.modelValue?.category_path || null,
-    description: normalizeSingleLineText(form.description) || null,
     video_url: normalizeSingleLineText(form.video_url) || null,
-    coaching_points: normalizeSingleLineText(form.coaching_points) || null,
-    common_errors: normalizeSingleLineText(form.common_errors) || null,
     notes: normalizeSingleLineText(form.notes) || null,
     default_increment: form.default_increment ?? null,
     is_main_lift_candidate: form.is_main_lift_candidate,
@@ -207,6 +198,10 @@ function handleDelete() {
           <div><strong>二级分类</strong><span>{{ modelValue.level2_category || '无' }}</span></div>
           <div><strong>动作编码</strong><span>{{ modelValue.code || '无' }}</span></div>
         </div>
+      </div>
+      <div class="detail-section">
+        <h4>备注</h4>
+        <p>{{ modelValue.notes || '无' }}</p>
       </div>
       <div class="detail-section">
         <h4>结构化标签</h4>
@@ -266,18 +261,6 @@ function handleDelete() {
       <label class="field">
         <span class="field-label">视频链接</span>
         <input v-model="form.video_url" class="text-input" />
-      </label>
-      <label class="field">
-        <span class="field-label">动作描述</span>
-        <input v-model="form.description" class="text-input" />
-      </label>
-      <label class="field">
-        <span class="field-label">技术要点</span>
-        <input v-model="form.coaching_points" class="text-input" />
-      </label>
-      <label class="field">
-        <span class="field-label">常见错误</span>
-        <input v-model="form.common_errors" class="text-input" />
       </label>
       <label class="field">
         <span class="field-label">备注</span>

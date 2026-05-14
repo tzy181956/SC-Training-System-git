@@ -110,6 +110,164 @@ python scripts/check_text_encoding.py
 
 - [docs/deployment/tencent-lighthouse-ubuntu.md](C:\Users\tzy\Documents\GitHub\SC-Training-System-git\docs\deployment\tencent-lighthouse-ubuntu.md)
 
+### GitHub Actions 自动部署
+
+仓库已提供自动部署流程：
+
+- Workflow：`.github/workflows/deploy.yml`
+- 服务器执行脚本：`scripts/deploy.sh`
+- 触发分支：`服务器端`
+- 触发方式：向 `服务器端` 分支 push，或在 GitHub Actions 页面手动运行 `Deploy Production`
+
+当前流程采用“Actions 构建并上传发布包”的方式：
+
+1. checkout 代码
+2. 安装后端依赖
+3. 安装前端依赖
+4. 运行后端编译检查、文本编码检查；如果仓库中存在 pytest 测试，则自动运行 pytest
+5. 构建前端 `frontend/dist`
+6. 打包发布产物
+7. 通过 SSH 上传到服务器
+8. 在服务器执行 `scripts/deploy.sh`
+9. 服务器安装后端依赖、执行 `python scripts/migrate_db.py ensure`
+10. 重启 `sc-training-backend`，reload Nginx
+11. 请求 `/health` 做健康检查
+
+发布包不会覆盖以下生产文件和目录：
+
+- `backend/.env`
+- `backend/.venv`
+- `backend/training.db*`
+- `backend/backups`
+- `frontend/node_modules`
+- `logs`
+
+#### 需要配置的 GitHub Secrets
+
+进入 GitHub 仓库：
+
+`Settings -> Secrets and variables -> Actions -> New repository secret`
+
+必须配置：
+
+- `SSH_HOST`：服务器公网 IP 或域名
+- `SSH_USER`：用于部署的 SSH 用户，例如 `deploy`
+- `SSH_KEY`：部署用户对应的 SSH 私钥内容
+- `DEPLOY_PATH`：服务器项目目录，例如 `/opt/sc-training-system`
+
+可选配置：
+
+- `SSH_PORT`：SSH 端口，默认 `22`
+- `SERVICE_NAME`：systemd 后端服务名，默认 `sc-training-backend`
+- `HEALTHCHECK_URL`：健康检查地址，默认 `http://127.0.0.1/health`
+
+不要把任何私钥、服务器密码、`.env`、数据库、备份文件提交进仓库。
+
+#### 首次配置服务器命令
+
+以下命令用于 Ubuntu 服务器首次准备。把 `<REPO_URL>`、`your-domain.example`、`<DEPLOY_PUBLIC_KEY>` 替换成自己的值。
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip nginx rsync curl
+```
+
+创建部署用户和后端服务用户：
+
+```bash
+sudo adduser --disabled-password --gecos "" deploy
+sudo useradd --system --home /opt/sc-training-system --shell /usr/sbin/nologin sc-training || true
+sudo usermod -aG sc-training deploy
+```
+
+配置部署用户 SSH 公钥：
+
+```bash
+sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+echo '<DEPLOY_PUBLIC_KEY>' | sudo tee /home/deploy/.ssh/authorized_keys >/dev/null
+sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys
+sudo chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+准备项目目录和数据目录：
+
+```bash
+sudo mkdir -p /opt/sc-training-system /opt/sc-training-system-data
+sudo chown -R deploy:deploy /opt/sc-training-system
+sudo chown -R sc-training:sc-training /opt/sc-training-system-data
+sudo chmod 770 /opt/sc-training-system-data
+```
+
+首次拉取一份代码，用于复制 systemd / Nginx 模板：
+
+```bash
+sudo -u deploy git clone -b 服务器端 <REPO_URL> /opt/sc-training-system
+```
+
+配置生产后端 `.env`：
+
+```bash
+cd /opt/sc-training-system
+sudo cp deploy/backend.env.production.example backend/.env
+sudo chown root:sc-training backend/.env
+sudo chmod 640 backend/.env
+sudo nano backend/.env
+```
+
+`backend/.env` 至少需要确认：
+
+```dotenv
+APP_ENV=production
+SECRET_KEY=replace-with-a-long-random-secret
+DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db
+CORS_ORIGINS=["http://your-domain.example"]
+CORS_ORIGIN_REGEX=
+```
+
+安装 systemd 和 Nginx 配置：
+
+```bash
+cd /opt/sc-training-system
+sudo cp deploy/sc-training-backend.service /etc/systemd/system/sc-training-backend.service
+sudo cp deploy/nginx-sc-training.production.conf /etc/nginx/sites-available/sc-training
+sudo nano /etc/nginx/sites-available/sc-training
+sudo ln -sf /etc/nginx/sites-available/sc-training /etc/nginx/sites-enabled/sc-training
+sudo rm -f /etc/nginx/sites-enabled/default
+```
+
+在 Nginx 配置里把 `server_name your-domain.example;` 改成你的域名或服务器公网 IP。
+
+公网生产版 Nginx 配置启用了登录限流，需要在 `/etc/nginx/nginx.conf` 的 `http {}` 内加入：
+
+```nginx
+limit_req_zone $binary_remote_addr zone=sc_training_login:10m rate=5r/m;
+```
+
+允许部署用户无密码执行部署所需的最小 sudo 命令：
+
+```bash
+sudo tee /etc/sudoers.d/sc-training-deploy >/dev/null <<'EOF'
+deploy ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /usr/bin/systemctl restart sc-training-backend, /usr/bin/systemctl reload nginx, /usr/bin/systemctl --no-pager --full status sc-training-backend, /usr/bin/journalctl -u sc-training-backend -n 80 --no-pager
+EOF
+sudo chmod 440 /etc/sudoers.d/sc-training-deploy
+```
+
+首次手动初始化依赖、迁移和服务：
+
+```bash
+sudo -u deploy bash -lc 'cd /opt/sc-training-system/backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python scripts/migrate_db.py ensure'
+sudo -u deploy bash -lc 'cd /opt/sc-training-system/frontend && npm install && npm run build'
+
+sudo systemctl daemon-reload
+sudo systemctl enable sc-training-backend
+sudo systemctl restart sc-training-backend
+sudo nginx -t
+sudo systemctl reload nginx
+curl http://127.0.0.1/health
+```
+
+首次配置完成后，再到 GitHub 配置 Secrets。之后向 `服务器端` 分支 push，即会自动部署到生产服务器。
+
 ## 数据库与迁移
 
 当前正式数据库演进路径是：

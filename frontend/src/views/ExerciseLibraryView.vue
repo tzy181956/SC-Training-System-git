@@ -373,6 +373,7 @@ watch(
           v-if="isAdmin && showCategoryManager"
           :category-tree="categoryTree"
           @refreshed="refreshCategoryMetadata"
+          @close="showCategoryManager = false"
         />
 
         <div class="stacked-filters">

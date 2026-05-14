@@ -559,6 +559,9 @@ onBeforeUnmount(() => {
 }
 
 .summary-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 30px;
   padding: 0 12px;
   border-radius: 999px;
@@ -567,6 +570,8 @@ onBeforeUnmount(() => {
   color: var(--text-soft);
   font-size: 12px;
   font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .summary-pill--strong {
@@ -685,12 +690,13 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   text-align: left;
+  font: inherit;
 }
 
 .combo-trigger-text {
   flex: 1;
   min-width: 0;
-  font-size: 15px;
+  font-size: inherit;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -742,7 +748,7 @@ onBeforeUnmount(() => {
   padding: 0 14px;
   background: #f8fafc;
   text-align: left;
-  font-size: 15px;
+  font: inherit;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;

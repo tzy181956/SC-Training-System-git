@@ -916,7 +916,8 @@ function weekdayLabelFromDate(dateString: string) {
 }
 
 .athlete-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
 }
 
 .athlete-card,
@@ -932,11 +933,33 @@ function weekdayLabelFromDate(dateString: string) {
 
 .athlete-card {
   border: 1px solid transparent;
+  gap: 4px;
+  min-height: 88px;
+  padding: 10px 12px;
+  border-radius: 12px;
   cursor: pointer;
   transition:
     background-color 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease;
+}
+
+.athlete-card-head {
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.athlete-card strong {
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.athlete-card > span,
+.athlete-card small {
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .athlete-card:hover {
@@ -958,10 +981,12 @@ function weekdayLabelFromDate(dateString: string) {
 }
 
 .state-pill {
-  padding: 6px 10px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .state-pill--selected {
@@ -1066,12 +1091,17 @@ function weekdayLabelFromDate(dateString: string) {
 }
 
 @media (max-width: 900px) {
-  .athlete-grid,
   .grid.two,
   .grid.three,
   .weekday-picker,
   .confirm-grid,
   .confirm-details {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .athlete-grid {
     grid-template-columns: 1fr;
   }
 }

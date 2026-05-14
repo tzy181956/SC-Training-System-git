@@ -18,10 +18,7 @@ function normalizeSingleLineText(value: unknown) {
 const form = reactive({
   name: '',
   alias: '',
-  description: '',
   video_url: '',
-  coaching_points: '',
-  common_errors: '',
   notes: '',
   default_increment: 2.5,
   is_main_lift_candidate: false,
@@ -35,10 +32,7 @@ watch(
       Object.assign(form, {
         name: '',
         alias: '',
-        description: '',
         video_url: '',
-        coaching_points: '',
-        common_errors: '',
         notes: '',
         default_increment: 2.5,
         is_main_lift_candidate: false,
@@ -51,10 +45,7 @@ watch(
       ...value,
       name: normalizeSingleLineText(value.name || ''),
       alias: normalizeSingleLineText(value.alias || ''),
-      description: normalizeSingleLineText(value.description || ''),
       video_url: normalizeSingleLineText(value.video_url || ''),
-      coaching_points: normalizeSingleLineText(value.coaching_points || ''),
-      common_errors: normalizeSingleLineText(value.common_errors || ''),
       notes: normalizeSingleLineText(value.notes || ''),
       tag_ids: (value.tags || []).map((tag: any) => tag.id ?? tag.tag?.id),
     })
@@ -67,10 +58,7 @@ function handleSubmit() {
     ...form,
     name: normalizeSingleLineText(form.name),
     alias: normalizeSingleLineText(form.alias) || null,
-    description: normalizeSingleLineText(form.description) || null,
     video_url: normalizeSingleLineText(form.video_url) || null,
-    coaching_points: normalizeSingleLineText(form.coaching_points) || null,
-    common_errors: normalizeSingleLineText(form.common_errors) || null,
     notes: normalizeSingleLineText(form.notes) || null,
   })
 }
@@ -96,21 +84,6 @@ function handleSubmit() {
     <label class="field">
       <span class="field-label">视频链接</span>
       <input v-model="form.video_url" class="text-input" placeholder="可选" />
-    </label>
-
-    <label class="field">
-      <span class="field-label">动作描述</span>
-      <input v-model="form.description" class="text-input" placeholder="可选" />
-    </label>
-
-    <label class="field">
-      <span class="field-label">技术要点</span>
-      <input v-model="form.coaching_points" class="text-input" placeholder="可选" />
-    </label>
-
-    <label class="field">
-      <span class="field-label">常见错误</span>
-      <input v-model="form.common_errors" class="text-input" placeholder="可选" />
     </label>
 
     <label class="field">
