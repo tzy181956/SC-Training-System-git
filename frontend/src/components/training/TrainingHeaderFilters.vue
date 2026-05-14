@@ -22,6 +22,7 @@ const props = withDefaults(
     teamDisabled?: boolean
     teamFieldLabel?: string
     teamAriaLabel?: string
+    showPillLabels?: boolean
   }>(),
   {
     selectedSportValue: undefined,
@@ -33,6 +34,7 @@ const props = withDefaults(
     teamDisabled: false,
     teamFieldLabel: '队伍',
     teamAriaLabel: '队伍筛选',
+    showPillLabels: false,
   },
 )
 
@@ -63,7 +65,9 @@ function handleTeamInput(event: Event) {
       <span class="training-header-filter-label">训练日期</span>
       <div class="training-header-filter-shell">
         <button class="training-header-filter-pill" type="button" tabindex="-1" aria-hidden="true">
-          <span class="training-header-filter-pill-text">{{ sessionDateLabel }}</span>
+          <span class="training-header-filter-pill-text">
+            {{ props.showPillLabels ? `日期：${sessionDateLabel}` : sessionDateLabel }}
+          </span>
         </button>
         <input
           :value="sessionDate"
@@ -80,7 +84,9 @@ function handleTeamInput(event: Event) {
       <span class="training-header-filter-label">{{ sportFieldLabel }}</span>
       <div class="training-header-filter-shell" :class="{ 'training-header-filter-shell--disabled': props.sportDisabled }">
         <button class="training-header-filter-pill" type="button" tabindex="-1" aria-hidden="true">
-          <span class="training-header-filter-pill-text">{{ selectedSportLabel }}</span>
+          <span class="training-header-filter-pill-text">
+            {{ props.showPillLabels ? `${sportFieldLabel}：${selectedSportLabel}` : selectedSportLabel }}
+          </span>
         </button>
         <select
           :value="selectedSportValue"
@@ -99,7 +105,9 @@ function handleTeamInput(event: Event) {
       <span class="training-header-filter-label">{{ teamFieldLabel }}</span>
       <div class="training-header-filter-shell" :class="{ 'training-header-filter-shell--disabled': props.teamDisabled }">
         <button class="training-header-filter-pill" type="button" tabindex="-1" aria-hidden="true">
-          <span class="training-header-filter-pill-text">{{ selectedTeamLabel }}</span>
+          <span class="training-header-filter-pill-text">
+            {{ props.showPillLabels ? `${teamFieldLabel}：${selectedTeamLabel}` : selectedTeamLabel }}
+          </span>
         </button>
         <select
           :value="selectedTeamValue"

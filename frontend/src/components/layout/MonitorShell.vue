@@ -1,22 +1,25 @@
 <script setup lang="ts">
+import { useSlots } from 'vue'
+
 import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 import AppCopyrightFooter from '@/components/common/AppCopyrightFooter.vue'
 import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
 
 const monitorModeLabel = getAppModeDisplayLabel('monitor')
+const slots = useSlots()
 </script>
 
 <template>
   <div class="monitor-shell">
-    <header class="monitor-topbar">
+    <header class="monitor-topbar" :class="{ 'monitor-topbar--without-filters': !slots['header-filters'] }">
       <div class="monitor-copy">
         <p class="monitor-eyebrow">{{ monitorModeLabel }}</p>
         <h1>训练现场监控</h1>
         <p class="monitor-hint">今日训练状态看板，优先显示同步异常、进行中和未开始队员。</p>
       </div>
 
-      <div class="monitor-filters">
+      <div v-if="slots['header-filters']" class="monitor-filters">
         <slot name="header-filters" />
       </div>
 
@@ -62,6 +65,10 @@ const monitorModeLabel = getAppModeDisplayLabel('monitor')
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.95);
   box-shadow: var(--shadow);
+}
+
+.monitor-topbar--without-filters {
+  grid-template-columns: minmax(240px, 1fr) auto;
 }
 
 .monitor-copy,

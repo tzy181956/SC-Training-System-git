@@ -570,15 +570,17 @@ function parseStringQuery(value: unknown) {
                   type="search"
                   placeholder="搜索动作，例如深蹲、硬拉、卧推"
                 />
-                <label v-for="item in filteredTrackedExerciseOptions" :key="item.id" class="tracked-picker-option">
-                  <input
-                    type="checkbox"
-                    :checked="selectedTrackedExerciseNames.includes(item.name)"
-                    @change="toggleTrackedExercise(item.name)"
-                  />
-                  <span>{{ item.name }}</span>
-                  <em>{{ item.category_path || item.level2_category || item.level1_category || '未分类' }}</em>
-                </label>
+                <div class="tracked-picker-list">
+                  <label v-for="item in filteredTrackedExerciseOptions" :key="item.id" class="tracked-picker-option">
+                    <input
+                      type="checkbox"
+                      :checked="selectedTrackedExerciseNames.includes(item.name)"
+                      @change="toggleTrackedExercise(item.name)"
+                    />
+                    <span>{{ item.name }}</span>
+                    <em>{{ item.category_path || item.level2_category || item.level1_category || '未分类' }}</em>
+                  </label>
+                </div>
                 <p v-if="exerciseOptionLoadError" class="tracked-empty tracked-empty--error">{{ exerciseOptionLoadError }}</p>
                 <p v-if="!filteredTrackedExerciseOptions.length" class="tracked-empty">没有匹配动作，请换一个关键词。</p>
               </div>
@@ -840,6 +842,14 @@ function parseStringQuery(value: unknown) {
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(15, 118, 110, 0.16);
+}
+
+.tracked-picker-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .tracked-picker-option {
