@@ -10,6 +10,7 @@ import {
   deletePlanTemplate,
   deletePlanTemplateItem,
   deletePlanTemplateModule,
+  fetchPlanTemplate,
   fetchPlanTemplates,
   type PlanTemplateVisibility,
   updatePlanTemplate,
@@ -28,6 +29,8 @@ const exercises = ref<any[]>([])
 const testMetricOptions = ref<any[]>([])
 const coachUsers = ref<UserManagementRead[]>([])
 const selectedTemplateId = ref<number | null>(null)
+const selectedTemplateDetail = ref<any | null>(null)
+const templateDetailLoading = ref(false)
 const keyword = ref('')
 const visibilityFilter = ref<'all' | PlanTemplateVisibility>('all')
 const saveNoticeKey = ref(0)
@@ -47,10 +50,17 @@ const copyDialog = reactive({
   submitting: false,
 })
 let hydrateRequestId = 0
+let templateDetailRequestId = 0
+let editorCatalogLoadPromise: Promise<void> | null = null
 
-const selectedTemplate = computed(
+const selectedTemplateSummary = computed(
   () => templates.value.find((template) => template.id === selectedTemplateId.value) || null,
 )
+const selectedTemplate = computed(() => {
+  if (!selectedTemplateId.value) return null
+  if (selectedTemplateDetail.value?.id === selectedTemplateId.value) return selectedTemplateDetail.value
+  return selectedTemplateSummary.value
+})
 const isAdmin = computed(() => authStore.isAdmin)
 const coachOptions = computed(() => coachUsers.value.filter((user) => user.role_code === 'coach' && user.is_active))
 const selectedTemplateReadonly = computed(() => (
@@ -100,6 +110,17 @@ watch(visibilityFilter, () => {
   hydrate()
 })
 
+watch(selectedTemplateId, (templateId) => {
+  if (!templateId) {
+    templateDetailRequestId += 1
+    templateDetailLoading.value = false
+    selectedTemplateDetail.value = null
+    void ensureEditorCatalogs()
+    return
+  }
+  void loadTemplateDetail(templateId)
+})
+
 function normalizeTestMetricOptions(catalog: any): any[] {
   const types = Array.isArray(catalog?.types) ? catalog.types : []
   return types.flatMap((type: any) => {
@@ -117,36 +138,74 @@ function normalizeTestMetricOptions(catalog: any): any[] {
 async function hydrate(preferredTemplateId?: number | null) {
   const requestId = ++hydrateRequestId
   loadWarning.value = ''
-  const [templateResult, exerciseResult, testDefinitionResult] = await Promise.allSettled([
-    fetchPlanTemplates({ visibility: visibilityFilter.value }),
-    fetchAllExerciseListItems(),
-    fetchTestDefinitions(),
-  ])
+  const templateResult = await fetchPlanTemplates({ visibility: visibilityFilter.value })
   if (requestId !== hydrateRequestId) return
-  if (templateResult.status !== 'fulfilled') {
-    throw templateResult.reason
-  }
 
-  templates.value = templateResult.value
-  exercises.value = exerciseResult.status === 'fulfilled' ? exerciseResult.value : []
-  testMetricOptions.value =
-    testDefinitionResult.status === 'fulfilled' ? normalizeTestMetricOptions(testDefinitionResult.value) : []
-
-  const failedBlocks = [
-    exerciseResult.status !== 'fulfilled' ? '动作目录' : '',
-    testDefinitionResult.status !== 'fulfilled' ? '测试项目目录' : '',
-  ].filter(Boolean)
-  if (failedBlocks.length) {
-    loadWarning.value = `模板已加载，但${failedBlocks.join('和')}暂时没有加载成功，当前只能先查看或修正已有模板。`
-  }
+  templates.value = templateResult
 
   if (preferredTemplateId && templates.value.some((template) => template.id === preferredTemplateId)) {
     selectedTemplateId.value = preferredTemplateId
+    void loadTemplateDetail(preferredTemplateId)
     return
   }
   if (!selectedTemplateId.value && templates.value[0]) {
     selectedTemplateId.value = templates.value[0].id
+    void loadTemplateDetail(templates.value[0].id)
+    return
   }
+  if (selectedTemplateId.value) {
+    void loadTemplateDetail(selectedTemplateId.value)
+  }
+}
+
+async function ensureEditorCatalogs() {
+  if (exercises.value.length && testMetricOptions.value.length) return
+  if (editorCatalogLoadPromise) return editorCatalogLoadPromise
+
+  editorCatalogLoadPromise = (async () => {
+    const [exerciseResult, testDefinitionResult] = await Promise.allSettled([
+      fetchAllExerciseListItems(),
+      fetchTestDefinitions(),
+    ])
+
+    exercises.value = exerciseResult.status === 'fulfilled' ? exerciseResult.value : []
+    testMetricOptions.value =
+      testDefinitionResult.status === 'fulfilled' ? normalizeTestMetricOptions(testDefinitionResult.value) : []
+
+    const failedBlocks = [
+      exerciseResult.status !== 'fulfilled' ? '动作目录' : '',
+      testDefinitionResult.status !== 'fulfilled' ? '测试项目目录' : '',
+    ].filter(Boolean)
+    if (failedBlocks.length) {
+      loadWarning.value = `模板已加载，但${failedBlocks.join('和')}暂时没有加载成功，当前只能先查看或修正已有模板。`
+    }
+  })()
+
+  try {
+    await editorCatalogLoadPromise
+  } finally {
+    editorCatalogLoadPromise = null
+  }
+}
+
+async function loadTemplateDetail(templateId: number) {
+  const requestId = ++templateDetailRequestId
+  templateDetailLoading.value = true
+  selectedTemplateDetail.value = null
+
+  const [templateResult] = await Promise.allSettled([
+    fetchPlanTemplate(templateId),
+    ensureEditorCatalogs(),
+  ])
+
+  if (requestId !== templateDetailRequestId || selectedTemplateId.value !== templateId) return
+  templateDetailLoading.value = false
+
+  if (templateResult.status === 'fulfilled') {
+    selectedTemplateDetail.value = templateResult.value
+    return
+  }
+  showActionMessage('error', resolveErrorMessage(templateResult.reason))
 }
 
 async function hydrateCoaches() {
@@ -157,8 +216,10 @@ async function hydrateCoaches() {
 function createDraftTemplate() {
   actionMessage.value = ''
   selectedTemplateId.value = null
+  selectedTemplateDetail.value = null
   templateScopeForm.visibility = isAdmin.value ? 'public' : 'private'
   templateScopeForm.ownerUserId = null
+  void ensureEditorCatalogs()
 }
 
 async function saveTemplate(payload: Record<string, any>) {
@@ -368,7 +429,7 @@ onMounted(async () => {
                   <em>{{ templateBadgeLabel(template) }}</em>
                 </span>
                 <span>{{ template.description || '暂无说明' }}</span>
-                <small>{{ template.modules?.length || 0 }} 个模块 / {{ template.items?.length || 0 }} 个动作</small>
+                <small>{{ template.modules_count ?? template.modules?.length ?? 0 }} 个模块 / {{ template.items_count ?? template.items?.length ?? 0 }} 个动作</small>
                 <small v-if="templateSourceLabel(template)">{{ templateSourceLabel(template) }}</small>
               </button>
             </article>
@@ -435,9 +496,11 @@ onMounted(async () => {
 
         <p v-if="actionMessage" class="action-message" :class="`action-message--${actionTone}`">{{ actionMessage }}</p>
 
+        <p v-if="templateDetailLoading" class="detail-loading">正在加载模板详情...</p>
         <TemplateBuilder
+          v-else-if="!selectedTemplateId || selectedTemplateDetail"
           class="builder-panel"
-          :template="selectedTemplate"
+          :template="selectedTemplateId ? selectedTemplateDetail : null"
           :exercises="exercises"
           :test-metric-options="testMetricOptions"
           :save-notice-key="saveNoticeKey"
@@ -446,6 +509,7 @@ onMounted(async () => {
           @save-template="saveTemplate"
           @delete-template="removeTemplate"
         />
+        <p v-else class="detail-loading">模板详情加载失败，请重新选择模板或刷新页面。</p>
       </div>
     </div>
     <p v-if="loadWarning" class="load-warning">{{ loadWarning }}</p>
@@ -644,6 +708,16 @@ onMounted(async () => {
 .action-message--error {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.detail-loading {
+  margin: 0;
+  padding: 16px;
+  border-radius: 18px;
+  background: white;
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .copy-dialog-backdrop {

@@ -39,6 +39,7 @@ from app.services.progression_service import compute_next_weight
 from app.services.session_state_utils import (
     FINAL_SESSION_STATUSES,
     NOT_STARTED_SESSION_STATUS,
+    VOIDED_SESSION_STATUS,
     build_snapshot_signature,
     resolve_finalized_session_status,
     resolve_session_item_status,
@@ -452,6 +453,69 @@ def coach_delete_set_record(db: Session, record_id: int, *, actor_name: str | No
     refreshed_item = _get_session_item(db, item.id)
     refreshed_session = get_session(db, session.id)
     return refreshed_item, refreshed_session
+
+
+def void_training_session(db: Session, session_id: int, *, actor_name: str | None = None) -> TrainingSession:
+    session = get_session(db, session_id)
+    record_count = sum(len(item.records or []) for item in session.items or [])
+    if record_count > 0:
+        raise bad_request("已有组记录的训练课不能作废，请先修正具体组记录。")
+    if session.status == VOIDED_SESSION_STATUS:
+        return session
+
+    session_before_status = session.status
+    backup_result = backup_service.create_pre_dangerous_operation_backup(label=f"void_training_session_{session_id}")
+    session.status = VOIDED_SESSION_STATUS
+    session.started_at = None
+    session.completed_at = datetime.now(timezone.utc)
+    session.session_duration_minutes = None
+    session.session_srpe_load = None
+
+    db.add(
+        TrainingSessionEditLog(
+            session_id=session.id,
+            session_item_id=None,
+            set_record_id=None,
+            action_type="void_session",
+            actor_name=(actor_name or DEFAULT_POST_CLASS_ACTOR).strip() or DEFAULT_POST_CLASS_ACTOR,
+            object_type="training_session",
+            object_id=session.id,
+            summary=f"作废训练课：课状态 {_format_session_status_label(session_before_status)}→作废",
+            before_snapshot={"session_status": session_before_status, "record_count": record_count},
+            after_snapshot={"session_status": session.status, "record_count": record_count},
+            edited_at=datetime.now(timezone.utc),
+        )
+    )
+    dangerous_operation_service.log_dangerous_operation(
+        db,
+        operation_key="void_training_session",
+        object_type="training_session",
+        object_id=session.id,
+        actor_name=actor_name,
+        summary="作废无组记录训练课",
+        impact_scope={
+            "athlete_id": session.athlete_id,
+            "athlete_name": session.athlete.full_name if getattr(session, "athlete", None) else None,
+            "team_id": session.athlete.team_id if getattr(session, "athlete", None) else None,
+            "team_name": (
+                session.athlete.team.name
+                if getattr(getattr(session, "athlete", None), "team", None)
+                else None
+            ),
+            "session_id": session.id,
+            "assignment_id": session.assignment_id,
+            "template_id": session.template_id,
+            "session_date": session.session_date.isoformat(),
+            "session_status_before": session_before_status,
+            "session_status_after": session.status,
+            "record_count": record_count,
+            "statistics_effect": "作废训练课默认不计入训练报告统计、完成率和趋势。",
+        },
+        backup_path=backup_result.backup_path,
+    )
+    _refresh_training_loads(db, session)
+    db.commit()
+    return get_session(db, session.id)
 
 
 def sync_session_operation(db: Session, payload: SessionSetSyncOperation):
@@ -967,6 +1031,7 @@ def _format_session_status_label(status: str) -> str:
         "completed": "完成",
         "absent": "缺席",
         "partial_complete": "未完全按计划完成",
+        "voided": "作废",
     }.get(status, status)
 
 
@@ -1244,7 +1309,7 @@ def _get_assignment_training_status_map(db: Session, assignment_ids: list[int], 
             continue
 
         completed_sets = sum(len(item.records) for item in session.items)
-        if session.status in {"completed", "absent", "partial_complete"}:
+        if session.status in FINAL_SESSION_STATUSES:
             status_map[assignment_id] = session.status
         elif completed_sets > 0:
             status_map[assignment_id] = "in_progress"
@@ -1330,6 +1395,8 @@ def _get_athlete_training_status_map(db: Session, athlete_ids: list[int], sessio
             athlete_status_map[athlete_id] = "completed"
         elif all(status == "absent" for status in statuses):
             athlete_status_map[athlete_id] = "absent"
+        elif all(status == VOIDED_SESSION_STATUS for status in statuses):
+            athlete_status_map[athlete_id] = VOIDED_SESSION_STATUS
         else:
             athlete_status_map[athlete_id] = "not_started"
     return athlete_status_map

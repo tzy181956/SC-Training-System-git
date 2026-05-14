@@ -58,7 +58,11 @@ class TestRecordImportSummary:
 def build_import_template_workbook(db: Session, user: User) -> bytes:
     visible_sport_id = access_control_service.resolve_visible_sport_id(user)
     athletes = _query_visible_athletes(db, visible_sport_id)
-    definitions = test_definition_service.list_test_type_definitions(db, visible_sport_id=visible_sport_id)
+    definitions = test_definition_service.list_test_type_definitions(
+        db,
+        visible_sport_id=visible_sport_id,
+        include_system=access_control_service.is_admin(user),
+    )
     example_rows = _build_example_rows(definitions)
 
     workbook = Workbook()
@@ -225,7 +229,11 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
     for athlete in all_athletes:
         all_athletes_by_name.setdefault(athlete.full_name, []).append(athlete)
 
-    visible_definitions = test_definition_service.list_test_type_definitions(db, visible_sport_id=visible_sport_id)
+    visible_definitions = test_definition_service.list_test_type_definitions(
+        db,
+        visible_sport_id=visible_sport_id,
+        include_system=access_control_service.is_admin(user),
+    )
     all_definitions = test_definition_service.list_test_type_definitions(db, visible_sport_id=None)
     visible_pairs = {
         (definition.name, metric.name)

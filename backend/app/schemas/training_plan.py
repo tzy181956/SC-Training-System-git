@@ -135,6 +135,20 @@ class PlanTemplateModuleRead(ORMModel, PlanTemplateModuleBase):
     items: list[PlanTemplateItemRead] = Field(default_factory=list)
 
 
+class PlanTemplateListRead(ORMModel, PlanTemplateBase):
+    id: int
+    created_by: int | None = None
+    visibility: TemplateVisibility = "private"
+    owner_user_id: int | None = None
+    created_by_user_id: int | None = None
+    source_template_id: int | None = None
+    visibility_label: str | None = None
+    owner_name: str | None = None
+    source_template_name: str | None = None
+    modules_count: int = 0
+    items_count: int = 0
+
+
 class PlanTemplateRead(ORMModel, PlanTemplateBase):
     id: int
     created_by: int | None = None

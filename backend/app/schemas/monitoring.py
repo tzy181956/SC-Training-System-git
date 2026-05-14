@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-MonitoringSessionStatus = Literal["no_plan", "not_started", "in_progress", "completed", "partial_complete", "absent"]
+MonitoringSessionStatus = Literal["no_plan", "not_started", "in_progress", "completed", "partial_complete", "absent", "voided"]
 MonitoringSyncStatus = Literal["synced", "pending", "manual_retry_required"]
 MonitoringAlertLevel = Literal["none", "info", "warning", "critical"]
 

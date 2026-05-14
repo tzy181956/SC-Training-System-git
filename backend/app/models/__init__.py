@@ -3,7 +3,12 @@ from app.models.athlete import Athlete
 from app.models.content_change_log import ContentChangeLog
 from app.models.dangerous_operation_log import DangerousOperationLog
 from app.models.exercise_category import ExerciseCategory
-from app.models.exercise import Exercise, ExerciseTag
+from app.models.exercise import (
+    EXERCISE_VISIBILITY_PRIVATE,
+    EXERCISE_VISIBILITY_PUBLIC,
+    Exercise,
+    ExerciseTag,
+)
 from app.models.organization import Sport, Team
 from app.models.score_profile import ScoreDimension, ScoreDimensionMetric, ScoreProfile
 from app.models.tag import Tag
@@ -25,6 +30,8 @@ __all__ = [
     "Exercise",
     "ExerciseCategory",
     "ExerciseTag",
+    "EXERCISE_VISIBILITY_PRIVATE",
+    "EXERCISE_VISIBILITY_PUBLIC",
     "ScoreDimension",
     "ScoreDimensionMetric",
     "ScoreProfile",

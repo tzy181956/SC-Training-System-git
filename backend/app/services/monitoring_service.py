@@ -20,7 +20,7 @@ from app.services import session_service
 from app.services.assignment_service import is_assignment_scheduled_for_date
 
 
-FINAL_SESSION_STATUSES = {"completed", "partial_complete", "absent"}
+FINAL_SESSION_STATUSES = {"completed", "partial_complete", "absent", "voided"}
 MONITORING_SYNC_ISSUE_STATUSES = {"manual_retry_required", "pending"}
 NOT_STARTED_ALERT_AFTER = timedelta(minutes=30)
 IN_PROGRESS_STALE_AFTER = timedelta(minutes=20)
@@ -446,6 +446,9 @@ def _resolve_athlete_status(
     if len(sessions) == len(assignments) and statuses and all(status == "absent" for status in statuses):
         return "absent"
 
+    if len(sessions) == len(assignments) and statuses and all(status == "voided" for status in statuses):
+        return "voided"
+
     if any(status == "partial_complete" for status in statuses):
         return "partial_complete"
 
@@ -482,6 +485,7 @@ def _choose_primary_session(sessions: list[TrainingSession]) -> TrainingSession 
         "not_started": 2,
         "completed": 3,
         "absent": 4,
+        "voided": 5,
     }
     return sorted(
         sessions,

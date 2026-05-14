@@ -11,6 +11,9 @@ from app.services.assignment_service import is_assignment_scheduled_for_date
 from app.services import training_sync_service
 
 
+VOIDED_SESSION_STATUS = "voided"
+
+
 def get_training_report(
     db: Session,
     athlete_id: int,
@@ -42,12 +45,13 @@ def get_training_report(
         for session in sessions
         if session.assignment is None or is_assignment_scheduled_for_date(session.assignment, session.session_date)
     ]
+    statistic_sessions = [session for session in sessions if session.status != VOIDED_SESSION_STATUS]
 
     edit_logs_by_session = _get_edit_logs_by_session(db, [session.id for session in sessions])
     session_payloads = [_build_session_payload(session, edit_logs_by_session.get(session.id, [])) for session in sessions]
-    summary = _build_summary(sessions)
-    trend = _build_trends(sessions)
-    flags = _build_flags(sessions, athlete.full_name)
+    summary = _build_summary(statistic_sessions, voided_count=len(sessions) - len(statistic_sessions))
+    trend = _build_trends(statistic_sessions)
+    flags = _build_flags(statistic_sessions, athlete.full_name)
     flags.extend(_build_sync_conflict_flags(db, athlete_id, date_from, date_to))
     sync_issues = training_sync_service.list_sync_issues(
         db,
@@ -118,7 +122,7 @@ def _build_session_payload(session: TrainingSession, edit_logs: list[dict]) -> d
         "id": session.id,
         "session_date": session.session_date,
         "template_name": getattr(getattr(session, "template", None), "name", None) or f"计划 {session.template_id}",
-        "status": _format_training_session_status(session.status),
+        "status": session.status,
         "started_at": session.started_at,
         "session_duration_minutes": session.session_duration_minutes,
         "session_rpe": session.session_rpe,
@@ -162,7 +166,7 @@ def _get_edit_logs_by_session(db: Session, session_ids: list[int]) -> dict[int, 
     return grouped
 
 
-def _build_summary(sessions: list[TrainingSession]) -> dict:
+def _build_summary(sessions: list[TrainingSession], *, voided_count: int = 0) -> dict:
     total_sessions = len(sessions)
     completed_sessions = sum(1 for session in sessions if session.status == "completed")
     total_items = sum(len(session.items) for session in sessions)
@@ -180,6 +184,7 @@ def _build_summary(sessions: list[TrainingSession]) -> dict:
         "completed_sets": completed_sets,
         "total_sets": total_sets,
         "latest_session_date": latest_session_date,
+        "voided_sessions": voided_count,
     }
 
 
@@ -331,4 +336,6 @@ def _format_training_session_status(status: str) -> str:
         return "缺席"
     if status == "partial_complete":
         return "未完全完成"
+    if status == VOIDED_SESSION_STATUS:
+        return "作废"
     return "未知状态"

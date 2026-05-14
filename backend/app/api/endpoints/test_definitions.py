@@ -29,6 +29,7 @@ def get_test_definition_catalog(
         "types": test_definition_service.list_test_type_definitions(
             db,
             visible_sport_id=access_control_service.resolve_visible_sport_id(current_user),
+            include_system=access_control_service.is_admin(current_user),
         )
     }
 

@@ -2,11 +2,12 @@ from sqlalchemy import text
 
 from app.core.database import SessionLocal, engine
 from app.core.test_definition_defaults import DEFAULT_LOWER_BETTER_TEST_METRIC_CODES
-from app.services import test_definition_service
+from app.services import exercise_category_service, test_definition_service
 
 
 def ensure_runtime_schema() -> None:
     template_columns_before: set[str] = set()
+    exercise_columns_before: set[str] = set()
     with engine.begin() as connection:
         try:
             template_columns_before = {
@@ -15,6 +16,13 @@ def ensure_runtime_schema() -> None:
             }
         except Exception:
             template_columns_before = set()
+        try:
+            exercise_columns_before = {
+                row[1]
+                for row in connection.execute(text("PRAGMA table_info(exercises)")).fetchall()
+            }
+        except Exception:
+            exercise_columns_before = set()
 
     statements = [
         "ALTER TABLE athletes ADD COLUMN gender VARCHAR(20)",
@@ -23,13 +31,15 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE exercises ADD COLUMN name_en VARCHAR(160)",
         "ALTER TABLE exercises ADD COLUMN level1_category VARCHAR(120)",
         "ALTER TABLE exercises ADD COLUMN level2_category VARCHAR(160)",
-        "ALTER TABLE exercises ADD COLUMN base_movement VARCHAR(160)",
         "ALTER TABLE exercises ADD COLUMN category_path VARCHAR(255)",
         "ALTER TABLE exercises ADD COLUMN original_english_fields JSON",
         "ALTER TABLE exercises ADD COLUMN structured_tags JSON",
         "ALTER TABLE exercises ADD COLUMN search_keywords JSON",
         "ALTER TABLE exercises ADD COLUMN tag_text TEXT",
         "ALTER TABLE exercises ADD COLUMN raw_row JSON",
+        "ALTER TABLE exercises ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'public'",
+        "ALTER TABLE exercises ADD COLUMN owner_user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE exercises ADD COLUMN created_by_user_id INTEGER REFERENCES users(id)",
         "ALTER TABLE athletes ADD COLUMN height FLOAT",
         "ALTER TABLE athletes ADD COLUMN weight FLOAT",
         "ALTER TABLE athletes ADD COLUMN body_fat_percentage FLOAT",
@@ -78,6 +88,16 @@ def ensure_runtime_schema() -> None:
         }
         if "load_profile" in exercise_columns:
             connection.execute(text("ALTER TABLE exercises DROP COLUMN load_profile"))
+        if "base_category_id" in exercise_columns:
+            try:
+                connection.execute(text("ALTER TABLE exercises DROP COLUMN base_category_id"))
+            except Exception:
+                pass
+        if "base_movement" in exercise_columns:
+            try:
+                connection.execute(text("ALTER TABLE exercises DROP COLUMN base_movement"))
+            except Exception:
+                pass
 
         template_item_columns = {
             row[1]
@@ -92,6 +112,17 @@ def ensure_runtime_schema() -> None:
         connection.execute(
             text("UPDATE exercises SET search_keywords = '[]' WHERE search_keywords IS NULL")
         )
+        if "visibility" not in exercise_columns_before:
+            connection.execute(
+                text(
+                    """
+                    UPDATE exercises
+                    SET visibility = 'public',
+                        owner_user_id = NULL,
+                        created_by_user_id = NULL
+                    """
+                )
+            )
         connection.execute(
             text(
                 "UPDATE athlete_plan_assignments SET repeat_weekdays = '[1,2,3,4,5,6,7]' WHERE repeat_weekdays IS NULL"
@@ -106,6 +137,15 @@ def ensure_runtime_schema() -> None:
 
         connection.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ix_exercises_code_unique ON exercises(code)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_exercises_visibility ON exercises(visibility)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_exercises_owner_user_id ON exercises(owner_user_id)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_exercises_created_by_user_id ON exercises(created_by_user_id)")
         )
         connection.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ix_athletes_code_unique ON athletes(code)")
@@ -346,5 +386,6 @@ def ensure_runtime_schema() -> None:
             )
 
     with SessionLocal() as db:
+        exercise_category_service.ensure_pending_categories(db)
         test_definition_service.ensure_default_test_definition_catalog(db)
         db.commit()

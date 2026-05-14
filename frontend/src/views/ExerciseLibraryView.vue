@@ -10,6 +10,7 @@ import {
   fetchExercises,
   updateExercise,
 } from '@/api/exercises'
+import ExerciseCategoryManager from '@/components/exercise/ExerciseCategoryManager.vue'
 import ExerciseLibraryEditor from '@/components/exercise/ExerciseLibraryEditor.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -44,6 +45,7 @@ const selectedListItem = ref<ExerciseListItem | null>(null)
 const selectedDetail = ref<ExerciseLibraryItem | null>(null)
 const layoutRef = ref<HTMLElement | null>(null)
 const layoutHeight = ref<number | null>(null)
+const showCategoryManager = ref(false)
 
 const listLoading = ref(false)
 const detailLoading = ref(false)
@@ -57,6 +59,7 @@ const filters = reactive({
   keyword: '',
   level1: '',
   level2: '',
+  visibility: 'all' as 'all' | 'public' | 'private',
   tags: Object.fromEntries(EXERCISE_TAG_FACETS.map(({ key }) => [key, [] as string[]])),
 })
 
@@ -70,9 +73,17 @@ const level2Options = computed(() => {
 })
 const facetOptions = computed(() => exerciseFacets.value.facets || {})
 const isAdmin = computed(() => authStore.isAdmin)
+const currentUserId = computed(() => authStore.currentUser?.id || null)
 const hasTagFilters = computed(() => Object.values(filters.tags).some((values) => values.length > 0))
 const listItems = computed(() => exerciseList.value.items || [])
-const hasActiveFilters = computed(() => Boolean(debouncedKeyword.value || filters.level1 || filters.level2 || hasTagFilters.value))
+const hasActiveFilters = computed(() =>
+  Boolean(debouncedKeyword.value || filters.level1 || filters.level2 || filters.visibility !== 'all' || hasTagFilters.value),
+)
+const selectedDetailReadOnly = computed(() => {
+  if (!selectedDetail.value?.id) return false
+  if (isAdmin.value) return false
+  return selectedDetail.value.visibility !== 'private' || selectedDetail.value.owner_user_id !== currentUserId.value
+})
 const paginationSummary = computed(() => {
   if (!exerciseList.value.total) return '当前没有动作'
   const start = (exerciseList.value.page - 1) * exerciseList.value.page_size + 1
@@ -92,6 +103,7 @@ function buildListQuery(page = exerciseList.value.page || 1) {
     keyword: debouncedKeyword.value || undefined,
     level1: filters.level1 || undefined,
     level2: filters.level2 || undefined,
+    visibility: filters.visibility,
     page,
     page_size: DEFAULT_PAGE_SIZE,
     ...tagQuery,
@@ -185,13 +197,17 @@ async function loadMetadata() {
   }
 }
 
+async function refreshCategoryMetadata() {
+  await loadMetadata()
+}
+
 async function refreshCurrentPage(preferredId?: number | null) {
   const currentPage = exerciseList.value.page || 1
   await loadExerciseList(currentPage, preferredId)
 }
 
 async function handleSave(payload: Record<string, unknown>) {
-  if (!isAdmin.value) return
+  if (selectedDetailReadOnly.value) return
 
   if (selectedDetail.value?.id) {
     const updated = await updateExercise(selectedDetail.value.id, payload)
@@ -206,7 +222,7 @@ async function handleSave(payload: Record<string, unknown>) {
 }
 
 async function handleDelete(exerciseId: number) {
-  if (!isAdmin.value) return
+  if (selectedDetailReadOnly.value) return
   try {
     await deleteExercise(exerciseId, { confirmed: true, actor_name: '管理端' })
     selectedDetail.value = null
@@ -224,6 +240,7 @@ function clearFilters() {
   filters.keyword = ''
   filters.level1 = ''
   filters.level2 = ''
+  filters.visibility = 'all'
   Object.keys(filters.tags).forEach((key) => {
     filters.tags[key] = []
   })
@@ -237,11 +254,14 @@ function toggleTagFilter(key: string, value: string) {
 }
 
 function createCustomExercise() {
-  if (!isAdmin.value) return
   detailRequestId += 1
   detailLoading.value = false
   selectedListItem.value = null
   selectedDetail.value = null
+}
+
+function selectVisibilityFilter(value: 'all' | 'public' | 'private') {
+  filters.visibility = value
 }
 
 function updateLayoutHeight() {
@@ -273,6 +293,7 @@ watch(
     debouncedKeyword.value,
     filters.level1,
     filters.level2,
+    filters.visibility,
     ...Object.values(filters.tags).map((values) => values.join('|')),
   ],
   () => {
@@ -327,7 +348,6 @@ watch(
     <div
       ref="layoutRef"
       class="library-layout"
-      :class="{ 'library-layout--readonly': !isAdmin }"
       :style="layoutHeight ? { '--library-layout-height': `${layoutHeight}px` } : {}"
     >
       <section class="panel filter-panel">
@@ -338,17 +358,57 @@ watch(
           </div>
           <div class="toolbar-actions">
             <button class="primary-btn slim" @click="createCustomExercise">新建动作</button>
+            <button
+              v-if="isAdmin"
+              class="secondary-btn slim"
+              type="button"
+              @click="showCategoryManager = !showCategoryManager"
+            >
+              {{ showCategoryManager ? '收起分类' : '分类管理' }}
+            </button>
           </div>
         </div>
 
+        <ExerciseCategoryManager
+          v-if="isAdmin && showCategoryManager"
+          :category-tree="categoryTree"
+          @refreshed="refreshCategoryMetadata"
+        />
+
         <div class="stacked-filters">
+          <div class="visibility-filter" role="group" aria-label="动作归属筛选">
+            <button
+              class="scope-tab"
+              :class="{ active: filters.visibility === 'all' }"
+              type="button"
+              @click="selectVisibilityFilter('all')"
+            >
+              全部
+            </button>
+            <button
+              class="scope-tab"
+              :class="{ active: filters.visibility === 'public' }"
+              type="button"
+              @click="selectVisibilityFilter('public')"
+            >
+              公共动作
+            </button>
+            <button
+              class="scope-tab"
+              :class="{ active: filters.visibility === 'private' }"
+              type="button"
+              @click="selectVisibilityFilter('private')"
+            >
+              自建动作
+            </button>
+          </div>
           <div class="filter-row filter-row--search">
             <label class="field filter-control">
               <span class="field-label">关键词搜索</span>
               <input
                 v-model="filters.keyword"
                 class="text-input"
-                placeholder="动作名称 / 英文名 / 基础动作 / 分类"
+                placeholder="动作名称 / 英文名 / 分类"
               />
             </label>
           </div>
@@ -423,11 +483,16 @@ watch(
             >
               <div class="row-head">
                 <strong class="adaptive-card-title">{{ exercise.name }}</strong>
-                <span class="source-badge" :class="exercise.source_type">{{ exercise.source_type === 'exos_excel' ? 'Excel' : '自定义' }}</span>
+                <span
+                  class="visibility-badge"
+                  :class="exercise.visibility === 'public' ? 'visibility-badge--public' : 'visibility-badge--private'"
+                >
+                  {{ exercise.visibility === 'public' ? '公共动作' : (exercise.owner_name ? `${exercise.owner_name}自建` : '自建动作') }}
+                </span>
               </div>
               <span class="adaptive-card-subtitle adaptive-card-clamp-2">{{ exercise.name_en || exercise.alias || '无英文名' }}</span>
               <small class="adaptive-card-meta adaptive-card-clamp-2">
-                {{ exercise.level1_category || '未分类' }} / {{ exercise.level2_category || '未分类' }} / {{ exercise.base_movement || '未分类' }}
+                {{ exercise.level1_category || '未分类' }} / {{ exercise.level2_category || '未分类' }}
               </small>
               <small class="adaptive-card-meta adaptive-card-clamp-2">{{ exercise.category_path || '无分类路径' }}</small>
               <div class="tag-line">
@@ -461,7 +526,7 @@ watch(
           :model-value="selectedDetail"
           :category-tree="categoryTree"
           :facet-options="facetOptions"
-          :read-only="!isAdmin"
+          :read-only="selectedDetailReadOnly"
           @submit="handleSave"
           @remove="handleDelete"
         />
@@ -520,6 +585,7 @@ watch(
 .row-head,
 .tag-line,
 .pagination-bar,
+.visibility-filter,
 .facet-panel-head {
   display: flex;
   gap: 10px;
@@ -544,7 +610,8 @@ watch(
 
 .toolbar-actions,
 .facet-options,
-.tag-line {
+.tag-line,
+.visibility-filter {
   flex-wrap: wrap;
 }
 
@@ -571,7 +638,9 @@ watch(
 
 .facet-chip,
 .tag-chip,
-.source-badge {
+.source-badge,
+.visibility-badge,
+.scope-tab {
   min-height: 32px;
   border-radius: 999px;
   padding: 0 12px;
@@ -589,6 +658,18 @@ watch(
   color: white;
 }
 
+.scope-tab {
+  justify-content: center;
+  background: #eef2f7;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.scope-tab.active {
+  background: var(--primary);
+  color: white;
+}
+
 .facet-chip:disabled {
   cursor: not-allowed;
 }
@@ -596,6 +677,16 @@ watch(
 .source-badge {
   background: rgba(15, 118, 110, 0.12);
   color: #0f766e;
+}
+
+.visibility-badge--public {
+  background: rgba(20, 184, 166, 0.12);
+  color: #0f766e;
+}
+
+.visibility-badge--private {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
 }
 
 .source-badge.custom_manual {

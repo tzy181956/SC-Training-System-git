@@ -49,6 +49,7 @@ def get_athlete_training_loads(
             TrainingSession.athlete_id == athlete_id,
             TrainingSession.session_date >= date_from,
             TrainingSession.session_date <= date_to,
+            TrainingSession.status != "voided",
         )
         .order_by(TrainingSession.session_date.asc(), TrainingSession.id.asc())
         .all()
@@ -113,6 +114,7 @@ def _upsert_daily_training_load(db: Session, *, athlete_id: int, load_date: date
         .filter(
             TrainingSession.athlete_id == athlete_id,
             TrainingSession.session_date == load_date,
+            TrainingSession.status != "voided",
             TrainingSession.session_duration_minutes.is_not(None),
             TrainingSession.session_srpe_load.is_not(None),
         )

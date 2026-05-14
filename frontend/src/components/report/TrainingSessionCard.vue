@@ -4,6 +4,7 @@ import { reactive, ref } from 'vue'
 import {
   coachAddTrainingReportSet,
   coachDeleteTrainingReportSetRecord,
+  coachVoidTrainingReportSession,
   coachUpdateTrainingReportSetRecord,
 } from '@/api/trainingReports'
 import { normalizeModeAliasForDisplay } from '@/constants/appModeLabels'
@@ -24,6 +25,7 @@ const savingRecordId = ref<number | null>(null)
 const deletingRecordId = ref<number | null>(null)
 const addingItemId = ref<number | null>(null)
 const savingItemId = ref<number | null>(null)
+const voidingSession = ref(false)
 
 const editForm = reactive({
   actual_weight: 0,
@@ -41,6 +43,14 @@ const addForm = reactive({
 
 function shouldShowItem(item: any) {
   return (!props.onlyIncomplete || item.status !== 'completed') && (!props.onlyMainLift || item.is_main_lift)
+}
+
+function isVoidedSession() {
+  return props.session.status === 'voided'
+}
+
+function canVoidSession() {
+  return !isVoidedSession() && Number(props.session.completed_sets || 0) === 0
 }
 
 function adjustmentClass(record: any) {
@@ -62,6 +72,7 @@ function cancelEdit() {
 }
 
 function startAdd(item: any) {
+  if (isVoidedSession()) return
   addingItemId.value = item.id
   const lastRecord = item.records[item.records.length - 1]
   addForm.actual_weight = lastRecord?.final_weight ?? lastRecord?.actual_weight ?? 0
@@ -152,6 +163,38 @@ async function deleteRecord(record: any, item: any) {
   }
 }
 
+async function voidSession() {
+  if (!canVoidSession()) return
+  const confirmed = confirmDangerousAction({
+    title: '作废训练课',
+    impactLines: [
+      `日期：${props.session.session_date}`,
+      `模板：${props.session.template_name}`,
+      '仅无组记录训练课可以作废；作废后默认不计入训练统计和完成率。',
+      '该操作不会删除数据库记录，会保留日志用于追溯。',
+    ],
+    recommendation: '如果运动员只是缺席但该课本应参加，请保留“缺席”状态，不要作废。',
+  })
+  if (!confirmed) return
+
+  voidingSession.value = true
+  try {
+    await coachVoidTrainingReportSession(props.session.id, {
+      confirmed: true,
+      actor_name: '管理端',
+    })
+    emit('notify', { message: '训练课已作废，默认不再计入训练统计。', tone: 'success' })
+    emit('changed')
+  } catch (error: any) {
+    emit('notify', {
+      message: error?.response?.data?.detail || '作废训练课失败，请稍后再试。',
+      tone: 'error',
+    })
+  } finally {
+    voidingSession.value = false
+  }
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return '--'
   const date = new Date(value)
@@ -212,6 +255,15 @@ function sessionSrpeLoadText() {
         <span class="status-chip" :class="sessionStatusTone(session.status)">{{ sessionStatusLabel(session.status) }}</span>
         <span>{{ session.completed_items }}/{{ session.total_items }} 个动作</span>
         <span>{{ session.completed_sets }}/{{ session.total_sets }} 组</span>
+        <button
+          v-if="canVoidSession()"
+          class="link-btn danger-link session-action"
+          type="button"
+          :disabled="voidingSession"
+          @click.stop.prevent="voidSession"
+        >
+          {{ voidingSession ? '作废中...' : '作废训练课' }}
+        </button>
       </div>
     </summary>
 
@@ -238,6 +290,7 @@ function sessionSrpeLoadText() {
         </div>
         <p v-if="session.session_rpe != null" class="feedback-note">解释：{{ sessionRpeHelpText() }}</p>
         <p class="feedback-note">{{ sessionFeedbackText() }}</p>
+        <p v-if="isVoidedSession()" class="feedback-note danger-note">该训练课已作废，默认不计入训练统计和完成率。</p>
       </section>
 
       <article
@@ -259,7 +312,7 @@ function sessionSrpeLoadText() {
               {{ item.is_main_lift ? '主项动作' : '常规动作' }}
             </span>
             <button
-              v-if="item.completed_sets < item.prescribed_sets"
+              v-if="!isVoidedSession() && item.completed_sets < item.prescribed_sets"
               class="secondary-btn small-btn"
               type="button"
               @click="addingItemId === item.id ? cancelAdd() : startAdd(item)"
@@ -406,6 +459,7 @@ function sessionSrpeLoadText() {
 .session-date,.item-head p,.item-note,.log-item p{margin:0;color:var(--text-soft)}
 .session-head h4,.item-head h5{margin:4px 0 0}
 .session-meta{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;color:var(--text-soft);font-size:14px}
+.session-action{align-self:center}
 .status-chip,.item-badge,.decision-pill{padding:6px 10px;border-radius:999px;font-size:13px}
 .status-chip.success{background:#dcfce7;color:#166534}
 .status-chip.progress{background:#dbeafe;color:#1d4ed8}
@@ -425,6 +479,7 @@ function sessionSrpeLoadText() {
 .feedback-metric{display:grid;gap:6px;padding:12px;border-radius:14px;background:white}
 .feedback-metric span,.feedback-note{margin:0;color:var(--text-soft)}
 .feedback-note{font-size:14px}
+.danger-note{color:#b91c1c;font-weight:700}
 .item-card{border-radius:18px;background:var(--panel-soft);padding:16px;display:grid;gap:12px}
 .item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .item-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}

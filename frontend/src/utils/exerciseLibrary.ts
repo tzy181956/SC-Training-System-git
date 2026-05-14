@@ -117,7 +117,7 @@ export function buildCategoryPathLabel(category: Pick<ExerciseCategoryNode, 'nam
   return parts.length ? parts.join(' / ') : fallback
 }
 
-export function buildExerciseOptionLabel(item: Pick<ExerciseLibraryItem, 'name' | 'base_movement' | 'level2_category'>) {
-  const extras = [normalizeString(item.base_movement), normalizeString(item.level2_category)].filter(Boolean)
+export function buildExerciseOptionLabel(item: Pick<ExerciseLibraryItem, 'name' | 'level2_category'>) {
+  const extras = [normalizeString(item.level2_category)].filter(Boolean)
   return extras.length ? `${item.name}｜${extras.join('｜')}` : item.name
 }

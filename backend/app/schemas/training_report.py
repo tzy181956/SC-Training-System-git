@@ -75,6 +75,7 @@ class TrainingReportSummaryRead(BaseModel):
     completed_sets: int
     total_sets: int
     latest_session_date: date | None = None
+    voided_sessions: int = 0
 
 
 class TrainingReportTrendPointRead(BaseModel):

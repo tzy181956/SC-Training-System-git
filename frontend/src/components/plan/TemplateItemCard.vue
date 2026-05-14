@@ -130,7 +130,6 @@ const searchableExercises = computed(() => {
         [
           normalizeString(exercise.name),
           normalizeString(exercise.name_en),
-          normalizeString(exercise.base_movement),
           normalizeString(exercise.level2_category),
         ]
           .join(' ')
@@ -196,7 +195,7 @@ function normalizeString(value: unknown) {
 }
 
 function formatExerciseOption(exercise: any) {
-  const extras = [normalizeString(exercise.base_movement), normalizeString(exercise.level2_category)].filter(Boolean)
+  const extras = [normalizeString(exercise.level2_category)].filter(Boolean)
   return extras.length ? `${exercise.name} | ${extras.join(' | ')}` : exercise.name
 }
 
@@ -360,7 +359,7 @@ onBeforeUnmount(() => {
                   :value="searchKeyword"
                   class="text-input combo-search-input"
                   :disabled="readonly"
-                  placeholder="输入动作名、英文名、基础动作或分类搜索"
+                  placeholder="输入动作名、英文名或分类搜索"
                   @input="handleExerciseQueryInput(($event.target as HTMLInputElement).value)"
                 />
                 <div class="combo-options">

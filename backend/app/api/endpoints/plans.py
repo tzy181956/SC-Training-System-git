@@ -11,6 +11,7 @@ from app.schemas.training_plan import (
     PlanTemplateItemCreate,
     PlanTemplateItemRead,
     PlanTemplateItemUpdate,
+    PlanTemplateListRead,
     PlanTemplateModuleCreate,
     PlanTemplateModuleRead,
     PlanTemplateModuleUpdate,
@@ -23,7 +24,7 @@ from app.services import access_control_service, dangerous_operation_service, pl
 router = APIRouter(prefix="/plan-templates", tags=["plan-templates"])
 
 
-@router.get("", response_model=list[PlanTemplateRead])
+@router.get("", response_model=list[PlanTemplateListRead])
 def list_templates(
     visibility: str | None = Query(default="all"),
     owner_user_id: int | None = Query(default=None),
@@ -95,7 +96,7 @@ def add_item(
     current_user: User = Depends(require_roles("coach")),
 ):
     access_control_service.get_accessible_template(db, current_user, template_id, allow_global_read=False, allow_global_write=False)
-    return plan_service.add_template_item(db, template_id, payload, actor_name=current_user.display_name)
+    return plan_service.add_template_item(db, template_id, payload, current_user=current_user, actor_name=current_user.display_name)
 
 
 @router.post("/{template_id}/modules", response_model=PlanTemplateModuleRead)
@@ -117,7 +118,7 @@ def update_item(
     current_user: User = Depends(require_roles("coach")),
 ):
     access_control_service.get_accessible_template_item(db, current_user, item_id, allow_global_read=False, allow_global_write=False)
-    return plan_service.update_template_item(db, item_id, payload, actor_name=current_user.display_name)
+    return plan_service.update_template_item(db, item_id, payload, current_user=current_user, actor_name=current_user.display_name)
 
 
 @router.patch("/modules/{module_id}", response_model=PlanTemplateModuleRead)

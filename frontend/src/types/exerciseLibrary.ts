@@ -1,4 +1,5 @@
 export type ExerciseSourceType = 'exos_excel' | 'custom_manual'
+export type ExerciseVisibility = 'public' | 'private'
 
 export interface ExerciseCategoryNode {
   id: number
@@ -10,14 +11,6 @@ export interface ExerciseCategoryNode {
   sort_order: number
   is_system: boolean
   children?: ExerciseCategoryNode[]
-}
-
-export interface ExerciseBaseCategoryRef {
-  id: number
-  level: number
-  name_zh: string
-  name_en?: string | null
-  code: string
 }
 
 export interface ExerciseTagMap {
@@ -47,18 +40,20 @@ export interface ExerciseLibraryItem {
   alias?: string | null
   code?: string | null
   source_type: ExerciseSourceType
+  visibility: ExerciseVisibility
+  owner_user_id?: number | null
+  created_by_user_id?: number | null
+  visibility_label?: string | null
+  owner_name?: string | null
   name_en?: string | null
   level1_category?: string | null
   level2_category?: string | null
-  base_movement?: string | null
   category_path?: string | null
   original_english_fields?: Record<string, string | null> | null
   structured_tags?: ExerciseTagMap | null
   search_keywords?: string[] | null
   tag_text?: string | null
   raw_row?: Record<string, string> | null
-  base_category_id?: number | null
-  base_category?: ExerciseBaseCategoryRef | null
   description?: string | null
   video_url?: string | null
   video_path?: string | null
@@ -75,12 +70,15 @@ export interface ExerciseListItem {
   alias?: string | null
   code?: string | null
   source_type: ExerciseSourceType
+  visibility: ExerciseVisibility
+  owner_user_id?: number | null
+  created_by_user_id?: number | null
+  visibility_label?: string | null
+  owner_name?: string | null
   name_en?: string | null
   level1_category?: string | null
   level2_category?: string | null
-  base_movement?: string | null
   category_path?: string | null
-  base_category_id?: number | null
   is_main_lift_candidate: boolean
   tag_summary: string[]
 }
@@ -100,7 +98,6 @@ export interface ExerciseImportPreview {
   unique_codes: number
   level1_categories: number
   level2_categories: number
-  level3_categories: number
   exercises: number
   to_create: number
   to_update: number

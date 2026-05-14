@@ -4,6 +4,7 @@ export const TRAINING_STATUS_LABELS = {
   completed: '已完成',
   partial_complete: '未完全完成',
   absent: '缺席',
+  voided: '已作废',
   pending: '待同步',
   no_plan: '无计划',
 } as const
@@ -14,6 +15,7 @@ export const TRAINING_STATUS_TONES = {
   completed: 'success',
   partial_complete: 'partial',
   absent: 'neutral',
+  voided: 'neutral',
   pending: 'warning',
   no_plan: 'neutral',
 } as const
@@ -22,9 +24,10 @@ export type TrainingStatus = keyof typeof TRAINING_STATUS_LABELS
 export type TrainingStatusTone = (typeof TRAINING_STATUS_TONES)[TrainingStatus]
 
 const TRAINING_STATUS_SET = new Set(Object.keys(TRAINING_STATUS_LABELS) as TrainingStatus[])
-const FINAL_TRAINING_STATUS_SET = new Set<TrainingStatus>(['completed', 'partial_complete', 'absent'])
+const FINAL_TRAINING_STATUS_SET = new Set<TrainingStatus>(['completed', 'partial_complete', 'absent', 'voided'])
 export const MONITORING_STATUS_LABEL_OVERRIDES: Partial<Record<TrainingStatus, string>> = {
   partial_complete: '已结束未完成',
+  voided: '已作废',
 }
 
 export function normalizeTrainingStatus(status?: string | null): TrainingStatus {

@@ -37,7 +37,6 @@ TAG_FIELD_MAP = {
 ORIGINAL_ENGLISH_FIELDS = {
     "movementTypeCategoryEn": "一级分类_EN",
     "movementTypeEn": "二级分类_EN",
-    "baseMovementEn": "基础动作_EN",
     "movementEn": "动作英文原名",
 }
 
@@ -107,7 +106,6 @@ def _normalize_row(row: dict[str, str]) -> dict:
         "nameEn": _normalize_text(row.get("动作英文原名")),
         "level1Category": _normalize_text(row.get("一级分类")),
         "level2Category": _normalize_text(row.get("二级分类")),
-        "baseMovement": _normalize_text(row.get("基础动作")),
         "originalEnglishFields": {
             key: _normalize_text(row.get(source_key)) or None
             for key, source_key in ORIGINAL_ENGLISH_FIELDS.items()
@@ -115,7 +113,14 @@ def _normalize_row(row: dict[str, str]) -> dict:
         "tags": tags,
         "searchKeywords": search_keywords,
         "tagText": _normalize_text(row.get("标签词条")),
-        "categoryPath": _normalize_text(row.get("分类路径")),
+        "categoryPath": " / ".join(
+            item
+            for item in (
+                _normalize_text(row.get("一级分类")),
+                _normalize_text(row.get("二级分类")),
+            )
+            if item
+        ),
         "rawRow": row,
     }
 
@@ -126,7 +131,6 @@ def _preview_rows(source_path: Path) -> tuple[list[dict], ExerciseImportPreview]
     unique_codes: set[str] = set()
     level1 = set()
     level2 = set()
-    level3 = set()
     skipped_duplicates = 0
 
     for row in raw_rows:
@@ -140,7 +144,6 @@ def _preview_rows(source_path: Path) -> tuple[list[dict], ExerciseImportPreview]
         normalized_rows.append(normalized)
         level1.add(normalized["level1Category"])
         level2.add((normalized["level1Category"], normalized["level2Category"]))
-        level3.add((normalized["level1Category"], normalized["level2Category"], normalized["baseMovement"]))
 
     preview = ExerciseImportPreview(
         source_path=str(source_path),
@@ -149,7 +152,6 @@ def _preview_rows(source_path: Path) -> tuple[list[dict], ExerciseImportPreview]
         unique_codes=len(unique_codes),
         level1_categories=len(level1),
         level2_categories=len(level2),
-        level3_categories=len(level3),
         exercises=len(normalized_rows),
         to_create=0,
         to_update=0,
@@ -217,15 +219,20 @@ def _get_or_create_category(
     return category
 
 
-def _legacy_key(exercise: Exercise) -> tuple[str, str, int | None]:
-    return (exercise.name or "", exercise.name_en or exercise.alias or "", exercise.base_category_id)
+def _legacy_key(exercise: Exercise) -> tuple[str, str, str | None, str | None]:
+    return (
+        exercise.name or "",
+        exercise.name_en or exercise.alias or "",
+        exercise.level1_category,
+        exercise.level2_category,
+    )
 
 
 def _prepare_existing_maps(
     items: Iterable[Exercise],
-) -> tuple[dict[str, Exercise], dict[tuple[str, str, int | None], list[Exercise]]]:
+) -> tuple[dict[str, Exercise], dict[tuple[str, str, str | None, str | None], list[Exercise]]]:
     by_code: dict[str, Exercise] = {}
-    by_legacy: dict[tuple[str, str, int | None], list[Exercise]] = {}
+    by_legacy: dict[tuple[str, str, str | None, str | None], list[Exercise]] = {}
     for item in items:
         if item.code:
             by_code[item.code] = item
@@ -262,16 +269,7 @@ def preview_exos_import(db: Session, source_path: Path | None = None) -> Exercis
             name_en=row["originalEnglishFields"]["movementTypeEn"],
             sort_order=index,
         )
-        level3 = _get_or_create_category(
-            db,
-            category_cache,
-            parent=level2,
-            level=3,
-            name_zh=row["baseMovement"],
-            name_en=row["originalEnglishFields"]["baseMovementEn"],
-            sort_order=index,
-        )
-        legacy_key = (row["nameZh"], row["nameEn"], level3.id)
+        legacy_key = (row["nameZh"], row["nameEn"], row["level1Category"] or None, row["level2Category"] or None)
         exercise = existing_by_code.get(row["code"])
         if exercise and exercise.id in consumed_ids:
             exercise = None
@@ -319,14 +317,29 @@ def _cleanup_orphan_system_categories(db: Session) -> None:
         orphan = (
             db.query(ExerciseCategory)
             .filter(ExerciseCategory.is_system.is_(True))
-            .filter(~ExerciseCategory.exercises.any())
             .filter(~ExerciseCategory.children.any())
             .first()
         )
         if not orphan:
             break
+        if _category_has_exercises(db, orphan):
+            orphan.is_system = False
+            db.flush()
+            continue
         db.delete(orphan)
         db.flush()
+
+
+def _category_has_exercises(db: Session, category: ExerciseCategory) -> bool:
+    if category.level == 1:
+        return db.query(Exercise.id).filter(Exercise.level1_category == category.name_zh).first() is not None
+    if category.level == 2:
+        parent = db.get(ExerciseCategory, category.parent_id) if category.parent_id else None
+        query = db.query(Exercise.id).filter(Exercise.level2_category == category.name_zh)
+        if parent:
+            query = query.filter(Exercise.level1_category == parent.name_zh)
+        return query.first() is not None
+    return False
 
 
 def import_exos_library(db: Session, *, source_path: Path | None = None, replace_existing: bool = True) -> ExerciseImportPreview:
@@ -361,21 +374,14 @@ def import_exos_library(db: Session, *, source_path: Path | None = None, replace
             name_en=row["originalEnglishFields"]["movementTypeEn"],
             sort_order=index,
         )
-        level3 = _get_or_create_category(
-            db,
-            category_cache,
-            parent=level2,
-            level=3,
-            name_zh=row["baseMovement"],
-            name_en=row["originalEnglishFields"]["baseMovementEn"],
-            sort_order=index,
-        )
-
         exercise = existing_by_code.get(row["code"])
         if exercise and exercise.id in consumed_ids:
             exercise = None
         if not exercise:
-            candidates = existing_by_legacy.get((row["nameZh"], row["nameEn"], level3.id), [])
+            candidates = existing_by_legacy.get(
+                (row["nameZh"], row["nameEn"], row["level1Category"] or None, row["level2Category"] or None),
+                [],
+            )
             exercise = next((item for item in candidates if item.id not in consumed_ids), None)
 
         if exercise:
@@ -399,14 +405,12 @@ def import_exos_library(db: Session, *, source_path: Path | None = None, replace
         exercise.name_en = row["nameEn"] or None
         exercise.level1_category = row["level1Category"] or None
         exercise.level2_category = row["level2Category"] or None
-        exercise.base_movement = row["baseMovement"] or None
         exercise.category_path = row["categoryPath"] or None
         exercise.original_english_fields = row["originalEnglishFields"]
         exercise.structured_tags = row["tags"]
         exercise.search_keywords = row["searchKeywords"]
         exercise.tag_text = row["tagText"] or None
         exercise.raw_row = row["rawRow"]
-        exercise.base_category = level3
         existing_codes.add(row["code"])
         active_codes.add(row["code"])
 

@@ -100,6 +100,7 @@ export type TrainingReportResponse = {
     completed_sets: number
     total_sets: number
     latest_session_date: string | null
+    voided_sessions: number
   }
   sessions: TrainingReportSession[]
   trend: {
@@ -160,5 +161,10 @@ export async function coachAddTrainingReportSet(
 
 export async function coachDeleteTrainingReportSetRecord(recordId: number, payload: DangerousActionPayload) {
   const { data } = await client.delete(`/training-reports/set-records/${recordId}`, { data: payload })
+  return data
+}
+
+export async function coachVoidTrainingReportSession(sessionId: number, payload: DangerousActionPayload) {
+  const { data } = await client.post(`/training-reports/sessions/${sessionId}/void`, payload)
   return data
 }

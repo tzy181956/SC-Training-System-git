@@ -1,5 +1,5 @@
 import client from './client'
-import type { ExerciseListResponse } from '@/types/exerciseLibrary'
+import type { ExerciseCategoryNode, ExerciseListResponse } from '@/types/exerciseLibrary'
 
 type DangerousActionPayload = {
   confirmed: true
@@ -83,6 +83,20 @@ export async function fetchExerciseFacets() {
 export async function fetchExerciseCategoriesTree() {
   const { data } = await client.get('/exercise-categories/tree')
   return data
+}
+
+export async function createExerciseCategory(payload: Record<string, unknown>): Promise<ExerciseCategoryNode> {
+  const { data } = await client.post('/exercise-categories', payload)
+  return data
+}
+
+export async function updateExerciseCategory(id: number, payload: Record<string, unknown>): Promise<ExerciseCategoryNode> {
+  const { data } = await client.patch(`/exercise-categories/${id}`, payload)
+  return data
+}
+
+export async function deleteExerciseCategory(id: number, payload: DangerousActionPayload) {
+  await client.delete(`/exercise-categories/${id}`, { data: payload })
 }
 
 export async function createExercise(payload: Record<string, unknown>) {

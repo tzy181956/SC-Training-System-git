@@ -6,7 +6,6 @@ import { confirmDangerousAction } from '@/utils/dangerousAction'
 import {
   EXERCISE_DETAIL_FACETS,
   EXERCISE_TAG_FACETS,
-  buildCategoryPathLabel,
   flattenCategoryTree,
 } from '@/utils/exerciseLibrary'
 
@@ -37,7 +36,8 @@ const form = reactive<Record<string, any>>({
   alias: '',
   code: '',
   source_type: 'custom_manual',
-  base_category_id: null as number | null,
+  category_level1_id: null as number | null,
+  category_level2_id: null as number | null,
   description: '',
   video_url: '',
   coaching_points: '',
@@ -48,32 +48,38 @@ const form = reactive<Record<string, any>>({
   structured_tags: {},
 })
 
-const baseCategoryOptions = computed(() => {
-  const flattened = flattenCategoryTree(props.categoryTree)
-  const byId = new Map<number, ExerciseCategoryNode>(flattened.map((item) => [item.id, item]))
-  return flattened
-    .filter((item) => item.level === 3)
-    .map((item) => {
-      const level2 = item.parent_id ? byId.get(item.parent_id) || null : null
-      const level1 = level2?.parent_id ? byId.get(level2.parent_id) || null : null
-      return {
-        ...item,
-        path_label: buildCategoryPathLabel([level1, level2, item].filter(Boolean) as ExerciseCategoryNode[]),
-      }
-    })
+const flattenedCategories = computed(() => flattenCategoryTree(props.categoryTree))
+const categoryById = computed(() => new Map<number, ExerciseCategoryNode>(flattenedCategories.value.map((item) => [item.id, item])))
+
+const level1CategoryOptions = computed(() => flattenedCategories.value.filter((item) => item.level === 1))
+
+const level2CategoryOptions = computed(() => {
+  if (!form.category_level1_id) return []
+  return flattenedCategories.value.filter((item) => item.level === 2 && item.parent_id === form.category_level1_id)
 })
 
+function resolveCategorySelection(value: ExerciseLibraryItem | null | undefined) {
+  const level1 = flattenedCategories.value.find((item) => item.level === 1 && item.name_zh === value?.level1_category) || null
+  const level2 = flattenedCategories.value.find((item) => (
+    item.level === 2
+    && item.name_zh === value?.level2_category
+    && (!level1 || item.parent_id === level1.id)
+  )) || null
+  return {
+    category_level1_id: level1?.id || null,
+    category_level2_id: level2?.id || null,
+  }
+}
+
 const categoryLineage = computed(() => {
-  const byId = new Map<number, ExerciseCategoryNode>()
-  flattenCategoryTree(props.categoryTree).forEach((item) => byId.set(item.id, item))
-  if (!form.base_category_id) return { level1: null, level2: null, path: null }
-  const level3 = byId.get(form.base_category_id) || null
-  const level2 = level3?.parent_id ? byId.get(level3.parent_id) || null : null
-  const level1 = level2?.parent_id ? byId.get(level2.parent_id) || null : null
+  const level2 = form.category_level2_id ? categoryById.value.get(form.category_level2_id) || null : null
+  const level1 = level2?.parent_id
+    ? categoryById.value.get(level2.parent_id) || null
+    : (form.category_level1_id ? categoryById.value.get(form.category_level1_id) || null : null)
   return {
     level1: level1?.name_zh || null,
     level2: level2?.name_zh || null,
-    path: [level1?.name_zh, level2?.name_zh, level3?.name_zh].filter(Boolean).join(' / ') || null,
+    path: [level1?.name_zh, level2?.name_zh].filter(Boolean).join(' / ') || null,
   }
 })
 
@@ -81,13 +87,14 @@ watch(
   () => props.modelValue,
   (value) => {
     const tags = Object.fromEntries(EXERCISE_TAG_FACETS.map(({ key }) => [key, [...(value?.structured_tags?.[key] || [])]]))
+    const categorySelection = resolveCategorySelection(value)
     Object.assign(form, {
       name: value?.name || '',
       name_en: normalizeSingleLineText(value?.name_en || value?.alias || ''),
       alias: normalizeSingleLineText(value?.name_en || value?.alias || ''),
       code: normalizeSingleLineText(value?.code || ''),
       source_type: value?.source_type || 'custom_manual',
-      base_category_id: value?.base_category_id ?? value?.base_category?.id ?? null,
+      ...categorySelection,
       description: normalizeSingleLineText(value?.description || ''),
       video_url: normalizeSingleLineText(value?.video_url || ''),
       coaching_points: normalizeSingleLineText(value?.coaching_points || ''),
@@ -102,8 +109,18 @@ watch(
   { immediate: true },
 )
 
-const selectedCategory = computed(
-  () => baseCategoryOptions.value.find((item) => item.id === form.base_category_id) || null,
+watch(
+  () => [props.categoryTree, props.modelValue?.level1_category, props.modelValue?.level2_category],
+  () => Object.assign(form, resolveCategorySelection(props.modelValue)),
+)
+
+watch(
+  () => form.category_level1_id,
+  () => {
+    if (form.category_level2_id && !level2CategoryOptions.value.some((item) => item.id === form.category_level2_id)) {
+      form.category_level2_id = null
+    }
+  },
 )
 
 const detailEntries = computed(() =>
@@ -129,10 +146,8 @@ function handleSubmit() {
     alias: normalizeSingleLineText(form.name_en) || null,
     code: normalizeSingleLineText(form.code) || null,
     source_type: form.source_type,
-    base_category_id: form.base_category_id,
     level1_category: categoryLineage.value.level1 || props.modelValue?.level1_category || null,
     level2_category: categoryLineage.value.level2 || props.modelValue?.level2_category || null,
-    base_movement: selectedCategory.value?.name_zh || props.modelValue?.base_movement || null,
     category_path: categoryLineage.value.path || props.modelValue?.category_path || null,
     description: normalizeSingleLineText(form.description) || null,
     video_url: normalizeSingleLineText(form.video_url) || null,
@@ -169,10 +184,10 @@ function handleDelete() {
         <h3>{{ modelValue?.name || '新建动作' }}</h3>
       </div>
       <div class="head-actions">
-        <button v-if="modelValue?.id" class="tab-btn danger-tab" type="button" @click="handleDelete">删除</button>
+        <button v-if="modelValue?.id && !readOnly" class="tab-btn danger-tab" type="button" @click="handleDelete">删除</button>
         <div class="tab-switch">
           <button class="tab-btn" :class="{ active: activeTab.value === 'detail' }" @click="activeTab.value = 'detail'">详情</button>
-          <button class="tab-btn" :class="{ active: activeTab.value === 'edit' }" @click="activeTab.value = 'edit'">编辑</button>
+          <button v-if="!readOnly" class="tab-btn" :class="{ active: activeTab.value === 'edit' }" @click="activeTab.value = 'edit'">编辑</button>
         </div>
       </div>
     </div>
@@ -181,7 +196,8 @@ function handleDelete() {
       <div class="summary-card">
         <strong>{{ modelValue.name }}</strong>
         <span>{{ modelValue.name_en || modelValue.alias || '无英文名' }}</span>
-        <small>{{ modelValue.level1_category || '未分类' }} / {{ modelValue.level2_category || '未分类' }} / {{ modelValue.base_movement || '未分类' }}</small>
+        <small>{{ modelValue.visibility === 'public' ? '公共动作' : (modelValue.owner_name ? `${modelValue.owner_name}自建动作` : '自建动作') }}</small>
+        <small>{{ modelValue.level1_category || '未分类' }} / {{ modelValue.level2_category || '未分类' }}</small>
         <small>{{ modelValue.category_path || '无分类路径' }}</small>
       </div>
       <div class="detail-section">
@@ -189,7 +205,6 @@ function handleDelete() {
         <div class="detail-meta-grid">
           <div><strong>一级分类</strong><span>{{ modelValue.level1_category || '无' }}</span></div>
           <div><strong>二级分类</strong><span>{{ modelValue.level2_category || '无' }}</span></div>
-          <div><strong>基础动作</strong><span>{{ modelValue.base_movement || '无' }}</span></div>
           <div><strong>动作编码</strong><span>{{ modelValue.code || '无' }}</span></div>
         </div>
       </div>
@@ -226,15 +241,23 @@ function handleDelete() {
           <span class="field-label">动作编码</span>
           <input v-model="form.code" class="text-input" placeholder="为空时自动生成" />
         </label>
-        <label class="field">
-          <span class="field-label">基础动作分类</span>
-          <select v-model.number="form.base_category_id" class="text-input">
-            <option :value="null">未选择</option>
-            <option v-for="option in baseCategoryOptions" :key="option.id" :value="option.id">
-              {{ option.path_label }}
-            </option>
-          </select>
-        </label>
+        <div class="field">
+          <span class="field-label">动作分类</span>
+          <div class="category-select-grid">
+            <select v-model.number="form.category_level1_id" class="text-input">
+              <option :value="null">先选一级分类</option>
+              <option v-for="option in level1CategoryOptions" :key="option.id" :value="option.id">
+                {{ option.name_zh }}
+              </option>
+            </select>
+            <select v-model.number="form.category_level2_id" class="text-input" :disabled="!form.category_level1_id">
+              <option :value="null">再选二级分类</option>
+              <option v-for="option in level2CategoryOptions" :key="option.id" :value="option.id">
+                {{ option.name_zh }}
+              </option>
+            </select>
+          </div>
+        </div>
       </div>
       <label class="field">
         <span class="field-label">默认步长</span>
@@ -418,6 +441,11 @@ function handleDelete() {
 }
 
 .field {
+  display: grid;
+  gap: 8px;
+}
+
+.category-select-grid {
   display: grid;
   gap: 8px;
 }

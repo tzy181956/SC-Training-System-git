@@ -1,4 +1,4 @@
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
@@ -22,7 +22,13 @@ from app.schemas.training_plan import (
     PlanTemplateModuleUpdate,
     PlanTemplateUpdate,
 )
-from app.services import access_control_service, backup_service, content_change_log_service, dangerous_operation_service
+from app.services import (
+    access_control_service,
+    backup_service,
+    content_change_log_service,
+    dangerous_operation_service,
+    exercise_service,
+)
 
 
 MAX_TEMPLATE_NAME_LENGTH = 120
@@ -71,8 +77,37 @@ def list_templates(
     current_user: User,
     visibility: str | None = None,
     owner_user_id: int | None = None,
-) -> list[TrainingPlanTemplate]:
-    query = db.query(TrainingPlanTemplate).options(*TEMPLATE_DETAIL_OPTIONS).order_by(TrainingPlanTemplate.name)
+) -> list[dict]:
+    module_counts = (
+        db.query(
+            TrainingPlanTemplateModule.template_id.label("template_id"),
+            func.count(TrainingPlanTemplateModule.id).label("modules_count"),
+        )
+        .group_by(TrainingPlanTemplateModule.template_id)
+        .subquery()
+    )
+    item_counts = (
+        db.query(
+            TrainingPlanTemplateItem.template_id.label("template_id"),
+            func.count(TrainingPlanTemplateItem.id).label("items_count"),
+        )
+        .group_by(TrainingPlanTemplateItem.template_id)
+        .subquery()
+    )
+    query = (
+        db.query(
+            TrainingPlanTemplate,
+            func.coalesce(module_counts.c.modules_count, 0).label("modules_count"),
+            func.coalesce(item_counts.c.items_count, 0).label("items_count"),
+        )
+        .options(
+            joinedload(TrainingPlanTemplate.owner_user),
+            joinedload(TrainingPlanTemplate.source_template),
+        )
+        .outerjoin(module_counts, module_counts.c.template_id == TrainingPlanTemplate.id)
+        .outerjoin(item_counts, item_counts.c.template_id == TrainingPlanTemplate.id)
+        .order_by(TrainingPlanTemplate.name)
+    )
     visibility_key = _normalize_visibility_filter(visibility)
 
     if access_control_service.is_admin(current_user):
@@ -80,7 +115,7 @@ def list_templates(
             query = query.filter(TrainingPlanTemplate.visibility == visibility_key)
         if owner_user_id is not None:
             query = query.filter(TrainingPlanTemplate.owner_user_id == owner_user_id)
-        return query.all()
+        return [_serialize_template_list_row(template, modules_count, items_count) for template, modules_count, items_count in query.all()]
 
     if owner_user_id is not None and owner_user_id != current_user.id:
         raise bad_request("教练账号不能查看其他教练的自建模板")
@@ -100,7 +135,28 @@ def list_templates(
             TrainingPlanTemplate.visibility == TEMPLATE_VISIBILITY_PRIVATE,
             TrainingPlanTemplate.owner_user_id == current_user.id,
         )
-    return query.all()
+    return [_serialize_template_list_row(template, modules_count, items_count) for template, modules_count, items_count in query.all()]
+
+
+def _serialize_template_list_row(template: TrainingPlanTemplate, modules_count: int, items_count: int) -> dict:
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "sport_id": template.sport_id,
+        "team_id": template.team_id,
+        "is_active": template.is_active,
+        "created_by": template.created_by,
+        "visibility": template.visibility,
+        "owner_user_id": template.owner_user_id,
+        "created_by_user_id": template.created_by_user_id,
+        "source_template_id": template.source_template_id,
+        "visibility_label": template.visibility_label,
+        "owner_name": template.owner_name,
+        "source_template_name": template.source_template_name,
+        "modules_count": int(modules_count or 0),
+        "items_count": int(items_count or 0),
+    }
 
 
 def get_template(db: Session, template_id: int) -> TrainingPlanTemplate:
@@ -408,6 +464,7 @@ def add_template_item(
     db: Session,
     template_id: int,
     payload: PlanTemplateItemCreate,
+    current_user: User,
     actor_name: str | None = None,
 ) -> TrainingPlanTemplate:
     template = db.query(TrainingPlanTemplate).filter(TrainingPlanTemplate.id == template_id).first()
@@ -415,7 +472,7 @@ def add_template_item(
         raise not_found("Training template not found")
 
     module = _get_template_module_for_template(db, template_id, payload.module_id)
-    exercise = _get_template_item_exercise(db, payload.exercise_id)
+    exercise = _get_template_item_exercise(db, payload.exercise_id, current_user=current_user)
     item = TrainingPlanTemplateItem(template_id=template_id, **payload.model_dump())
     db.add(item)
     db.flush()
@@ -445,6 +502,7 @@ def update_template_item(
     db: Session,
     item_id: int,
     payload: PlanTemplateItemUpdate,
+    current_user: User,
     actor_name: str | None = None,
 ) -> TrainingPlanTemplateItem:
     item = (
@@ -459,7 +517,7 @@ def update_template_item(
     if payload.module_id is not None:
         _get_template_module_for_template(db, item.template_id, payload.module_id)
     if payload.exercise_id is not None:
-        _get_template_item_exercise(db, payload.exercise_id)
+        _get_template_item_exercise(db, payload.exercise_id, current_user=current_user)
 
     before_snapshot = _serialize_template_item(item, exercise_name=item.exercise.name if item.exercise else None)
     for key, value in payload.model_dump(exclude_unset=True).items():
@@ -762,11 +820,13 @@ def _get_template_module_for_template(db: Session, template_id: int, module_id: 
     return module
 
 
-def _get_template_item_exercise(db: Session, exercise_id: int | None) -> Exercise:
+def _get_template_item_exercise(db: Session, exercise_id: int | None, *, current_user: User) -> Exercise:
     if not exercise_id or exercise_id <= 0:
         raise bad_request("模板动作还没有选择训练动作，请先补全后再保存。")
 
     exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
     if not exercise:
         raise bad_request("所选动作不存在，请重新选择后再保存。")
+    if not access_control_service.is_admin(current_user) and not exercise_service.can_view_exercise(current_user, exercise):
+        raise bad_request("无权使用其他教练的自建动作，请重新选择。")
     return exercise

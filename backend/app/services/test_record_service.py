@@ -100,6 +100,7 @@ def create_test_record(db: Session, user: User, payload: TestRecordCreate) -> Te
     test_definition_service.require_visible_metric_definition(
         db,
         visible_sport_id=visible_sport_id,
+        include_system=access_control_service.is_admin(user),
         test_type_name=payload.test_type,
         metric_name=payload.metric_name,
     )
@@ -119,6 +120,7 @@ def update_test_record(db: Session, user: User, record_id: int, payload: TestRec
     test_definition_service.require_visible_metric_definition(
         db,
         visible_sport_id=visible_sport_id,
+        include_system=access_control_service.is_admin(user),
         test_type_name=next_test_type,
         metric_name=next_metric_name,
     )

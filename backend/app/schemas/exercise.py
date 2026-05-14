@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
-from app.schemas.exercise_category import ExerciseCategoryPathNode
 from app.schemas.tag import TagRead
 
 
@@ -10,17 +9,18 @@ class ExerciseBase(BaseModel):
     alias: str | None = None
     code: str | None = None
     source_type: str = "custom_manual"
+    visibility: str | None = None
+    owner_user_id: int | None = None
+    created_by_user_id: int | None = None
     name_en: str | None = None
     level1_category: str | None = None
     level2_category: str | None = None
-    base_movement: str | None = None
     category_path: str | None = None
     original_english_fields: dict | None = None
     structured_tags: dict = Field(default_factory=dict)
     search_keywords: list[str] = Field(default_factory=list)
     tag_text: str | None = None
     raw_row: dict | None = None
-    base_category_id: int | None = None
     description: str | None = None
     video_url: str | None = None
     video_path: str | None = None
@@ -40,17 +40,17 @@ class ExerciseUpdate(BaseModel):
     alias: str | None = None
     code: str | None = None
     source_type: str | None = None
+    visibility: str | None = None
+    owner_user_id: int | None = None
     name_en: str | None = None
     level1_category: str | None = None
     level2_category: str | None = None
-    base_movement: str | None = None
     category_path: str | None = None
     original_english_fields: dict | None = None
     structured_tags: dict | None = None
     search_keywords: list[str] | None = None
     tag_text: str | None = None
     raw_row: dict | None = None
-    base_category_id: int | None = None
     description: str | None = None
     video_url: str | None = None
     video_path: str | None = None
@@ -73,12 +73,15 @@ class ExerciseListItemRead(ORMModel):
     alias: str | None = None
     code: str | None = None
     source_type: str = "custom_manual"
+    visibility: str = "public"
+    owner_user_id: int | None = None
+    created_by_user_id: int | None = None
+    visibility_label: str | None = None
+    owner_name: str | None = None
     name_en: str | None = None
     level1_category: str | None = None
     level2_category: str | None = None
-    base_movement: str | None = None
     category_path: str | None = None
-    base_category_id: int | None = None
     is_main_lift_candidate: bool = False
     tag_summary: list[str] = Field(default_factory=list)
 
@@ -93,7 +96,11 @@ class ExerciseListResponse(BaseModel):
 
 class ExerciseRead(ORMModel, ExerciseBase):
     id: int
-    base_category: ExerciseCategoryPathNode | None = None
+    visibility: str = "public"
+    owner_user_id: int | None = None
+    created_by_user_id: int | None = None
+    visibility_label: str | None = None
+    owner_name: str | None = None
     tags: list[ExerciseTagLinkRead] = Field(default_factory=list)
 
 

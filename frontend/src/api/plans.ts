@@ -34,6 +34,11 @@ export async function fetchPlanTemplates(params: PlanTemplateListParams = {}) {
   return data
 }
 
+export async function fetchPlanTemplate(id: number) {
+  const { data } = await client.get(`/plan-templates/${id}`)
+  return data
+}
+
 export async function createPlanTemplate(payload: Record<string, unknown>) {
   const { data } = await client.post('/plan-templates', payload)
   return data

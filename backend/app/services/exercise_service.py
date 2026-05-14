@@ -1,14 +1,16 @@
 from collections import defaultdict
 from math import ceil
 
-from sqlalchemy import String, func, or_
+from fastapi import HTTPException, status
+from sqlalchemy import String, and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
-from app.models import Exercise, ExerciseTag, Tag, TrainingPlanTemplateItem, TrainingSessionItem
+from app.models import Exercise, ExerciseTag, Tag, TrainingPlanTemplateItem, TrainingSessionItem, User
+from app.models.exercise import EXERCISE_VISIBILITY_PRIVATE, EXERCISE_VISIBILITY_PUBLIC
 from app.schemas.exercise import ExerciseCreate, ExerciseListItemRead, ExerciseListResponse, ExerciseUpdate
 from app.schemas.tag import TagCreate
-from app.services import backup_service, content_change_log_service, dangerous_operation_service
+from app.services import access_control_service, backup_service, content_change_log_service, dangerous_operation_service
 from app.services.exercise_library_import import _slugify
 
 EXERCISE_FACET_KEYS = (
@@ -26,6 +28,9 @@ EXERCISE_FACET_KEYS = (
     "trainingGoal",
     "functionType",
 )
+VALID_EXERCISE_VISIBILITIES = {EXERCISE_VISIBILITY_PUBLIC, EXERCISE_VISIBILITY_PRIVATE}
+PUBLIC_EXERCISE_EDIT_DENIED_DETAIL = "公共动作只允许管理员维护，请新建自建动作后再调整"
+PRIVATE_EXERCISE_ACCESS_DENIED_DETAIL = "无权访问其他教练的自建动作"
 
 
 def _normalize_exercise_payload_defaults(data: dict) -> dict:
@@ -40,6 +45,53 @@ def _normalize_exercise_record(exercise: Exercise) -> Exercise:
     if exercise.search_keywords is None:
         exercise.search_keywords = []
     return exercise
+
+
+def normalize_exercise_visibility(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized not in VALID_EXERCISE_VISIBILITIES:
+        raise bad_request("动作可见性不受支持")
+    return normalized
+
+
+def exercise_visibility(exercise: Exercise | None) -> str:
+    visibility = (getattr(exercise, "visibility", None) or EXERCISE_VISIBILITY_PUBLIC).strip().lower()
+    if visibility not in VALID_EXERCISE_VISIBILITIES:
+        return EXERCISE_VISIBILITY_PRIVATE
+    return visibility
+
+
+def can_view_exercise(user: User | None, exercise: Exercise | None) -> bool:
+    if not user or not exercise:
+        return False
+    if access_control_service.is_admin(user):
+        return True
+    visibility = exercise_visibility(exercise)
+    if visibility == EXERCISE_VISIBILITY_PUBLIC:
+        return True
+    return visibility == EXERCISE_VISIBILITY_PRIVATE and exercise.owner_user_id == user.id
+
+
+def can_edit_exercise(user: User | None, exercise: Exercise | None) -> bool:
+    if not user or not exercise:
+        return False
+    if access_control_service.is_admin(user):
+        return True
+    return exercise_visibility(exercise) == EXERCISE_VISIBILITY_PRIVATE and exercise.owner_user_id == user.id
+
+
+def ensure_exercise_visible(user: User, exercise: Exercise) -> Exercise:
+    if not can_view_exercise(user, exercise):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PRIVATE_EXERCISE_ACCESS_DENIED_DETAIL)
+    return exercise
+
+
+def ensure_exercise_editable(user: User, exercise: Exercise) -> Exercise:
+    if can_edit_exercise(user, exercise):
+        return exercise
+    if exercise_visibility(exercise) == EXERCISE_VISIBILITY_PUBLIC:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PUBLIC_EXERCISE_EDIT_DENIED_DETAIL)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PRIVATE_EXERCISE_ACCESS_DENIED_DETAIL)
 
 
 def _sync_english_name_fields(data: dict) -> dict:
@@ -74,7 +126,6 @@ def _build_exercise_list_query(db: Session, *, keyword: str | None, level1: str 
                 Exercise.name_en.ilike(like_term),
                 Exercise.alias.ilike(like_term),
                 Exercise.code.ilike(like_term),
-                Exercise.base_movement.ilike(like_term),
                 Exercise.level1_category.ilike(like_term),
                 Exercise.level2_category.ilike(like_term),
                 Exercise.category_path.ilike(like_term),
@@ -82,6 +133,51 @@ def _build_exercise_list_query(db: Session, *, keyword: str | None, level1: str 
                 Exercise.search_keywords.cast(String).ilike(like_term),
                 Exercise.structured_tags.cast(String).ilike(like_term),
             )
+        )
+    return query
+
+
+def _normalize_visibility_filter(value: str | None) -> str:
+    normalized = (value or "all").strip().lower()
+    if normalized in {"", "all"}:
+        return "all"
+    if normalized not in VALID_EXERCISE_VISIBILITIES:
+        raise bad_request("动作可见性筛选不受支持")
+    return normalized
+
+
+def _apply_exercise_visibility_filter(
+    query,
+    *,
+    current_user: User,
+    visibility: str | None,
+    owner_user_id: int | None,
+):
+    visibility_key = _normalize_visibility_filter(visibility)
+    if access_control_service.is_admin(current_user):
+        if visibility_key != "all":
+            query = query.filter(Exercise.visibility == visibility_key)
+        if owner_user_id is not None:
+            query = query.filter(Exercise.owner_user_id == owner_user_id)
+        return query
+
+    if owner_user_id is not None and owner_user_id != current_user.id:
+        raise bad_request("教练账号不能查看其他教练的自建动作")
+
+    visible_filter = or_(
+        Exercise.visibility == EXERCISE_VISIBILITY_PUBLIC,
+        and_(
+            Exercise.visibility == EXERCISE_VISIBILITY_PRIVATE,
+            Exercise.owner_user_id == current_user.id,
+        ),
+    )
+    query = query.filter(visible_filter)
+    if visibility_key == EXERCISE_VISIBILITY_PUBLIC:
+        query = query.filter(Exercise.visibility == EXERCISE_VISIBILITY_PUBLIC)
+    elif visibility_key == EXERCISE_VISIBILITY_PRIVATE:
+        query = query.filter(
+            Exercise.visibility == EXERCISE_VISIBILITY_PRIVATE,
+            Exercise.owner_user_id == current_user.id,
         )
     return query
 
@@ -139,9 +235,12 @@ def create_tag(db: Session, payload: TagCreate) -> Tag:
 def list_exercises(
     db: Session,
     *,
+    current_user: User,
     keyword: str | None = None,
     level1: str | None = None,
     level2: str | None = None,
+    visibility: str | None = None,
+    owner_user_id: int | None = None,
     tag_filters: dict[str, list[str]] | None = None,
     page: int = 1,
     page_size: int = 50,
@@ -149,6 +248,12 @@ def list_exercises(
     # Keep the list endpoint lightweight for the library page and template pickers.
     # Full metadata stays on GET /exercises/{id}.
     query = _build_exercise_list_query(db, keyword=keyword, level1=level1, level2=level2)
+    query = _apply_exercise_visibility_filter(
+        query,
+        current_user=current_user,
+        visibility=visibility,
+        owner_user_id=owner_user_id,
+    )
     normalized_tag_filters = _normalize_tag_filters(tag_filters)
     if normalized_tag_filters:
         filtered_ids: list[int] = []
@@ -183,21 +288,7 @@ def list_exercises(
     offset = (page - 1) * page_size
 
     items = (
-        query.with_entities(
-            Exercise.id,
-            Exercise.name,
-            Exercise.alias,
-            Exercise.code,
-            Exercise.source_type,
-            Exercise.name_en,
-            Exercise.level1_category,
-            Exercise.level2_category,
-            Exercise.base_movement,
-            Exercise.category_path,
-            Exercise.base_category_id,
-            Exercise.structured_tags,
-            Exercise.is_main_lift_candidate,
-        )
+        query.options(joinedload(Exercise.owner_user))
         .order_by(Exercise.name, Exercise.id)
         .offset(offset)
         .limit(page_size)
@@ -211,12 +302,15 @@ def list_exercises(
             alias=item.alias,
             code=item.code,
             source_type=item.source_type,
+            visibility=item.visibility,
+            owner_user_id=item.owner_user_id,
+            created_by_user_id=item.created_by_user_id,
+            visibility_label=item.visibility_label,
+            owner_name=item.owner_name,
             name_en=item.name_en,
             level1_category=item.level1_category,
             level2_category=item.level2_category,
-            base_movement=item.base_movement,
             category_path=item.category_path,
-            base_category_id=item.base_category_id,
             is_main_lift_candidate=item.is_main_lift_candidate,
             tag_summary=_build_tag_summary(item.structured_tags),
         )
@@ -232,9 +326,15 @@ def list_exercises(
     )
 
 
-def list_exercise_facets(db: Session) -> dict:
+def list_exercise_facets(db: Session, *, current_user: User) -> dict:
+    query = _apply_exercise_visibility_filter(
+        db.query(Exercise),
+        current_user=current_user,
+        visibility="all",
+        owner_user_id=None,
+    )
     items = (
-        db.query(Exercise.level1_category, Exercise.level2_category, Exercise.structured_tags)
+        query.with_entities(Exercise.level1_category, Exercise.level2_category, Exercise.structured_tags)
         .order_by(Exercise.name)
         .all()
     )
@@ -276,25 +376,30 @@ def list_exercise_facets(db: Session) -> dict:
     }
 
 
-def get_exercise(db: Session, exercise_id: int) -> Exercise:
+def get_exercise(db: Session, exercise_id: int, *, current_user: User | None = None) -> Exercise:
     exercise = (
         db.query(Exercise)
         .options(
             joinedload(Exercise.tags).joinedload(ExerciseTag.tag),
-            joinedload(Exercise.base_category),
+            joinedload(Exercise.owner_user),
         )
         .filter(Exercise.id == exercise_id)
         .first()
     )
     if not exercise:
         raise not_found("Exercise not found")
+    if current_user is not None:
+        ensure_exercise_visible(current_user, exercise)
     return _normalize_exercise_record(exercise)
 
 
-def create_exercise(db: Session, payload: ExerciseCreate) -> Exercise:
-    data = payload.model_dump(exclude={"tag_ids"})
+def create_exercise(db: Session, payload: ExerciseCreate, *, current_user: User) -> Exercise:
+    data = payload.model_dump(exclude={"tag_ids", "visibility", "owner_user_id", "created_by_user_id"})
     _sync_english_name_fields(data)
     _normalize_exercise_payload_defaults(data)
+    data.update(_resolve_create_ownership(db, payload, current_user))
+    if not access_control_service.is_admin(current_user):
+        data["source_type"] = "custom_manual"
 
     existing_codes = {item.code for item in db.query(Exercise).all() if item.code}
     if not data.get("code"):
@@ -325,13 +430,14 @@ def create_exercise(db: Session, payload: ExerciseCreate) -> Exercise:
         after_snapshot=_serialize_exercise_for_log(exercise, tag_ids=payload.tag_ids),
     )
     db.commit()
-    return get_exercise(db, exercise.id)
+    return get_exercise(db, exercise.id, current_user=current_user)
 
 
-def update_exercise(db: Session, exercise_id: int, payload: ExerciseUpdate) -> Exercise:
+def update_exercise(db: Session, exercise_id: int, payload: ExerciseUpdate, *, current_user: User) -> Exercise:
     exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
     if not exercise:
         raise not_found("Exercise not found")
+    ensure_exercise_editable(current_user, exercise)
 
     before_tag_ids = [
         row[0]
@@ -339,9 +445,13 @@ def update_exercise(db: Session, exercise_id: int, payload: ExerciseUpdate) -> E
     ]
     before_snapshot = _serialize_exercise_for_log(exercise, tag_ids=before_tag_ids)
 
-    data = payload.model_dump(exclude_unset=True, exclude={"tag_ids"})
+    data = payload.model_dump(exclude_unset=True, exclude={"tag_ids", "visibility", "owner_user_id"})
     _sync_english_name_fields(data)
     _normalize_exercise_payload_defaults(data)
+    if not access_control_service.is_admin(current_user):
+        data.pop("source_type", None)
+    if access_control_service.is_admin(current_user):
+        data.update(_resolve_update_ownership(db, exercise, payload.model_dump(exclude_unset=True)))
     for key, value in data.items():
         setattr(exercise, key, value)
 
@@ -363,13 +473,14 @@ def update_exercise(db: Session, exercise_id: int, payload: ExerciseUpdate) -> E
         after_snapshot=_serialize_exercise_for_log(exercise, tag_ids=after_tag_ids),
     )
     db.commit()
-    return get_exercise(db, exercise_id)
+    return get_exercise(db, exercise_id, current_user=current_user)
 
 
-def delete_exercise(db: Session, exercise_id: int, *, actor_name: str | None = None) -> None:
+def delete_exercise(db: Session, exercise_id: int, *, current_user: User, actor_name: str | None = None) -> None:
     exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
     if not exercise:
         raise not_found("Exercise not found")
+    ensure_exercise_editable(current_user, exercise)
 
     template_refs = db.query(TrainingPlanTemplateItem).filter(TrainingPlanTemplateItem.exercise_id == exercise_id).count()
     session_refs = db.query(TrainingSessionItem).filter(TrainingSessionItem.exercise_id == exercise_id).count()
@@ -391,29 +502,92 @@ def delete_exercise(db: Session, exercise_id: int, *, actor_name: str | None = N
             "exercise_name": exercise.name,
             "code": exercise.code,
             "source_type": exercise.source_type,
+            "visibility": exercise.visibility,
+            "owner_user_id": exercise.owner_user_id,
             "level1_category": exercise.level1_category,
             "level2_category": exercise.level2_category,
-            "base_movement": exercise.base_movement,
         },
         backup_path=backup_result.backup_path,
     )
     db.commit()
 
 
-def attach_tag(db: Session, exercise_id: int, tag_id: int) -> Exercise:
+def attach_tag(db: Session, exercise_id: int, tag_id: int, *, current_user: User) -> Exercise:
+    exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+    if not exercise:
+        raise not_found("Exercise not found")
+    ensure_exercise_editable(current_user, exercise)
     existing = db.query(ExerciseTag).filter(ExerciseTag.exercise_id == exercise_id, ExerciseTag.tag_id == tag_id).first()
     if not existing:
         db.add(ExerciseTag(exercise_id=exercise_id, tag_id=tag_id))
         db.commit()
-    return get_exercise(db, exercise_id)
+    return get_exercise(db, exercise_id, current_user=current_user)
 
 
-def detach_tag(db: Session, exercise_id: int, tag_id: int) -> Exercise:
+def detach_tag(db: Session, exercise_id: int, tag_id: int, *, current_user: User) -> Exercise:
+    exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+    if not exercise:
+        raise not_found("Exercise not found")
+    ensure_exercise_editable(current_user, exercise)
     existing = db.query(ExerciseTag).filter(ExerciseTag.exercise_id == exercise_id, ExerciseTag.tag_id == tag_id).first()
     if existing:
         db.delete(existing)
         db.commit()
-    return get_exercise(db, exercise_id)
+    return get_exercise(db, exercise_id, current_user=current_user)
+
+
+def _resolve_create_ownership(db: Session, payload: ExerciseCreate, current_user: User) -> dict:
+    if access_control_service.is_admin(current_user):
+        visibility = normalize_exercise_visibility(payload.visibility or EXERCISE_VISIBILITY_PUBLIC)
+        if visibility == EXERCISE_VISIBILITY_PUBLIC:
+            if payload.owner_user_id is not None:
+                raise bad_request("公共动作不能指定归属教练")
+            return {
+                "visibility": EXERCISE_VISIBILITY_PUBLIC,
+                "owner_user_id": None,
+                "created_by_user_id": current_user.id,
+            }
+
+        if payload.owner_user_id is None:
+            raise bad_request("管理员创建自建动作时必须选择归属教练")
+        owner = _get_active_coach_user(db, payload.owner_user_id)
+        return {
+            "visibility": EXERCISE_VISIBILITY_PRIVATE,
+            "owner_user_id": owner.id,
+            "created_by_user_id": current_user.id,
+        }
+
+    return {
+        "visibility": EXERCISE_VISIBILITY_PRIVATE,
+        "owner_user_id": current_user.id,
+        "created_by_user_id": current_user.id,
+    }
+
+
+def _resolve_update_ownership(db: Session, exercise: Exercise, updates: dict) -> dict:
+    if "visibility" not in updates and "owner_user_id" not in updates:
+        return {}
+
+    next_visibility = normalize_exercise_visibility(updates.get("visibility") or exercise.visibility)
+    if next_visibility == EXERCISE_VISIBILITY_PUBLIC:
+        if updates.get("owner_user_id") is not None:
+            raise bad_request("公共动作不能指定归属教练")
+        return {"visibility": EXERCISE_VISIBILITY_PUBLIC, "owner_user_id": None}
+
+    owner_user_id = updates.get("owner_user_id", exercise.owner_user_id)
+    if owner_user_id is None:
+        raise bad_request("自建动作必须指定归属教练")
+    owner = _get_active_coach_user(db, owner_user_id)
+    return {"visibility": EXERCISE_VISIBILITY_PRIVATE, "owner_user_id": owner.id}
+
+
+def _get_active_coach_user(db: Session, user_id: int) -> User:
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+    if not user:
+        raise bad_request("目标教练账号不存在或未启用")
+    if access_control_service.normalize_role_code(user.role_code) != "coach":
+        raise bad_request("目标归属用户必须是教练账号")
+    return user
 
 
 def _serialize_exercise_for_log(exercise: Exercise, *, tag_ids: list[int] | None = None) -> dict:
@@ -423,15 +597,17 @@ def _serialize_exercise_for_log(exercise: Exercise, *, tag_ids: list[int] | None
         "alias": exercise.alias,
         "code": exercise.code,
         "source_type": exercise.source_type,
+        "visibility": exercise.visibility,
+        "owner_user_id": exercise.owner_user_id,
+        "owner_name": exercise.owner_name,
+        "created_by_user_id": exercise.created_by_user_id,
         "name_en": exercise.name_en,
         "level1_category": exercise.level1_category,
         "level2_category": exercise.level2_category,
-        "base_movement": exercise.base_movement,
         "category_path": exercise.category_path,
         "structured_tags": exercise.structured_tags or {},
         "search_keywords": exercise.search_keywords or [],
         "tag_text": exercise.tag_text,
-        "base_category_id": exercise.base_category_id,
         "description": exercise.description,
         "video_url": exercise.video_url,
         "video_path": exercise.video_path,

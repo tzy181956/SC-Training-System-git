@@ -7,7 +7,8 @@ from typing import Any
 
 NOT_STARTED_SESSION_STATUS = "not_started"
 IN_PROGRESS_SESSION_STATUS = "in_progress"
-FINAL_SESSION_STATUSES = {"completed", "absent", "partial_complete"}
+VOIDED_SESSION_STATUS = "voided"
+FINAL_SESSION_STATUSES = {"completed", "absent", "partial_complete", VOIDED_SESSION_STATUS}
 
 
 def resolve_session_item_status(record_count: int, prescribed_sets: int) -> str:

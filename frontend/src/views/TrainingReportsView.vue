@@ -317,6 +317,10 @@ function parseStringQuery(value: unknown) {
             />
           </div>
 
+          <p v-if="report.summary.voided_sessions" class="report-note">
+            已作废训练课 {{ report.summary.voided_sessions }} 节，默认不计入上方课次、组数、完成率和趋势统计。
+          </p>
+
           <p v-if="reportNotice" class="report-notice" :class="reportNoticeTone">{{ reportNotice }}</p>
 
           <section class="panel sync-issue-panel">
@@ -454,6 +458,13 @@ function parseStringQuery(value: unknown) {
   border-radius: 14px;
   font-size: 14px;
   font-weight: 600;
+}
+
+.report-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .report-notice.success {

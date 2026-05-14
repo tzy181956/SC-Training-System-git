@@ -12,6 +12,7 @@ from app.schemas.training_session import (
     CoachSetRecordCreate,
     CoachSetRecordDeleteResponse,
     CoachSetRecordUpdate,
+    SessionRead,
     SetRecordUpdateResponse,
     SetSubmissionResponse,
 )
@@ -94,3 +95,19 @@ def coach_delete_set_record(
         "session_status": session.status,
         "session_completed_at": session.completed_at,
     }
+
+
+@router.post("/sessions/{session_id}/void", response_model=SessionRead)
+def coach_void_training_session(
+    session_id: int,
+    payload: DangerousActionConfirm,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    dangerous_operation_service.require_confirmation(payload, action_label="作废训练课")
+    access_control_service.get_accessible_session(db, current_user, session_id)
+    return session_service.void_training_session(
+        db,
+        session_id,
+        actor_name=payload.actor_name or current_user.display_name,
+    )

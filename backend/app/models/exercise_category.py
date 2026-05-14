@@ -23,4 +23,3 @@ class ExerciseCategory(BaseModel):
         cascade="all, delete-orphan",
         order_by="ExerciseCategory.sort_order, ExerciseCategory.name_zh",
     )
-    exercises = relationship("Exercise", back_populates="base_category")

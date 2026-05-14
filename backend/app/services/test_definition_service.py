@@ -18,7 +18,12 @@ from app.schemas.test_definition import (
 from app.services import access_control_service, backup_service, dangerous_operation_service
 
 
-def list_test_type_definitions(db: Session, *, visible_sport_id: int | None = None) -> list[TestTypeDefinition]:
+def list_test_type_definitions(
+    db: Session,
+    *,
+    visible_sport_id: int | None = None,
+    include_system: bool = True,
+) -> list[TestTypeDefinition]:
     query = (
         db.query(TestTypeDefinition)
         .options(
@@ -27,7 +32,10 @@ def list_test_type_definitions(db: Session, *, visible_sport_id: int | None = No
         )
     )
     if visible_sport_id is not None:
-        query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
+        if include_system:
+            query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
+        else:
+            query = query.filter(TestTypeDefinition.sport_id == visible_sport_id)
     return (
         query.order_by(
             TestTypeDefinition.sport_id.asc(),
@@ -38,14 +46,22 @@ def list_test_type_definitions(db: Session, *, visible_sport_id: int | None = No
     )
 
 
-def list_test_metric_definitions(db: Session, *, visible_sport_id: int | None = None) -> list[TestMetricDefinition]:
+def list_test_metric_definitions(
+    db: Session,
+    *,
+    visible_sport_id: int | None = None,
+    include_system: bool = True,
+) -> list[TestMetricDefinition]:
     query = (
         db.query(TestMetricDefinition)
         .options(joinedload(TestMetricDefinition.test_type).joinedload(TestTypeDefinition.sport))
         .join(TestMetricDefinition.test_type)
     )
     if visible_sport_id is not None:
-        query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
+        if include_system:
+            query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
+        else:
+            query = query.filter(TestTypeDefinition.sport_id == visible_sport_id)
     return query.order_by(TestTypeDefinition.name.asc(), TestMetricDefinition.name.asc(), TestMetricDefinition.id.asc()).all()
 
 
@@ -346,6 +362,7 @@ def require_visible_metric_definition(
     db: Session,
     *,
     visible_sport_id: int | None,
+    include_system: bool = True,
     test_type_name: str,
     metric_name: str,
 ) -> TestMetricDefinition:
@@ -364,7 +381,10 @@ def require_visible_metric_definition(
         )
     )
     if visible_sport_id is not None:
-        query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
+        if include_system:
+            query = query.filter(or_(TestTypeDefinition.sport_id.is_(None), TestTypeDefinition.sport_id == visible_sport_id))
+        else:
+            query = query.filter(TestTypeDefinition.sport_id == visible_sport_id)
     definition = query.first()
     if definition:
         return definition
