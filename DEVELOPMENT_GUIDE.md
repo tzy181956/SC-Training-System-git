@@ -98,23 +98,11 @@
 
 ## 服务器更新标准流程
 
-默认顺序：
+默认通过 GitHub Actions 发布 release。服务器侧检查：
 
 ```bash
-cd /opt/sc-training-system
-git pull origin 服务器端
-
-cd /opt/sc-training-system/backend
-source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/migrate_db.py ensure
-
-cd /opt/sc-training-system/frontend
-npm install
-npm run build
-
-sudo systemctl restart sc-training-backend
-sudo systemctl reload nginx
+readlink -f /opt/sc-training-system/current
+sudo systemctl status sc-training-backend
 curl http://127.0.0.1/health
 ```
 

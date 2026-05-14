@@ -172,6 +172,19 @@ def _validate_window(
         raise bad_request(_build_assignment_conflict_message(conflicts))
 
 
+def _begin_immediate_for_assignment_conflict_check(db: Session) -> bool:
+    if db.get_bind().dialect.name != "sqlite":
+        return False
+
+    connection = db.connection()
+    driver_connection = getattr(connection.connection, "driver_connection", None)
+    if driver_connection is not None and getattr(driver_connection, "in_transaction", False):
+        return False
+
+    connection.exec_driver_sql("BEGIN IMMEDIATE")
+    return True
+
+
 def list_assignments(db: Session, sport_id: int | None = None) -> list[AthletePlanAssignment]:
     query = (
         db.query(AthletePlanAssignment)
@@ -205,6 +218,7 @@ def get_assignment(db: Session, assignment_id: int) -> AthletePlanAssignment:
 
 
 def create_assignment(db: Session, payload: AssignmentCreate) -> AthletePlanAssignment:
+    _begin_immediate_for_assignment_conflict_check(db)
     _validate_window(
         db,
         payload.athlete_id,
@@ -238,6 +252,7 @@ def update_assignment(db: Session, assignment_id: int, payload: AssignmentUpdate
     end_date = updates.get("end_date", assignment.end_date)
     repeat_weekdays = updates.get("repeat_weekdays", assignment.repeat_weekdays)
     status = updates.get("status", assignment.status)
+    _begin_immediate_for_assignment_conflict_check(db)
     _validate_window(db, assignment.athlete_id, start_date, end_date, repeat_weekdays, status, assignment_id)
 
     for key, value in updates.items():
@@ -359,6 +374,7 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
 
 
 def create_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> list[AthletePlanAssignment]:
+    _begin_immediate_for_assignment_conflict_check(db)
     preview = preview_batch_assignments(db, payload)
     created_ids: list[int] = []
 

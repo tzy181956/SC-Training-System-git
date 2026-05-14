@@ -7,11 +7,11 @@ Type=oneshot
 # Keep these paths aligned with sc-training-backend.service.
 User=sc-training
 Group=sc-training
-WorkingDirectory=/opt/sc-training-system/backend
-EnvironmentFile=/opt/sc-training-system/backend/.env
-Environment="PYTHONPATH=/opt/sc-training-system/backend"
+WorkingDirectory=/opt/sc-training-system/current/backend
+EnvironmentFile=/opt/sc-training-system/current/backend/.env
+Environment="PYTHONPATH=/opt/sc-training-system/current/backend"
 Environment="PYTHONDONTWRITEBYTECODE=1"
-ExecStart=/opt/sc-training-system/backend/.venv/bin/python scripts/create_backup.py --trigger daily_auto --label systemd_timer
+ExecStart=/opt/sc-training-system/current/backend/.venv/bin/python scripts/create_backup.py --trigger daily_auto --label systemd_timer
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

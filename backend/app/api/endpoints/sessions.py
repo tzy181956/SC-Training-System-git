@@ -105,8 +105,11 @@ def open_plan_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_assignment(db, current_user, assignment_id)
-    return session_service.open_session_for_assignment(db, assignment_id, session_date or date.today())
+    def operation():
+        access_control_service.get_accessible_assignment(db, current_user, assignment_id)
+        return session_service.open_session_for_assignment(db, assignment_id, session_date or date.today())
+
+    return _commit_or_rollback(db, operation)
 
 
 @router.get("/today", response_model=SessionSnapshotRead)
@@ -136,8 +139,11 @@ def recompute_session_state(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_session(db, current_user, session_id)
-    return session_service.recompute_session_state(db, session_id)
+    def operation():
+        access_control_service.get_accessible_session(db, current_user, session_id)
+        return session_service.recompute_session_state(db, session_id)
+
+    return _commit_or_rollback(db, operation)
 
 
 @router.post("/session-items/{item_id}/sets", response_model=SetSubmissionResponse)
@@ -305,9 +311,12 @@ def complete_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_session_item(db, current_user, item_id)
-    item = session_service.complete_session_item(db, item_id)
-    return session_service.get_session(db, item.session_id)
+    def operation():
+        access_control_service.get_accessible_session_item(db, current_user, item_id)
+        item = session_service.complete_session_item(db, item_id)
+        return session_service.get_session_readonly(db, item.session_id)
+
+    return _commit_or_rollback(db, operation)
 
 
 @router.post("/sessions/{session_id}/complete", response_model=SessionRead)
@@ -316,8 +325,11 @@ def complete_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_session(db, current_user, session_id)
-    return session_service.complete_session(db, session_id)
+    def operation():
+        access_control_service.get_accessible_session(db, current_user, session_id)
+        return session_service.complete_session(db, session_id)
+
+    return _commit_or_rollback(db, operation)
 
 
 @router.post("/sessions/{session_id}/finish-feedback", response_model=SessionRead)
@@ -327,5 +339,8 @@ def submit_session_finish_feedback(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_session(db, current_user, session_id)
-    return session_service.submit_session_finish_feedback(db, session_id, payload)
+    def operation():
+        access_control_service.get_accessible_session(db, current_user, session_id)
+        return session_service.submit_session_finish_feedback(db, session_id, payload)
+
+    return _commit_or_rollback(db, operation)

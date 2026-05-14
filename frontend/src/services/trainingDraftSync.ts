@@ -170,7 +170,7 @@ export function getPendingTrainingOperations(sessionKey: string) {
 }
 
 export function appendPendingTrainingOperation(sessionKey: string, operation: TrainingDraftSyncOperation) {
-  return [...getPendingTrainingOperations(sessionKey), operation]
+  return [...getPendingTrainingOperations(sessionKey), ensurePendingCreateOperationHasLocalId(operation)]
 }
 
 export function buildCreateSetOperation(
@@ -188,7 +188,7 @@ export function buildCreateSetOperation(
     sessionId: targetSession.id ?? null,
     templateItemId: item.template_item_id,
     sessionItemId: targetSession.id ? item.id : null,
-    localRecordId: localRecordId ?? 0,
+    localRecordId,
     payload,
   }) as CreateSetOperation
 }
@@ -347,6 +347,9 @@ export function replayPendingTrainingOperations(baseSession: any, pendingOperati
   const nextSession = cloneTrainingSession(baseSession)
   for (const operation of pendingOperations) {
     if (operation.operation_type === 'create_set') {
+      if (operation.local_record_id === null) {
+        throw new Error('Pending create_set operation missing local_record_id')
+      }
       applyCreateSetToLocalSession(
         nextSession,
         { itemId: operation.session_item_id, templateItemId: operation.template_item_id },
@@ -365,6 +368,13 @@ export function replayPendingTrainingOperations(baseSession: any, pendingOperati
     finalizeLocalSession(nextSession, new Date().toISOString())
   }
   return nextSession
+}
+
+function ensurePendingCreateOperationHasLocalId(operation: TrainingDraftSyncOperation) {
+  if (operation.operation_type === 'create_set' && operation.local_record_id === null) {
+    throw new Error('Pending create_set operation missing local_record_id')
+  }
+  return operation
 }
 
 export function recordNeedsFollowUpUpdate(localRecord: any, syncedRecord: any) {

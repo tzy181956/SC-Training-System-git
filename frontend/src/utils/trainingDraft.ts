@@ -1,4 +1,5 @@
 const DRAFT_STORAGE_PREFIX = 'training-local-draft:'
+const LOCAL_RECORD_ID_SEQUENCE_KEY = 'training-local-record-next-id'
 const FINAL_SESSION_STATUSES = new Set(['completed', 'absent', 'partial_complete'])
 
 export const TRAINING_DRAFT_SYNC_STATUS = {
@@ -36,7 +37,7 @@ type TrainingDraftCreateSetOperation = {
   session_id: number | null
   template_item_id: number
   session_item_id: number | null
-  local_record_id: number
+  local_record_id: number | null
   payload: TrainingDraftSetPayload
   queued_at: string
 }
@@ -219,6 +220,42 @@ export function listTrainingLocalDrafts() {
   return drafts.sort((left, right) => right.last_modified_at.localeCompare(left.last_modified_at))
 }
 
+export function createLocalTrainingRecordId() {
+  const storedNextId = Number(localStorage.getItem(LOCAL_RECORD_ID_SEQUENCE_KEY))
+  const nextCandidate = Number.isInteger(storedNextId) && storedNextId < 0 ? storedNextId : -1
+  const lowestExistingId = findLowestLocalRecordId()
+  const nextId = lowestExistingId === null ? nextCandidate : Math.min(nextCandidate, lowestExistingId - 1)
+  localStorage.setItem(LOCAL_RECORD_ID_SEQUENCE_KEY, String(nextId - 1))
+  return nextId
+}
+
+function findLowestLocalRecordId() {
+  let lowestId: number | null = null
+
+  for (const draft of listTrainingLocalDrafts()) {
+    for (const operation of draft.pending_operations || []) {
+      if (operation.operation_type === 'create_set') {
+        lowestId = resolveLowerLocalRecordId(lowestId, operation.local_record_id)
+      }
+    }
+
+    for (const item of draft.session_snapshot?.items || []) {
+      for (const record of item.records || []) {
+        lowestId = resolveLowerLocalRecordId(lowestId, record.id)
+        lowestId = resolveLowerLocalRecordId(lowestId, record.local_record_id)
+      }
+    }
+  }
+
+  return lowestId
+}
+
+function resolveLowerLocalRecordId(currentLowest: number | null, value: unknown) {
+  const numericValue = Number(value)
+  if (!Number.isInteger(numericValue) || numericValue >= 0) return currentLowest
+  return currentLowest === null ? numericValue : Math.min(currentLowest, numericValue)
+}
+
 export function shouldOfferDraftRestore(draft: TrainingLocalDraft | null) {
   if (!draft) return false
   if (!draft.recorded_sets) return false
@@ -281,11 +318,11 @@ export function createCreateSetSyncOperation(params: {
   sessionId: number | null
   templateItemId: number
   sessionItemId: number | null
-  localRecordId: number
+  localRecordId: number | null
   payload: TrainingDraftSetPayload
 }): TrainingDraftSyncOperation {
   return {
-    operation_key: `create:${params.localRecordId}`,
+    operation_key: `create:${params.localRecordId ?? 'server'}`,
     operation_type: 'create_set',
     assignment_id: params.assignmentId,
     session_date: params.sessionDate,

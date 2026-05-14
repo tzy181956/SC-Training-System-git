@@ -1,5 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import bad_request, unauthorized
@@ -7,7 +9,10 @@ from app.core.security import create_access_token, verify_password
 from app.models import AuthEventLog, User
 
 
-GENERIC_LOGIN_FAILURE_DETAIL = "用户名或密码错误"
+GENERIC_LOGIN_FAILURE_DETAIL = "用户名或密码错误，或登录尝试过于频繁，请稍后再试"
+LOGIN_FAILURE_WINDOW = timedelta(minutes=10)
+USERNAME_FAILURE_LIMIT = 5
+IP_FAILURE_LIMIT = 20
 
 
 def authenticate_user(
@@ -19,6 +24,20 @@ def authenticate_user(
     user_agent: str | None = None,
 ) -> str:
     normalized_username = (username or "").strip()
+    rate_limit_reason = _get_login_rate_limit_reason(db, username=normalized_username, login_ip=login_ip)
+    if rate_limit_reason is not None:
+        user = db.query(User).filter(User.username == normalized_username).first()
+        _record_auth_event(
+            db,
+            username=normalized_username,
+            user=user,
+            success=False,
+            login_ip=login_ip,
+            user_agent=user_agent,
+            failure_reason=rate_limit_reason,
+        )
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=GENERIC_LOGIN_FAILURE_DETAIL)
+
     user = db.query(User).filter(User.username == normalized_username).first()
     if not user:
         _record_auth_event(
@@ -83,6 +102,32 @@ def authenticate_user(
 def verify_current_user_password(user: User, password: str) -> None:
     if not verify_password(password, user.password_hash):
         raise bad_request("密码错误，无法进入管理模式")
+
+
+def _get_login_rate_limit_reason(db: Session, *, username: str, login_ip: str | None) -> str | None:
+    if _count_recent_failures(db, username=username) >= USERNAME_FAILURE_LIMIT:
+        return "rate_limited_username"
+    if login_ip and _count_recent_failures(db, login_ip=login_ip) >= IP_FAILURE_LIMIT:
+        return "rate_limited_ip"
+    return None
+
+
+def _count_recent_failures(
+    db: Session,
+    *,
+    username: str | None = None,
+    login_ip: str | None = None,
+) -> int:
+    cutoff = datetime.now(timezone.utc) - LOGIN_FAILURE_WINDOW
+    query = db.query(func.count(AuthEventLog.id)).filter(
+        AuthEventLog.success.is_(False),
+        AuthEventLog.created_at >= cutoff,
+    )
+    if username is not None:
+        query = query.filter(AuthEventLog.username == _trim_required(username, 120))
+    if login_ip is not None:
+        query = query.filter(AuthEventLog.ip == _trim(login_ip, 45))
+    return int(query.scalar() or 0)
 
 
 def _record_auth_event(

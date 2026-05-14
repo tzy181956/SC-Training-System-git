@@ -10,12 +10,12 @@ Type=simple
 # The backend .env must be readable by this account, and /opt/sc-training-system-data must be writable.
 User=sc-training
 Group=sc-training
-WorkingDirectory=/opt/sc-training-system/backend
-EnvironmentFile=/opt/sc-training-system/backend/.env
-Environment="PYTHONPATH=/opt/sc-training-system/backend"
+WorkingDirectory=/opt/sc-training-system/current/backend
+EnvironmentFile=/opt/sc-training-system/current/backend/.env
+Environment="PYTHONPATH=/opt/sc-training-system/current/backend"
 Environment="PYTHONDONTWRITEBYTECODE=1"
-ExecStartPre=/opt/sc-training-system/backend/.venv/bin/python scripts/migrate_db.py ensure
-ExecStart=/opt/sc-training-system/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStartPre=/opt/sc-training-system/current/backend/.venv/bin/python scripts/migrate_db.py ensure
+ExecStart=/opt/sc-training-system/current/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

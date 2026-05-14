@@ -117,13 +117,13 @@ def preview_session_for_assignment(db: Session, assignment_id: int, session_date
 
 
 def open_session_for_assignment(db: Session, assignment_id: int, session_date: date):
-    close_due_sessions(db)
+    close_due_sessions(db, commit=False)
     assignment = get_assignment(db, assignment_id)
     ensure_assignment_scheduled_for_date(assignment, session_date)
     existing = _find_session_by_assignment_and_date(db, assignment.id, session_date)
     if existing:
         _sync_session_state(existing)
-        db.commit()
+        db.flush()
         return _attach_session_signature(existing)
     return _build_session_preview(assignment, session_date)
 
@@ -152,7 +152,7 @@ def _ensure_session_for_assignment(db: Session, assignment, session_date: date) 
 
     session = _prepare_session_for_assignment_with_conflict_recovery(db, assignment, session_date)
     db.commit()
-    return get_session(db, session.id)
+    return get_session_and_recompute(db, session.id)
 
 
 def _prepare_session_for_assignment(db: Session, assignment, session_date: date) -> TrainingSession:
@@ -282,8 +282,8 @@ def _build_session_module_payloads(items: list[dict]) -> list[dict]:
     return ordered_modules
 
 
-def get_session(db: Session, session_id: int) -> TrainingSession:
-    close_due_sessions(db)
+def get_session_and_recompute(db: Session, session_id: int) -> TrainingSession:
+    close_due_sessions(db, commit=False)
     session = (
         db.query(TrainingSession)
         .options(*SESSION_DETAIL_OPTIONS)
@@ -293,7 +293,7 @@ def get_session(db: Session, session_id: int) -> TrainingSession:
     if not session:
         raise not_found("Training session not found")
     _sync_session_state(session)
-    db.commit()
+    db.flush()
     return _attach_session_signature(session)
 
 
@@ -321,11 +321,16 @@ def recompute_session_state(db: Session, session_id: int) -> TrainingSession:
 
     _sync_session_state(session)
     _refresh_training_loads(db, session)
-    db.commit()
+    db.flush()
     return get_session_readonly(db, session_id)
 
 
 def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
+    if payload.local_record_id == 0:
+        # Older frontend builds used 0 as a placeholder for online creates.
+        # Treat it as absent so it cannot collapse every new set into set 1.
+        payload = payload.model_copy(update={"local_record_id": None})
+
     if payload.local_record_id is not None:
         existing_record = _find_set_record_by_local_record_id(db, item_id, payload.local_record_id)
         if existing_record is not None:
@@ -654,7 +659,7 @@ def complete_session_item(db: Session, item_id: int) -> TrainingSessionItem:
     item.status = "completed"
     _recompute_session_status(item.session)
     _refresh_training_loads(db, item.session)
-    db.commit()
+    db.flush()
     return _get_session_item(db, item_id)
 
 
@@ -664,8 +669,8 @@ def complete_session(db: Session, session_id: int) -> TrainingSession:
         raise not_found("Training session not found")
     _finalize_session(session, closure_reason="manual_end")
     _refresh_training_loads(db, session)
-    db.commit()
-    return get_session(db, session_id)
+    db.flush()
+    return get_session_readonly(db, session_id)
 
 
 def submit_session_finish_feedback(
@@ -695,11 +700,11 @@ def submit_session_finish_feedback(
     if is_first_finish_feedback:
         session.completed_at = datetime.now(timezone.utc)
     _refresh_training_loads(db, session)
-    db.commit()
-    return get_session(db, session_id)
+    db.flush()
+    return get_session_readonly(db, session_id)
 
 
-def close_due_sessions(db: Session, reference_time: datetime | None = None) -> int:
+def close_due_sessions(db: Session, reference_time: datetime | None = None, *, commit: bool = True) -> int:
     """Finalize sessions dated before the current training day.
 
     This function is intentionally idempotent and is used in two places:
@@ -728,7 +733,10 @@ def close_due_sessions(db: Session, reference_time: datetime | None = None) -> i
         _finalize_session(session, closure_reason="midnight_cutoff")
         _refresh_training_loads(db, session)
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return len(due_sessions)
 
 

@@ -4,6 +4,7 @@ from app.api.endpoints import (
     assignments,
     athletes,
     auth,
+    auth_events,
     backups,
     exercise_categories,
     exercises,
@@ -24,6 +25,7 @@ from app.api.endpoints import (
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(auth_events.router)
 api_router.include_router(athletes.router)
 api_router.include_router(backups.router)
 api_router.include_router(tags.router)

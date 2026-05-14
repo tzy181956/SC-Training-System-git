@@ -17,6 +17,7 @@ import {
 } from '@/api/sessions'
 import {
   classifyTrainingDraftAgainstRemote,
+  createLocalTrainingRecordId,
   deleteTrainingLocalDraft,
   type DraftRemoteRelation,
   findTrainingLocalDraftBySessionId,
@@ -440,7 +441,7 @@ export const useTrainingStore = defineStore('training', () => {
     if (!session.value) throw new Error('No session loaded')
 
     const nextSession = cloneTrainingSession(session.value)
-    const localRecordId = -Date.now()
+    const localRecordId = createLocalTrainingRecordId()
     const createOperation = buildCreateSetOperation(nextSession, itemId, payload, localRecordId)
     const { item, record } = applyCreateSetToLocalSession(
       nextSession,

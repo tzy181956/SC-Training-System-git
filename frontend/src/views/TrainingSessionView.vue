@@ -47,12 +47,16 @@ const activeItem = computed(
 const sessionStatusText = computed(() => getTrainingStatusLabel(trainingStore.session?.status))
 const sessionStatusTone = computed(() => getTrainingStatusTone(trainingStore.session?.status))
 const syncIndicatorLabel = computed(() => {
-  if (trainingStore.syncStatus === 'manual_retry_required') return '待教练处理'
-  return trainingStore.syncStatus === 'synced' ? '正常' : '正在同步'
+  if (trainingStore.syncStatus === 'manual_retry_required') return '需要人工处理'
+  return trainingStore.syncStatus === 'synced' ? '已同步' : '待同步'
 })
 const syncIndicatorTone = computed(() => {
   if (trainingStore.syncStatus === 'manual_retry_required') return 'danger'
   return trainingStore.syncStatus === 'synced' ? 'success' : 'warning'
+})
+const syncIndicatorDetail = computed(() => {
+  if (trainingStore.syncStatus === 'pending') return '本机有未同步内容，后台补传中。'
+  return ''
 })
 const manualRetryHint = computed(() =>
   trainingStore.syncStatus === 'manual_retry_required'
@@ -713,9 +717,10 @@ onMounted(hydrate)
             </span>
             <div v-if="trainingStore.session" class="sync-indicator" :class="syncIndicatorTone">
               <span class="sync-indicator-dot"></span>
-              <span>同步{{ syncIndicatorLabel }}</span>
+              <span>{{ syncIndicatorLabel }}</span>
             </div>
             <p v-else class="hero-inline-hint">选择计划即可继续或切换当天训练记录。</p>
+            <p v-if="syncIndicatorDetail" class="session-notice warning">{{ syncIndicatorDetail }}</p>
             <p v-if="manualRetryHint" class="session-notice warning">{{ manualRetryHint }}</p>
             <p v-if="sessionNotice" class="session-notice" :class="sessionNoticeTone">{{ sessionNotice }}</p>
           </div>

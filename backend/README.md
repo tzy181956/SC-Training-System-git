@@ -182,8 +182,9 @@ AUTO_CLOSE_OVERDUE_SESSIONS=false
 默认部署路径约定：
 
 - 项目：`/opt/sc-training-system`
-- 后端：`/opt/sc-training-system/backend`
-- 虚拟环境：`/opt/sc-training-system/backend/.venv`
+- 当前 release 后端：`/opt/sc-training-system/current/backend`
+- 共享环境文件：`/opt/sc-training-system/shared/backend/.env`
+- 虚拟环境：`/opt/sc-training-system/current/backend/.venv`
 - 后端监听：`127.0.0.1:8000`
 
 如果你的部署路径不同，请同步修改 service 文件中的：
@@ -196,7 +197,7 @@ AUTO_CLOSE_OVERDUE_SESSIONS=false
 服务启动前会自动执行：
 
 ```bash
-/opt/sc-training-system/backend/.venv/bin/python scripts/migrate_db.py ensure
+/opt/sc-training-system/current/backend/.venv/bin/python scripts/migrate_db.py ensure
 ```
 
 这一步用于生产库启动前迁移检查。数据库落后于 Alembic head 时会先创建迁移前备份，再升级到最新 revision。
@@ -216,7 +217,7 @@ curl http://127.0.0.1:8000/health
 
 说明：
 
-- service 使用 `backend/.env` 作为 `EnvironmentFile`
+- service 使用 `current/backend/.env` 作为 `EnvironmentFile`；该文件由 release 部署脚本软链到 `shared/backend/.env`
 - service 使用 `ExecStartPre` 执行 `scripts/migrate_db.py ensure`
 - 启动命令不使用 `--reload`
 - 启动命令不使用多 worker
@@ -233,7 +234,7 @@ curl http://127.0.0.1:8000/health
 默认每天服务器本地时间 `03:20` 执行一次：
 
 ```bash
-/opt/sc-training-system/backend/.venv/bin/python scripts/create_backup.py --trigger daily_auto --label systemd_timer
+/opt/sc-training-system/current/backend/.venv/bin/python scripts/create_backup.py --trigger daily_auto --label systemd_timer
 ```
 
 备份文件写入生产数据库同级的 `backups` 目录，例如：
@@ -269,7 +270,7 @@ journalctl -u sc-training-backup.service -n 80 --no-pager
 用途：
 
 - Nginx 对外监听 `80`
-- 前端静态文件目录：`/opt/sc-training-system/frontend/dist`
+- 前端静态文件目录：`/opt/sc-training-system/current/frontend/dist`
 - `/api/` 回源到 `http://127.0.0.1:8000/api/`
 - `/health` 回源到 `http://127.0.0.1:8000/health`
 - Vue Router 使用 history fallback
@@ -345,10 +346,10 @@ python3.12 -m venv .venv
 如果还没有生产环境变量文件，先创建并检查：
 
 ```bash
-sudo cp /opt/sc-training-system/deploy/backend.env.production.example /opt/sc-training-system/backend/.env
-sudo nano /opt/sc-training-system/backend/.env
-sudo chown sc-training:sc-training /opt/sc-training-system/backend/.env
-sudo chmod 640 /opt/sc-training-system/backend/.env
+sudo cp /opt/sc-training-system/current/deploy/backend.env.production.example /opt/sc-training-system/shared/backend/.env
+sudo nano /opt/sc-training-system/shared/backend/.env
+sudo chown root:sc-training /opt/sc-training-system/shared/backend/.env
+sudo chmod 640 /opt/sc-training-system/shared/backend/.env
 ```
 
 构建前端并启用 systemd 服务：

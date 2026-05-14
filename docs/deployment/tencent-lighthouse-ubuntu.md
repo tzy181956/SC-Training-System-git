@@ -62,9 +62,7 @@ sudo apt install -y git python3 python3-venv python3-pip nodejs npm nginx
 ### 5.2 拉取代码
 
 ```bash
-sudo mkdir -p /opt/sc-training-system
-sudo chown -R $USER:$USER /opt/sc-training-system
-git clone <仓库地址> /opt/sc-training-system
+git clone <仓库地址> /tmp/sc-training-system-template
 ```
 
 ### 5.3 创建 systemd 服务用户
@@ -78,7 +76,8 @@ sudo useradd --system --home /opt/sc-training-system --shell /usr/sbin/nologin s
 生产环境建议把 SQLite、WAL/SHM sidecar 文件和自动备份目录统一放在独立数据目录，并交给 `sc-training` 服务用户写入：
 
 ```bash
-sudo mkdir -p /opt/sc-training-system-data
+sudo mkdir -p /opt/sc-training-system/releases /opt/sc-training-system/shared/backend /opt/sc-training-system-data
+sudo chown -R deploy:deploy /opt/sc-training-system
 sudo chown -R sc-training:sc-training /opt/sc-training-system-data
 sudo chmod 750 /opt/sc-training-system-data
 ```
@@ -87,16 +86,15 @@ sudo chmod 750 /opt/sc-training-system-data
 
 路径：
 
-- `/opt/sc-training-system/backend/.env`
+- `/opt/sc-training-system/shared/backend/.env`
 - 仓库示例：`deploy/backend.env.production.example`
 
 建议直接从示例文件复制：
 
 ```bash
-cd /opt/sc-training-system
-cp deploy/backend.env.production.example backend/.env
-sudo chown root:sc-training backend/.env
-sudo chmod 640 backend/.env
+cp /tmp/sc-training-system-template/deploy/backend.env.production.example /opt/sc-training-system/shared/backend/.env
+sudo chown root:sc-training /opt/sc-training-system/shared/backend/.env
+sudo chmod 640 /opt/sc-training-system/shared/backend/.env
 ```
 
 最小示例：
@@ -118,15 +116,9 @@ CORS_ORIGIN_REGEX=
 
 ## 6. 后端部署
 
-```bash
-cd /opt/sc-training-system/backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/migrate_db.py ensure
-```
+GitHub Actions 会把 release 解压到 `/opt/sc-training-system/releases/<timestamp>`，把 `/opt/sc-training-system/current` 切到新 release，并在切换前完成后端依赖安装、迁移前备份和 `python scripts/migrate_db.py ensure`。
 
-这是生产环境首次启动前必须执行的正式迁移步骤。
+这是生产环境首次启动前必须完成的正式迁移步骤。
 
 不要把 `backend/app/core/schema_sync.py` 当作生产迁移路径。
 它只保留开发环境兜底职责；生产环境必须依赖 Alembic migration。
@@ -162,7 +154,7 @@ npm run build
 典型流程：
 
 ```bash
-cd /opt/sc-training-system
+cd /tmp/sc-training-system-template
 sudo cp deploy/sc-training-backend.service /etc/systemd/system/sc-training-backend.service
 sudo cp deploy/nginx-sc-training.production.conf /etc/nginx/sites-available/sc-training
 sudo ln -s /etc/nginx/sites-available/sc-training /etc/nginx/sites-enabled/sc-training
@@ -233,7 +225,7 @@ sudo systemctl reload nginx
 如果生产环境执行过备份恢复，还需要在恢复完成后立即执行：
 
 ```bash
-cd /opt/sc-training-system/backend
+cd /opt/sc-training-system/current/backend
 source .venv/bin/activate
 python scripts/migrate_db.py ensure
 sudo systemctl restart sc-training-backend
@@ -244,21 +236,11 @@ sudo systemctl restart sc-training-backend
 
 ## 11. 更新标准流程
 
+通过 GitHub Actions 部署到服务器后检查：
+
 ```bash
-cd /opt/sc-training-system
-git pull origin 服务器端
-
-cd /opt/sc-training-system/backend
-source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/migrate_db.py ensure
-
-cd /opt/sc-training-system/frontend
-npm install
-npm run build
-
-sudo systemctl restart sc-training-backend
-sudo systemctl reload nginx
+readlink -f /opt/sc-training-system/current
+sudo systemctl status sc-training-backend
 curl http://127.0.0.1/health
 ```
 

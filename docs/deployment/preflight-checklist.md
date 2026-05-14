@@ -7,18 +7,34 @@
 
 - [ ] 服务器部署目录已确认：`/opt/sc-training-system`
 - [ ] 数据目录已确认：`/opt/sc-training-system-data`
-- [ ] 后端 `.env` 已存在：`/opt/sc-training-system/backend/.env`
+- [ ] 后端共享 `.env` 已存在：`/opt/sc-training-system/shared/backend/.env`
 - [ ] `.env` 中已显式配置：
   - [ ] `APP_ENV=production`
   - [ ] `SECRET_KEY`
   - [ ] `DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db`
   - [ ] `CORS_ORIGINS=["https://your-domain.example"]`
 - [ ] `CORS_ORIGIN_REGEX` 在生产环境保持为空，除非你明确知道风险
+- [ ] GitHub Actions 已配置部署 Secrets：`SSH_HOST`、`SSH_USER`、`SSH_KEY`、`DEPLOY_PATH`
+- [ ] 推荐已配置 `SSH_KNOWN_HOSTS`，避免 Actions 每次部署时临时信任 `ssh-keyscan` 结果
 - [ ] 已确认 systemd 服务用户存在：`sc-training`
-- [ ] `/opt/sc-training-system/backend/.env` 对 `sc-training` 可读
+- [ ] `/opt/sc-training-system/shared/backend/.env` 对 `sc-training` 可读
 - [ ] 未继续依赖开发默认值
 - [ ] 前端未写死 `localhost`、`127.0.0.1`、局域网 IP 或公网 IP
 - [ ] 前端默认仍走同域 `/api`，没有改成直连公网 IP 或 `:8000`
+
+获取并核对 `SSH_KNOWN_HOSTS`：
+
+```bash
+# 先在服务器控制台或可信 SSH 会话里记录真实 host key 指纹
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+
+# 再在本地电脑拉取 known_hosts 行并核对指纹
+ssh-keyscan -p 22 your-domain.example > sc-training-known_hosts
+ssh-keygen -lf sc-training-known_hosts
+cat sc-training-known_hosts
+```
+
+核对无误后，把 `sc-training-known_hosts` 的内容保存到 GitHub Secret `SSH_KNOWN_HOSTS`。如果 SSH 端口不是 `22`，把 `ssh-keyscan -p 22` 改成实际端口。
 
 ## 2. 数据库与迁移
 
@@ -27,7 +43,7 @@
 - [ ] 已执行正式迁移命令：
 
 ```bash
-cd /opt/sc-training-system/backend
+cd /opt/sc-training-system/current/backend
 source .venv/bin/activate
 python scripts/migrate_db.py ensure
 ```
@@ -43,15 +59,14 @@ python scripts/migrate_db.py ensure
 - [ ] 前端构建通过：
 
 ```bash
-cd /opt/sc-training-system/frontend
-npm install
-npm run build
+readlink -f /opt/sc-training-system/current
+test -f /opt/sc-training-system/current/frontend/dist/index.html
 ```
 
 - [ ] 后端语法编译通过：
 
 ```bash
-cd /opt/sc-training-system/backend
+cd /opt/sc-training-system/current/backend
 python -m compileall app scripts
 ```
 

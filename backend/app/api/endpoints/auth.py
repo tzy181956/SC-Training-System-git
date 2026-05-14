@@ -18,7 +18,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
-    login_ip = request.client.host if request.client else None
+    login_ip = _resolve_login_ip(request)
     user_agent = request.headers.get("user-agent")
     return TokenResponse(
         access_token=authenticate_user(
@@ -29,6 +29,22 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             user_agent=user_agent,
         )
     )
+
+
+def _resolve_login_ip(request: Request) -> str | None:
+    client_host = request.client.host if request.client else None
+    if client_host in {"127.0.0.1", "::1"}:
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            first_forwarded_ip = forwarded_for.split(",", maxsplit=1)[0].strip()
+            if first_forwarded_ip:
+                return first_forwarded_ip
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            normalized_real_ip = real_ip.strip()
+            if normalized_real_ip:
+                return normalized_real_ip
+    return client_host
 
 
 @router.post("/verify-password", response_model=VerifyPasswordResponse)

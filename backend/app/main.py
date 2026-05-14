@@ -1,10 +1,14 @@
 import asyncio
 from contextlib import suppress
+from pathlib import Path
 import uuid
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -20,15 +24,21 @@ settings = get_settings()
 logger = get_logger(__name__)
 app = FastAPI(title=settings.app_name, contact={"name": PROJECT_AUTHOR_HANDLE})
 AUTO_BACKUP_INTERVAL_SECONDS = 3600
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
+ALLOWED_CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+ALLOWED_CORS_HEADERS = ["Authorization", "Content-Type", "X-Request-ID"]
 _daily_backup_task: asyncio.Task | None = None
+_alembic_head_revision: str | None = None
+_alembic_head_error: str | None = None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=ALLOWED_CORS_METHODS,
+    allow_headers=ALLOWED_CORS_HEADERS,
 )
 app.add_middleware(RequestIDMiddleware)
 app.include_router(api_router, prefix=settings.api_prefix)
@@ -37,6 +47,7 @@ app.include_router(api_router, prefix=settings.api_prefix)
 @app.on_event("startup")
 def startup_sync_schema() -> None:
     global _daily_backup_task
+    _cache_alembic_head_revision()
     _apply_startup_schema_strategy()
     registered_paths = {route.path for route in app.routes}
     expected_paths = {
@@ -113,6 +124,7 @@ def ready_deep(response: Response) -> dict:
     checks = {
         "database": _check_database_ready(),
         "backup_directory": _check_backup_directory_ready(),
+        "alembic_revision": _check_alembic_revision_ready(),
     }
     is_ready = all(check["status"] == "ok" for check in checks.values())
     if not is_ready:
@@ -186,6 +198,66 @@ def _check_backup_directory_ready() -> dict[str, str]:
     finally:
         if marker_path is not None:
             marker_path.unlink(missing_ok=True)
+
+
+def _cache_alembic_head_revision() -> None:
+    global _alembic_head_error, _alembic_head_revision
+    try:
+        config = Config(str(ALEMBIC_INI))
+        script = ScriptDirectory.from_config(config)
+        head_revision = script.get_current_head()
+        if not head_revision:
+            raise RuntimeError("alembic head revision is empty")
+        _alembic_head_revision = head_revision
+        _alembic_head_error = None
+    except Exception as exc:  # noqa: BLE001
+        _alembic_head_revision = None
+        _alembic_head_error = str(exc)
+        logger.exception("alembic_head_revision_cache_failed", extra={"event": "ready", "check": "alembic"})
+
+
+def _check_alembic_revision_ready() -> dict[str, str | None]:
+    if _alembic_head_revision is None and _alembic_head_error is None:
+        _cache_alembic_head_revision()
+
+    if _alembic_head_revision is None:
+        return {
+            "status": "error",
+            "detail": "alembic head revision unavailable",
+            "current_revision": None,
+            "head_revision": None,
+        }
+
+    current_revision = _get_database_alembic_revision()
+    if current_revision is None:
+        return {
+            "status": "error",
+            "detail": "database alembic revision is missing",
+            "current_revision": None,
+            "head_revision": _alembic_head_revision,
+        }
+    if current_revision != _alembic_head_revision:
+        return {
+            "status": "error",
+            "detail": "database alembic revision is not at head",
+            "current_revision": current_revision,
+            "head_revision": _alembic_head_revision,
+        }
+    return {
+        "status": "ok",
+        "current_revision": current_revision,
+        "head_revision": _alembic_head_revision,
+    }
+
+
+def _get_database_alembic_revision() -> str | None:
+    db = SessionLocal()
+    try:
+        return db.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar_one_or_none()
+    except SQLAlchemyError:
+        return None
+    finally:
+        db.close()
 
 
 async def _daily_backup_loop() -> None:

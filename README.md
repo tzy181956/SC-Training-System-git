@@ -160,10 +160,25 @@ python scripts/check_text_encoding.py
 可选配置：
 
 - `SSH_PORT`：SSH 端口，默认 `22`
+- `SSH_KNOWN_HOSTS`：推荐配置，服务器 SSH host key 的 `known_hosts` 行；为空时 workflow 才会退回 `ssh-keyscan` 并打印 warning
 - `SERVICE_NAME`：systemd 后端服务名，默认 `sc-training-backend`
 - `HEALTHCHECK_URL`：健康检查地址，默认 `http://127.0.0.1/health`
 
 不要把任何私钥、服务器密码、`.env`、数据库、备份文件提交进仓库。
+
+获取 `SSH_KNOWN_HOSTS` 的推荐方式：
+
+```bash
+# 在服务器控制台或已经可信的 SSH 会话里查看服务器 host key 指纹
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+
+# 在本地电脑获取 known_hosts 行，并用上一行指纹核对
+ssh-keyscan -p 22 your-domain.example > sc-training-known_hosts
+ssh-keygen -lf sc-training-known_hosts
+cat sc-training-known_hosts
+```
+
+核对无误后，把 `sc-training-known_hosts` 的内容保存为 GitHub Secret：`SSH_KNOWN_HOSTS`。如果 SSH 端口不是 `22`，把命令里的端口改成实际端口；`known_hosts` 行中会使用 `[host]:port` 格式。
 
 #### 首次配置服务器命令
 
@@ -191,32 +206,32 @@ sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys
 sudo chmod 600 /home/deploy/.ssh/authorized_keys
 ```
 
-准备项目目录和数据目录：
+准备项目目录、共享配置目录和数据目录：
 
 ```bash
-sudo mkdir -p /opt/sc-training-system /opt/sc-training-system-data
+sudo mkdir -p /opt/sc-training-system/releases /opt/sc-training-system/shared/backend /opt/sc-training-system-data
 sudo chown -R deploy:deploy /opt/sc-training-system
 sudo chown -R sc-training:sc-training /opt/sc-training-system-data
 sudo chmod 770 /opt/sc-training-system-data
 ```
 
-首次拉取一份代码，用于复制 systemd / Nginx 模板：
+首次拉取一份代码到临时目录，用于复制 systemd / Nginx 模板：
 
 ```bash
-sudo -u deploy git clone -b 服务器端 <REPO_URL> /opt/sc-training-system
+sudo -u deploy git clone -b 服务器端 <REPO_URL> /tmp/sc-training-system-template
 ```
 
 配置生产后端 `.env`：
 
 ```bash
+sudo cp /tmp/sc-training-system-template/deploy/backend.env.production.example /opt/sc-training-system/shared/backend/.env
 cd /opt/sc-training-system
-sudo cp deploy/backend.env.production.example backend/.env
-sudo chown root:sc-training backend/.env
-sudo chmod 640 backend/.env
-sudo nano backend/.env
+sudo chown root:sc-training shared/backend/.env
+sudo chmod 640 shared/backend/.env
+sudo nano shared/backend/.env
 ```
 
-`backend/.env` 至少需要确认：
+`shared/backend/.env` 至少需要确认：
 
 ```dotenv
 APP_ENV=production
@@ -229,7 +244,7 @@ CORS_ORIGIN_REGEX=
 安装 systemd 和 Nginx 配置：
 
 ```bash
-cd /opt/sc-training-system
+cd /tmp/sc-training-system-template
 sudo cp deploy/sc-training-backend.service /etc/systemd/system/sc-training-backend.service
 sudo cp deploy/nginx-sc-training.production.conf /etc/nginx/sites-available/sc-training
 sudo nano /etc/nginx/sites-available/sc-training
@@ -254,12 +269,9 @@ EOF
 sudo chmod 440 /etc/sudoers.d/sc-training-deploy
 ```
 
-首次手动初始化依赖、迁移和服务：
+首次手动初始化依赖、迁移和服务时，先使用 GitHub Actions 完成一次部署，让 `/opt/sc-training-system/current` 指向一个 release。随后执行：
 
 ```bash
-sudo -u deploy bash -lc 'cd /opt/sc-training-system/backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python scripts/migrate_db.py ensure'
-sudo -u deploy bash -lc 'cd /opt/sc-training-system/frontend && npm install && npm run build'
-
 sudo systemctl daemon-reload
 sudo systemctl enable sc-training-backend
 sudo systemctl restart sc-training-backend
@@ -278,6 +290,30 @@ curl http://127.0.0.1/health
 - `backend/scripts/migrate_db.py ensure`
 
 `schema_sync.py` 仅保留为过渡期兼容兜底，不再是正式主迁移方案。
+
+### 破坏性数据清理
+
+破坏性业务数据清理不随 Alembic migration 或 deploy 自动执行。需要先人工确认影响范围，再显式运行对应脚本。
+
+当前可用脚本：
+
+- `backend/scripts/data_cleanup/delete_vibration_equipment_exercises.py`
+
+该脚本用于清理动作库中带 `振动器材` 器械标签的动作。默认不会删除数据，先执行 dry-run：
+
+```powershell
+cd backend
+set PYTHONPATH=.
+.\.venv\Scripts\python.exe scripts\data_cleanup\delete_vibration_equipment_exercises.py --dry-run
+```
+
+确认 dry-run 输出的删除数量、样例和引用检查后，再手动执行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\data_cleanup\delete_vibration_equipment_exercises.py --confirm DELETE_VIBRATION_EQUIPMENT_EXERCISES
+```
+
+执行模式会先创建危险操作前备份，成功或失败都会写入危险操作日志。若目标动作仍被训练模板或历史训练课引用，脚本会拒绝删除。
 
 ## 阅读顺序
 

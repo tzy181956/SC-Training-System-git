@@ -26,7 +26,12 @@ from app.models import (
     TrainingSyncConflict,
     TrainingSyncIssue,
 )
-from app.schemas.training_session import SessionFullSyncPayload, SessionSetSyncOperation, SetRecordCreate
+from app.schemas.training_session import (
+    SessionFinishFeedbackUpdate,
+    SessionFullSyncPayload,
+    SessionSetSyncOperation,
+    SetRecordCreate,
+)
 from app.services import session_service
 
 
@@ -64,6 +69,21 @@ def test_duplicate_local_record_id_returns_existing_record(db_session) -> None:
 
     assert second_response["record"].id == first_response["record"].id
     assert db_session.query(SetRecord).count() == 1
+
+
+def test_zero_local_record_id_is_treated_as_absent(db_session) -> None:
+    ids = _seed_training_session(db_session)
+    payload = _create_set_payload(ids.session_id, ids.session_item_id, local_record_id=0)
+
+    first_response = sessions_endpoint.sync_session_operation(payload, db_session, _admin_user())
+    second_response = sessions_endpoint.sync_session_operation(payload, db_session, _admin_user())
+
+    assert first_response["record"].id != second_response["record"].id
+    assert first_response["record"].set_number == 1
+    assert second_response["record"].set_number == 2
+    assert first_response["record"].local_record_id is None
+    assert second_response["record"].local_record_id is None
+    assert db_session.query(SetRecord).count() == 2
 
 
 def test_local_record_id_conflict_keeps_outer_staged_change(db_session) -> None:
@@ -173,6 +193,57 @@ def test_create_set_exception_rolls_back_new_record(db_session) -> None:
     assert db_session.query(SetRecord).count() == 0
 
 
+def test_complete_item_commits_successfully(db_session) -> None:
+    ids = _seed_training_session(db_session)
+    _add_completed_records(db_session, ids.session_item_id, count=3)
+
+    response = sessions_endpoint.complete_item(ids.session_item_id, db_session, _admin_user())
+
+    assert response.status == "completed"
+    db_session.expire_all()
+    item = db_session.get(TrainingSessionItem, ids.session_item_id)
+    session = db_session.get(TrainingSession, ids.session_id)
+    assert item.status == "completed"
+    assert session.status == "completed"
+
+
+def test_complete_session_exception_rolls_back_status_change(db_session) -> None:
+    ids = _seed_training_session(db_session)
+
+    with (
+        patch.object(session_service, "_refresh_training_loads", side_effect=RuntimeError("simulated failure")),
+        pytest.raises(RuntimeError, match="simulated failure"),
+    ):
+        sessions_endpoint.complete_session(ids.session_id, db_session, _admin_user())
+
+    db_session.expire_all()
+    session = db_session.get(TrainingSession, ids.session_id)
+    assert session.status == "not_started"
+    assert session.completed_at is None
+
+
+def test_finish_feedback_exception_rolls_back_feedback_change(db_session) -> None:
+    ids = _seed_training_session(db_session)
+    session = db_session.get(TrainingSession, ids.session_id)
+    session.status = "completed"
+    session.completed_at = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
+    db_session.commit()
+
+    payload = SessionFinishFeedbackUpdate(session_rpe=8, session_feedback="整体强度偏高")
+
+    with (
+        patch.object(session_service, "_refresh_training_loads", side_effect=RuntimeError("simulated failure")),
+        pytest.raises(RuntimeError, match="simulated failure"),
+    ):
+        sessions_endpoint.submit_session_finish_feedback(ids.session_id, payload, db_session, _admin_user())
+
+    db_session.expire_all()
+    session = db_session.get(TrainingSession, ids.session_id)
+    assert session.status == "completed"
+    assert session.session_rpe is None
+    assert session.session_feedback is None
+
+
 def _create_set_payload(session_id: int, session_item_id: int, *, local_record_id: int) -> SessionSetSyncOperation:
     return SessionSetSyncOperation(
         operation_type="create_set",
@@ -250,3 +321,24 @@ def _seed_training_session(db):
         session_id=session.id,
         session_item_id=session_item.id,
     )
+
+
+def _add_completed_records(db, session_item_id: int, *, count: int) -> None:
+    item = db.get(TrainingSessionItem, session_item_id)
+    for set_number in range(1, count + 1):
+        item.records.append(
+            SetRecord(
+                set_number=set_number,
+                target_weight=50.0,
+                target_reps=5,
+                actual_weight=50.0,
+                actual_reps=5,
+                actual_rir=2,
+                suggestion_weight=None,
+                suggestion_reason=None,
+                user_decision="accepted",
+                final_weight=50.0,
+                completed_at=datetime(2026, 5, 14, 9, set_number, tzinfo=timezone.utc),
+            )
+        )
+    db.commit()
