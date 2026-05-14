@@ -116,7 +116,11 @@ CORS_ORIGIN_REGEX=
 
 ## 6. 后端部署
 
-GitHub Actions 会把 release 解压到 `/opt/sc-training-system/releases/<timestamp>`，把 `/opt/sc-training-system/current` 切到新 release，并在切换前完成后端依赖安装、迁移前备份和 `python scripts/migrate_db.py ensure`。
+GitHub Actions 当前会通过 SSH 登录服务器，在 `DEPLOY_PATH` 指向的 Git 工作目录执行 `git pull`，然后完成后端依赖安装、`python scripts/migrate_db.py ensure`、前端构建、systemd 重启、Nginx reload 和健康检查。
+
+详细的 GitHub Secrets、SSH key、known_hosts 和常见错误说明见：
+
+- `docs/DEPLOYMENT.md`
 
 这是生产环境首次启动前必须完成的正式迁移步骤。
 

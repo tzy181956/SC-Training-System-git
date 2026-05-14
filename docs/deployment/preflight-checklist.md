@@ -14,7 +14,8 @@
   - [ ] `DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db`
   - [ ] `CORS_ORIGINS=["https://your-domain.example"]`
 - [ ] `CORS_ORIGIN_REGEX` 在生产环境保持为空，除非你明确知道风险
-- [ ] GitHub Actions 已配置部署 Secrets：`SSH_HOST`、`SSH_USER`、`SSH_KEY`、`DEPLOY_PATH`
+- [ ] GitHub Actions 已配置部署 Secrets：`SERVER_HOST`、`SERVER_USER`、`SSH_PRIVATE_KEY`、`DEPLOY_PATH`
+- [ ] 如沿用旧 Secrets 名称，已确认 workflow 兼容项 `SSH_HOST`、`SSH_USER`、`SSH_KEY` 仍然存在且值正确
 - [ ] 推荐已配置 `SSH_KNOWN_HOSTS`，避免 Actions 每次部署时临时信任 `ssh-keyscan` 结果
 - [ ] 已确认 systemd 服务用户存在：`sc-training`
 - [ ] `/opt/sc-training-system/shared/backend/.env` 对 `sc-training` 可读

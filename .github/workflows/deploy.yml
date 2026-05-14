@@ -15,16 +15,14 @@ permissions:
 
 jobs:
   deploy:
-    name: Build, test, and deploy
+    name: Check and deploy to Tencent Cloud
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     env:
       PYTHON_VERSION: "3.12"
       NODE_VERSION: "20"
-      RELEASE_ARCHIVE: sc-training-release.tgz
-      REMOTE_RELEASE_ARCHIVE: /tmp/sc-training-release.tgz
-      REMOTE_DEPLOY_SCRIPT: /tmp/sc-training-deploy.sh
+      DEPLOY_BRANCH: ${{ github.ref_name }}
 
     steps:
       - name: Checkout code
@@ -40,8 +38,10 @@ jobs:
       - name: Install backend dependencies
         run: |
           set -euo pipefail
+          echo "::group::Install backend dependencies"
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt
+          echo "::endgroup::"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -52,9 +52,13 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: |
+          set -euo pipefail
+          echo "::group::Install frontend dependencies"
+          npm ci
+          echo "::endgroup::"
 
-      - name: Run checks and tests
+      - name: Run backend checks
         env:
           APP_ENV: development
           SECRET_KEY: ci-backend-check-secret-key
@@ -62,86 +66,214 @@ jobs:
           ALEMBIC_DATABASE_URL: sqlite:///${{ runner.temp }}/sc-training-ci/backend-check.db
         run: |
           set -euo pipefail
+          echo "::group::Backend checks"
           mkdir -p "$RUNNER_TEMP/sc-training-ci"
-          python -m pip install pytest
           cd backend
           python scripts/backend_check.py
+          echo "::endgroup::"
 
       - name: Build frontend
         working-directory: frontend
-        run: npm run build
-
-      - name: Create release archive
         run: |
           set -euo pipefail
-          tar \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='backend/.venv' \
-            --exclude='backend/training.db*' \
-            --exclude='backend/*.db' \
-            --exclude='backend/*.db-*' \
-            --exclude='backend/*.sqlite3' \
-            --exclude='backend/backups' \
-            --exclude='frontend/node_modules' \
-            --exclude='logs/*' \
-            -czf "$RELEASE_ARCHIVE" .
-          test -s "$RELEASE_ARCHIVE"
+          echo "::group::Frontend build"
+          npm run build
+          echo "::endgroup::"
 
-      - name: Validate deployment secrets
+      - name: Validate deployment configuration
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_KEY: ${{ secrets.SSH_KEY }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST || secrets.SSH_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER || secrets.SSH_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT || secrets.SSH_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY || secrets.SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || vars.DEPLOY_PATH }}
         run: |
           set -euo pipefail
-          test -n "$SSH_HOST" || (echo "::error::Missing GitHub Secret: SSH_HOST" && exit 1)
-          test -n "$SSH_USER" || (echo "::error::Missing GitHub Secret: SSH_USER" && exit 1)
-          test -n "$SSH_KEY" || (echo "::error::Missing GitHub Secret: SSH_KEY" && exit 1)
-          test -n "$DEPLOY_PATH" || (echo "::error::Missing GitHub Secret: DEPLOY_PATH" && exit 1)
+          echo "::group::Validate deployment configuration"
+          test -n "$SERVER_HOST" || (echo "::error::Missing GitHub Secret: SERVER_HOST. Legacy fallback SSH_HOST is also empty." && exit 1)
+          test -n "$SERVER_USER" || (echo "::error::Missing GitHub Secret: SERVER_USER. Legacy fallback SSH_USER is also empty." && exit 1)
+          test -n "$SSH_PRIVATE_KEY" || (echo "::error::Missing GitHub Secret: SSH_PRIVATE_KEY. Legacy fallback SSH_KEY is also empty." && exit 1)
+          test -n "$DEPLOY_PATH" || (echo "::error::Missing GitHub Secret or Variable: DEPLOY_PATH" && exit 1)
+          if ! [[ "$SERVER_PORT" =~ ^[0-9]+$ ]]; then
+            echo "::error::SERVER_PORT must be a number."
+            exit 1
+          fi
+          echo "Deployment configuration names are present. Secret values are not printed."
+          echo "::endgroup::"
 
       - name: Configure SSH
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST || secrets.SSH_HOST }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT || secrets.SSH_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY || secrets.SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
         run: |
           set -euo pipefail
+          echo "::group::Configure SSH"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
+
           if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
             printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           else
-            echo "::warning::SSH_KNOWN_HOSTS is empty; falling back to ssh-keyscan. Verify the scanned host key out of band before trusting this deployment."
-            ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+            echo "::warning::SSH_KNOWN_HOSTS is empty; using ssh-keyscan for this run. Verify and save the server host key as SSH_KNOWN_HOSTS to avoid trusting a scanned key at deploy time."
+            ssh-keyscan -p "$SERVER_PORT" -H "$SERVER_HOST" > ~/.ssh/known_hosts
           fi
           chmod 600 ~/.ssh/known_hosts
-          test -s ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts || (echo "::error::known_hosts is empty. Check SERVER_HOST, SERVER_PORT, or SSH_KNOWN_HOSTS." && exit 1)
+          echo "SSH key and known_hosts are ready."
+          echo "::endgroup::"
 
-      - name: Upload release archive and deploy script
+      - name: Test SSH connection
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST || secrets.SSH_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER || secrets.SSH_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT || secrets.SSH_PORT || '22' }}
         run: |
           set -euo pipefail
-          chmod +x scripts/deploy.sh
-          scp -i ~/.ssh/deploy_key -P "$SSH_PORT" "$RELEASE_ARCHIVE" "$SSH_USER@$SSH_HOST:$REMOTE_RELEASE_ARCHIVE"
-          scp -i ~/.ssh/deploy_key -P "$SSH_PORT" scripts/deploy.sh "$SSH_USER@$SSH_HOST:$REMOTE_DEPLOY_SCRIPT"
+          echo "::group::Test SSH connection"
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "$SERVER_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SERVER_USER@$SERVER_HOST" \
+            "echo '[remote] SSH connection OK'; command -v bash; command -v git; command -v python3; command -v npm; command -v curl"
+          echo "::endgroup::"
 
       - name: Deploy on server
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          SERVICE_NAME: ${{ secrets.SERVICE_NAME || 'sc-training-backend' }}
-          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL || 'http://127.0.0.1/health' }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST || secrets.SSH_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER || secrets.SSH_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT || secrets.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || vars.DEPLOY_PATH }}
+          SERVICE_NAME: ${{ secrets.SERVICE_NAME || vars.SERVICE_NAME || 'sc-training-backend' }}
+          NGINX_SERVICE: ${{ secrets.NGINX_SERVICE || vars.NGINX_SERVICE || 'nginx' }}
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL || vars.HEALTHCHECK_URL || 'http://127.0.0.1/health' }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_PATH='$DEPLOY_PATH' SERVICE_NAME='$SERVICE_NAME' HEALTHCHECK_URL='$HEALTHCHECK_URL' bash '$REMOTE_DEPLOY_SCRIPT' '$REMOTE_RELEASE_ARCHIVE'"
+          echo "::group::Deploy on server"
+
+          printf -v DEPLOY_PATH_Q '%q' "$DEPLOY_PATH"
+          printf -v DEPLOY_BRANCH_Q '%q' "$DEPLOY_BRANCH"
+          printf -v SERVICE_NAME_Q '%q' "$SERVICE_NAME"
+          printf -v NGINX_SERVICE_Q '%q' "$NGINX_SERVICE"
+          printf -v HEALTHCHECK_URL_Q '%q' "$HEALTHCHECK_URL"
+
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "$SERVER_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SERVER_USER@$SERVER_HOST" \
+            "DEPLOY_PATH=$DEPLOY_PATH_Q DEPLOY_BRANCH=$DEPLOY_BRANCH_Q SERVICE_NAME=$SERVICE_NAME_Q NGINX_SERVICE=$NGINX_SERVICE_Q HEALTHCHECK_URL=$HEALTHCHECK_URL_Q bash -s" <<'REMOTE_DEPLOY'
+          set -Eeuo pipefail
+
+          log() {
+            printf '[remote][%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
+          }
+
+          fail() {
+            printf '[remote][error] %s\n' "$*" >&2
+            exit 1
+          }
+
+          print_diagnostics() {
+            local exit_code=$?
+            printf '[remote][error] Deploy failed at line %s with exit code %s.\n' "${BASH_LINENO[0]:-unknown}" "$exit_code" >&2
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl --no-pager --full status "$SERVICE_NAME" || true
+            fi
+            if command -v journalctl >/dev/null 2>&1; then
+              sudo journalctl -u "$SERVICE_NAME" -n 100 --no-pager || true
+            fi
+            exit "$exit_code"
+          }
+
+          trap print_diagnostics ERR
+
+          log "Checking deployment inputs."
+          test -n "${DEPLOY_PATH:-}" || fail "DEPLOY_PATH is empty."
+          test -n "${DEPLOY_BRANCH:-}" || fail "DEPLOY_BRANCH is empty."
+          test -d "$DEPLOY_PATH" || fail "DEPLOY_PATH does not exist: $DEPLOY_PATH"
+          test -d "$DEPLOY_PATH/.git" || fail "DEPLOY_PATH is not a git working tree: $DEPLOY_PATH"
+
+          log "Checking server commands."
+          command -v git >/dev/null 2>&1 || fail "git command not found."
+          command -v python3 >/dev/null 2>&1 || fail "python3 command not found."
+          command -v npm >/dev/null 2>&1 || fail "npm command not found."
+          command -v curl >/dev/null 2>&1 || fail "curl command not found."
+          command -v sudo >/dev/null 2>&1 || fail "sudo command not found."
+
+          cd "$DEPLOY_PATH"
+          log "Fetching branch from origin."
+          git fetch --prune origin "$DEPLOY_BRANCH"
+
+          log "Checking out deploy branch."
+          if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
+            git checkout "$DEPLOY_BRANCH"
+          else
+            git checkout -b "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
+          fi
+
+          log "Pulling latest code with fast-forward only."
+          git pull --ff-only origin "$DEPLOY_BRANCH"
+          git rev-parse --short HEAD | sed 's/^/[remote] Current commit: /'
+
+          log "Checking production backend environment file."
+          test -f backend/.env || fail "backend/.env is missing. Create production .env before deploying."
+
+          log "Preparing backend virtual environment."
+          cd "$DEPLOY_PATH/backend"
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+          log "Compiling backend Python files."
+          python -m compileall app scripts
+
+          log "Running database migration ensure."
+          python scripts/migrate_db.py ensure
+          deactivate
+
+          log "Installing frontend dependencies."
+          cd "$DEPLOY_PATH/frontend"
+          npm ci
+
+          log "Building frontend."
+          npm run build
+
+          log "Testing Nginx configuration."
+          sudo nginx -t
+
+          log "Restarting backend service: $SERVICE_NAME"
+          sudo systemctl restart "$SERVICE_NAME"
+
+          log "Reloading Nginx service: $NGINX_SERVICE"
+          sudo systemctl reload "$NGINX_SERVICE"
+
+          log "Running health check: $HEALTHCHECK_URL"
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 5 "$HEALTHCHECK_URL" >/tmp/sc-training-healthcheck.out; then
+              log "Health check passed."
+              rm -f /tmp/sc-training-healthcheck.out
+              log "Deployment completed successfully."
+              exit 0
+            fi
+            log "Health check attempt $attempt failed; retrying in 5 seconds."
+            sleep 5
+          done
+
+          cat /tmp/sc-training-healthcheck.out 2>/dev/null || true
+          fail "Health check failed after 12 attempts."
+REMOTE_DEPLOY
+          echo "::endgroup::"
