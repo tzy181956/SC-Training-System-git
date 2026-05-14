@@ -88,12 +88,17 @@ jobs:
           test -s "$RELEASE_ARCHIVE"
 
       - name: Validate deployment secrets
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           set -euo pipefail
-          test -n "${{ secrets.SSH_HOST }}" || (echo "::error::Missing GitHub Secret: SSH_HOST" && exit 1)
-          test -n "${{ secrets.SSH_USER }}" || (echo "::error::Missing GitHub Secret: SSH_USER" && exit 1)
-          test -n "${{ secrets.SSH_KEY }}" || (echo "::error::Missing GitHub Secret: SSH_KEY" && exit 1)
-          test -n "${{ secrets.DEPLOY_PATH }}" || (echo "::error::Missing GitHub Secret: DEPLOY_PATH" && exit 1)
+          test -n "$SSH_HOST" || (echo "::error::Missing GitHub Secret: SSH_HOST" && exit 1)
+          test -n "$SSH_USER" || (echo "::error::Missing GitHub Secret: SSH_USER" && exit 1)
+          test -n "$SSH_KEY" || (echo "::error::Missing GitHub Secret: SSH_KEY" && exit 1)
+          test -n "$DEPLOY_PATH" || (echo "::error::Missing GitHub Secret: DEPLOY_PATH" && exit 1)
 
       - name: Configure SSH
         env:
