@@ -93,10 +93,60 @@ def ensure_assignment_scheduled_for_date(assignment: AthletePlanAssignment, targ
         raise bad_request("该计划在所选日期不是应训练日")
 
 
+def find_assignment_date_conflicts(
+    db: Session,
+    athlete_id: int,
+    start_date: date,
+    end_date: date,
+    repeat_weekdays: list[int] | None,
+    assignment_status: str = "active",
+    ignore_id: int | None = None,
+) -> list[dict]:
+    if assignment_status != "active" or start_date > end_date:
+        return []
+
+    candidates = (
+        db.query(AthletePlanAssignment)
+        .options(joinedload(AthletePlanAssignment.template))
+        .filter(
+            AthletePlanAssignment.athlete_id == athlete_id,
+            AthletePlanAssignment.status == "active",
+            AthletePlanAssignment.start_date <= end_date,
+            AthletePlanAssignment.end_date >= start_date,
+        )
+    )
+    if ignore_id is not None:
+        candidates = candidates.filter(AthletePlanAssignment.id != ignore_id)
+
+    target_weekdays = _normalize_repeat_weekdays(repeat_weekdays)
+    conflicts = []
+    for assignment in candidates.order_by(AthletePlanAssignment.start_date.asc(), AthletePlanAssignment.id.asc()).all():
+        conflict_dates = _find_overlapping_scheduled_dates(
+            start_date,
+            end_date,
+            target_weekdays,
+            assignment,
+        )
+        if not conflict_dates:
+            continue
+        conflicts.append(
+            {
+                "assignment": assignment,
+                "assignment_id": assignment.id,
+                "template_id": assignment.template_id,
+                "template_name": assignment.template.name if assignment.template else None,
+                "start_date": assignment.start_date,
+                "end_date": assignment.end_date,
+                "repeat_weekdays": get_assignment_repeat_weekdays(assignment),
+                "dates": conflict_dates,
+            }
+        )
+    return conflicts
+
+
 def _validate_window(
     db: Session,
     athlete_id: int,
-    template_id: int,
     start_date: date,
     end_date: date,
     repeat_weekdays: list[int] | None,
@@ -109,20 +159,17 @@ def _validate_window(
     if assignment_status != "active":
         return
 
-    duplicate_query = db.query(AthletePlanAssignment).filter(
-        AthletePlanAssignment.athlete_id == athlete_id,
-        AthletePlanAssignment.template_id == template_id,
-        AthletePlanAssignment.start_date == start_date,
-        AthletePlanAssignment.end_date == end_date,
-        AthletePlanAssignment.status == "active",
+    conflicts = find_assignment_date_conflicts(
+        db,
+        athlete_id,
+        start_date,
+        end_date,
+        repeat_weekdays,
+        assignment_status,
+        ignore_id,
     )
-    if ignore_id is not None:
-        duplicate_query = duplicate_query.filter(AthletePlanAssignment.id != ignore_id)
-
-    target_repeat_weekdays = tuple(_normalize_repeat_weekdays(repeat_weekdays))
-    for duplicate_assignment in duplicate_query.all():
-        if tuple(get_assignment_repeat_weekdays(duplicate_assignment)) == target_repeat_weekdays:
-            raise bad_request("该队员已存在相同模板、时间段和循环星期的有效计划，请勿重复分配。")
+    if conflicts:
+        raise bad_request(_build_assignment_conflict_message(conflicts))
 
 
 def list_assignments(db: Session, sport_id: int | None = None) -> list[AthletePlanAssignment]:
@@ -161,7 +208,6 @@ def create_assignment(db: Session, payload: AssignmentCreate) -> AthletePlanAssi
     _validate_window(
         db,
         payload.athlete_id,
-        payload.template_id,
         payload.start_date,
         payload.end_date,
         payload.repeat_weekdays,
@@ -188,12 +234,11 @@ def update_assignment(db: Session, assignment_id: int, payload: AssignmentUpdate
         raise not_found("未找到计划分配记录")
 
     updates = payload.model_dump(exclude_unset=True)
-    template_id = updates.get("template_id", assignment.template_id)
     start_date = updates.get("start_date", assignment.start_date)
     end_date = updates.get("end_date", assignment.end_date)
     repeat_weekdays = updates.get("repeat_weekdays", assignment.repeat_weekdays)
     status = updates.get("status", assignment.status)
-    _validate_window(db, assignment.athlete_id, template_id, start_date, end_date, repeat_weekdays, status, assignment_id)
+    _validate_window(db, assignment.athlete_id, start_date, end_date, repeat_weekdays, status, assignment_id)
 
     for key, value in updates.items():
         setattr(assignment, key, value)
@@ -266,6 +311,15 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
     rows = []
     for athlete_id in payload.athlete_ids:
         athlete = athlete_service.get_athlete(db, athlete_id)
+        conflicts = find_assignment_date_conflicts(
+            db,
+            athlete.id,
+            payload.start_date,
+            payload.end_date,
+            payload.repeat_weekdays,
+            payload.status,
+        )
+        conflict_dates = _flatten_conflict_dates(conflicts)
         items = []
         for item in template.items:
             override = build_assignment_item_override(db, athlete.id, item)
@@ -285,7 +339,15 @@ def preview_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> di
                     "status": "manual_control" if is_manual_load else "assignable",
                 }
             )
-        rows.append({"athlete": athlete, "items": items})
+        rows.append(
+            {
+                "athlete": athlete,
+                "items": items,
+                "conflict_status": "conflict" if conflict_dates else "none",
+                "conflict_dates": conflict_dates,
+                "conflict_message": _build_assignment_conflict_message(conflicts) if conflict_dates else None,
+            }
+        )
 
     return {
         "template": template,
@@ -304,7 +366,6 @@ def create_batch_assignments(db: Session, payload: BatchAssignmentCreate) -> lis
         _validate_window(
             db,
             athlete_id,
-            payload.template_id,
             payload.start_date,
             payload.end_date,
             payload.repeat_weekdays,
@@ -468,3 +529,55 @@ def _get_template_for_assignment(db: Session, template_id: int) -> TrainingPlanT
     if not template:
         raise not_found("未找到训练模板")
     return template
+
+
+def _find_overlapping_scheduled_dates(
+    start_date: date,
+    end_date: date,
+    repeat_weekdays: list[int],
+    assignment: AthletePlanAssignment,
+) -> list[date]:
+    overlap_start = max(start_date, assignment.start_date)
+    overlap_end = min(end_date, assignment.end_date)
+    if overlap_start > overlap_end:
+        return []
+
+    overlapping_weekdays = set(repeat_weekdays) & set(get_assignment_repeat_weekdays(assignment))
+    conflict_dates: list[date] = []
+    for weekday in sorted(overlapping_weekdays):
+        days_until_weekday = (weekday - overlap_start.isoweekday()) % 7
+        current = overlap_start + timedelta(days=days_until_weekday)
+        while current <= overlap_end:
+            conflict_dates.append(current)
+            current += timedelta(days=7)
+    return sorted(conflict_dates)
+
+
+def _flatten_conflict_dates(conflicts: list[dict]) -> list[date]:
+    return sorted({conflict_date for conflict in conflicts for conflict_date in conflict["dates"]})
+
+
+def _build_assignment_conflict_message(conflicts: list[dict]) -> str:
+    conflict_dates = _flatten_conflict_dates(conflicts)
+    if not conflict_dates:
+        return ""
+
+    date_text = _format_conflict_dates(conflict_dates)
+    template_names = sorted(
+        {
+            conflict["template_name"]
+            for conflict in conflicts
+            if conflict.get("template_name")
+        }
+    )
+    template_text = f"（已有计划：{'、'.join(template_names[:3])}）" if template_names else ""
+    return f"该队员在 {date_text} 已有有效计划分配{template_text}，同一天最多只能有一个 active 计划。"
+
+
+def _format_conflict_dates(conflict_dates: list[date], max_visible_dates: int = 6) -> str:
+    visible_dates = conflict_dates[:max_visible_dates]
+    date_text = "、".join(conflict_date.isoformat() for conflict_date in visible_dates)
+    remaining_count = len(conflict_dates) - len(visible_dates)
+    if remaining_count > 0:
+        date_text = f"{date_text} 等 {len(conflict_dates)} 天"
+    return date_text

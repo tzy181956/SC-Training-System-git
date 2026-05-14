@@ -45,6 +45,17 @@ def test_auth_me_returns_admin_capabilities_and_legacy_fields(asgi_client: Any) 
     assert payload["available_modes"] == ["management", "training", "monitor"]
     assert payload["can_manage_users"] is True
     assert payload["can_manage_system"] is True
+    assert payload["capabilities"]["can_manage_users"] is True
+    assert payload["capabilities"]["can_manage_sports"] is True
+    assert payload["capabilities"]["can_manage_teams"] is True
+    assert payload["capabilities"]["can_manage_athletes"] is True
+    assert payload["capabilities"]["can_manage_templates"] is True
+    assert payload["capabilities"]["can_manage_backups"] is True
+    assert payload["capabilities"]["can_manage_test_definitions"] is True
+    assert payload["capabilities"]["can_import_test_records"] is True
+    assert payload["capabilities"]["can_enter_training"] is True
+    assert payload["capabilities"]["can_view_monitor"] is True
+    assert payload["capabilities"]["can_run_maintenance"] is True
     assert payload["capabilities"]["manage_users"] is True
     assert payload["capabilities"]["manage_system"] is True
     assert payload["capabilities"]["access_management"] is True
@@ -77,6 +88,17 @@ def test_auth_me_returns_coach_capabilities_and_legacy_fields(asgi_client: Any) 
     assert payload["available_modes"] == ["management", "training", "monitor"]
     assert payload["can_manage_users"] is False
     assert payload["can_manage_system"] is True
+    assert payload["capabilities"]["can_manage_users"] is False
+    assert payload["capabilities"]["can_manage_sports"] is False
+    assert payload["capabilities"]["can_manage_teams"] is True
+    assert payload["capabilities"]["can_manage_athletes"] is True
+    assert payload["capabilities"]["can_manage_templates"] is True
+    assert payload["capabilities"]["can_manage_backups"] is False
+    assert payload["capabilities"]["can_manage_test_definitions"] is True
+    assert payload["capabilities"]["can_import_test_records"] is True
+    assert payload["capabilities"]["can_enter_training"] is True
+    assert payload["capabilities"]["can_view_monitor"] is True
+    assert payload["capabilities"]["can_run_maintenance"] is False
     assert payload["capabilities"]["manage_users"] is False
     assert payload["capabilities"]["manage_system"] is True
     assert payload["capabilities"]["access_management"] is True

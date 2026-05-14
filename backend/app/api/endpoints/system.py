@@ -50,7 +50,7 @@ def update_dashboard_memo(
 @router.post("/maintenance/close-due-sessions", response_model=CloseDueSessionsRead)
 def close_due_sessions(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("coach")),
+    current_user: User = Depends(require_roles("admin")),
 ):
     _ = current_user
     return CloseDueSessionsRead(closed_count=session_service.close_due_sessions(db))

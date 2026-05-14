@@ -147,7 +147,11 @@ SECRET_KEY=replace-with-a-long-random-secret
 DATABASE_URL=sqlite:////opt/sc-training-system-data/training.db
 CORS_ORIGINS=["https://your-domain.example"]
 CORS_ORIGIN_REGEX=
+ENABLE_IN_PROCESS_BACKUP_LOOP=false
 ```
+
+生产环境默认关闭 FastAPI 进程内每日备份 loop，由 `sc-training-backup.timer` 负责每日备份。
+只有在没有启用 systemd timer、并且明确需要后端进程内兜底备份时，才把 `ENABLE_IN_PROCESS_BACKUP_LOOP` 改为 `true`。
 
 ## 训练日切换与自动收口配置
 
@@ -250,7 +254,8 @@ journalctl -u sc-training-backup.service -n 80 --no-pager
 
 说明：
 
-- 当前只新增 systemd timer 模板，不要求删除后端进程内已有的自动备份兜底逻辑
+- 生产环境推荐只启用 systemd timer；FastAPI 进程内备份 loop 默认关闭，避免同一天重复触发两套自动备份
+- 如需临时使用进程内兜底备份，可在 `backend/.env` 中设置 `ENABLE_IN_PROCESS_BACKUP_LOOP=true`
 - timer service 使用同一个 `backend/.env`，因此必须能读取生产 `DATABASE_URL`
 - `/opt/sc-training-system-data` 必须允许 `sc-training` 用户读写
 
@@ -370,6 +375,7 @@ sudo systemctl restart sc-training-backend
 sudo systemctl status sc-training-backend
 journalctl -u sc-training-backend -n 120 --no-pager
 curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/ready
 curl http://127.0.0.1/health
 sudo systemctl list-timers sc-training-backup.timer
 ```

@@ -39,6 +39,17 @@ def test_auth_me_returns_admin_capabilities(asgi_client: Any) -> None:
     assert payload["can_manage_users"] is True
     assert payload["can_manage_system"] is True
     assert payload["capabilities"] == {
+        "can_manage_users": True,
+        "can_manage_sports": True,
+        "can_manage_teams": True,
+        "can_manage_athletes": True,
+        "can_manage_templates": True,
+        "can_manage_backups": True,
+        "can_manage_test_definitions": True,
+        "can_import_test_records": True,
+        "can_enter_training": True,
+        "can_view_monitor": True,
+        "can_run_maintenance": True,
         "manage_users": True,
         "manage_system": True,
         "access_management": True,
@@ -61,6 +72,17 @@ def test_auth_me_returns_coach_capabilities(asgi_client: Any) -> None:
     assert payload["can_manage_users"] is False
     assert payload["can_manage_system"] is True
     assert payload["capabilities"] == {
+        "can_manage_users": False,
+        "can_manage_sports": False,
+        "can_manage_teams": True,
+        "can_manage_athletes": True,
+        "can_manage_templates": True,
+        "can_manage_backups": False,
+        "can_manage_test_definitions": True,
+        "can_import_test_records": True,
+        "can_enter_training": True,
+        "can_view_monitor": True,
+        "can_run_maintenance": False,
         "manage_users": False,
         "manage_system": True,
         "access_management": True,

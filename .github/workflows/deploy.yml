@@ -55,16 +55,17 @@ jobs:
         run: npm ci
 
       - name: Run checks and tests
+        env:
+          APP_ENV: development
+          SECRET_KEY: ci-backend-check-secret-key
+          DATABASE_URL: sqlite:///${{ runner.temp }}/sc-training-ci/backend-check.db
+          ALEMBIC_DATABASE_URL: sqlite:///${{ runner.temp }}/sc-training-ci/backend-check.db
         run: |
           set -euo pipefail
-          python -m compileall backend/app backend/scripts
-          python scripts/check_text_encoding.py
-          if find backend -path backend/.venv -prune -o -path "*/tests/*.py" -print -quit | grep -q .; then
-            python -m pip install pytest
-            python -m pytest backend
-          else
-            echo "::notice::No backend pytest tests were found. Ran compileall and text encoding checks instead."
-          fi
+          mkdir -p "$RUNNER_TEMP/sc-training-ci"
+          python -m pip install pytest
+          cd backend
+          python scripts/backend_check.py
 
       - name: Build frontend
         working-directory: frontend

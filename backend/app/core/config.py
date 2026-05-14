@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     cors_origin_regex: str | None = None
     training_day_rollover_hour: int = Field(default=4, ge=0, le=23)
     auto_close_overdue_sessions: bool = True
+    enable_in_process_backup_loop: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

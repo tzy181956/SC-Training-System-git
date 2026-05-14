@@ -332,18 +332,21 @@ def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
             return _build_set_record_result(db, item_id, existing_record.id)
 
     item = _get_session_item(db, item_id)
+    _ensure_outer_transaction_for_nested_write(db)
+    db.flush()
     try:
-        record = _append_set_record(item, payload)
-        db.flush()
-        _recompute_item_records(item)
-        _recompute_session_status(item.session)
-        item.session.started_at = item.session.started_at or record.completed_at
-        _refresh_training_loads(db, item.session)
-        db.flush()
+        with db.begin_nested():
+            record = _append_set_record(item, payload)
+            db.flush()
+            _recompute_item_records(item)
+            _recompute_session_status(item.session)
+            item.session.started_at = item.session.started_at or record.completed_at
+            _refresh_training_loads(db, item.session)
+            db.flush()
     except IntegrityError:
-        db.rollback()
         if payload.local_record_id is None:
             raise
+        db.expire(item)
         existing_record = _find_set_record_by_local_record_id(db, item_id, payload.local_record_id)
         if existing_record is None:
             raise
@@ -393,11 +396,11 @@ def coach_add_set_record(db: Session, item_id: int, payload: CoachSetRecordCreat
         summary=_build_add_set_log_summary(record, session_before_status, item.session.status),
     )
     _refresh_training_loads(db, item.session)
-    db.commit()
+    db.flush()
 
     refreshed_item = _get_session_item(db, item_id)
     refreshed_record = db.query(SetRecord).filter(SetRecord.id == record.id).first()
-    refreshed_session = get_session(db, item.session_id)
+    refreshed_session = get_session_readonly(db, item.session_id)
     return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
 
 
@@ -429,11 +432,11 @@ def coach_update_set_record(db: Session, record_id: int, payload: CoachSetRecord
         summary=_build_update_set_log_summary(before_snapshot, after_snapshot),
     )
     _refresh_training_loads(db, record.session_item.session)
-    db.commit()
+    db.flush()
 
     refreshed_item = _get_session_item(db, record.session_item_id)
     refreshed_record = db.query(SetRecord).filter(SetRecord.id == record_id).first()
-    refreshed_session = get_session(db, record.session_item.session_id)
+    refreshed_session = get_session_readonly(db, record.session_item.session_id)
     return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
 
 
@@ -497,15 +500,15 @@ def coach_delete_set_record(db: Session, record_id: int, *, actor_name: str | No
         backup_path=backup_result.backup_path,
     )
     _refresh_training_loads(db, session)
-    db.commit()
+    db.flush()
 
     refreshed_item = _get_session_item(db, item.id)
-    refreshed_session = get_session(db, session.id)
+    refreshed_session = get_session_readonly(db, session.id)
     return refreshed_item, refreshed_session
 
 
 def void_training_session(db: Session, session_id: int, *, actor_name: str | None = None) -> TrainingSession:
-    session = get_session(db, session_id)
+    session = get_session_readonly(db, session_id)
     record_count = sum(len(item.records or []) for item in session.items or [])
     if record_count > 0:
         raise bad_request("已有组记录的训练课不能作废，请先修正具体组记录。")
@@ -563,8 +566,8 @@ def void_training_session(db: Session, session_id: int, *, actor_name: str | Non
         backup_path=backup_result.backup_path,
     )
     _refresh_training_loads(db, session)
-    db.commit()
-    return get_session(db, session.id)
+    db.flush()
+    return get_session_readonly(db, session.id)
 
 
 def sync_session_operation(db: Session, payload: SessionSetSyncOperation):
@@ -892,6 +895,20 @@ def _find_set_record_by_local_record_id(db: Session, item_id: int, local_record_
         .filter(SetRecord.session_item_id == item_id, SetRecord.local_record_id == local_record_id)
         .first()
     )
+
+
+def _ensure_outer_transaction_for_nested_write(db: Session) -> None:
+    if db.get_bind().dialect.name != "sqlite":
+        return
+
+    connection = db.connection()
+    driver_connection = getattr(connection.connection, "driver_connection", None)
+    if driver_connection is None or getattr(driver_connection, "in_transaction", True):
+        return
+
+    # SQLite legacy transaction mode does not BEGIN for SELECT or SAVEPOINT.
+    # Force a real outer transaction so API-level rollback still undoes a released savepoint.
+    connection.exec_driver_sql("BEGIN")
 
 
 def _build_set_record_result(db: Session, item_id: int, record_id: int):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging as python_logging
+import re
 import sys
 import time
 import uuid
@@ -11,10 +12,12 @@ from datetime import datetime, timezone
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import PlainTextResponse, Response
 
 
 REQUEST_ID_HEADER = "X-Request-ID"
+REQUEST_ID_MAX_LENGTH = 80
+SAFE_REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
 _request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "request_id",
     default=None,
@@ -67,13 +70,28 @@ def get_request_id() -> str | None:
     return _request_id_context.get()
 
 
+def _is_safe_request_id(value: str | None) -> bool:
+    return (
+        value is not None
+        and 0 < len(value) <= REQUEST_ID_MAX_LENGTH
+        and SAFE_REQUEST_ID_PATTERN.fullmatch(value) is not None
+    )
+
+
+def _resolve_request_id(request: Request) -> str:
+    request_id = request.headers.get(REQUEST_ID_HEADER)
+    if _is_safe_request_id(request_id):
+        return request_id
+    return str(uuid.uuid4())
+
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, *, logger: python_logging.Logger | None = None) -> None:
         super().__init__(app)
         self.logger = logger or get_logger("request")
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        request_id = str(uuid.uuid4())
+        request_id = _resolve_request_id(request)
         token = _request_id_context.set(request_id)
         request.state.request_id = request_id
         started_at = time.perf_counter()
@@ -82,6 +100,18 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             status_code = response.status_code
             response.headers[REQUEST_ID_HEADER] = request_id
+            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            self.logger.info(
+                "request_completed",
+                extra={
+                    "event": "request",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": status_code,
+                    "duration_ms": duration_ms,
+                },
+            )
             return response
         except Exception:
             duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -96,18 +126,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
                     "duration_ms": duration_ms,
                 },
             )
-            raise
+            response = PlainTextResponse("Internal Server Error", status_code=status_code)
+            response.headers[REQUEST_ID_HEADER] = request_id
+            return response
         finally:
-            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
-            self.logger.info(
-                "request_completed",
-                extra={
-                    "event": "request",
-                    "request_id": request_id,
-                    "method": request.method,
-                    "path": request.url.path,
-                    "status": status_code,
-                    "duration_ms": duration_ms,
-                },
-            )
             _request_id_context.reset(token)

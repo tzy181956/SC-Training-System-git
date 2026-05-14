@@ -128,6 +128,9 @@ class AssignmentPreviewItemRead(BaseModel):
 class AssignmentPreviewRowRead(BaseModel):
     athlete: AthleteRead
     items: list[AssignmentPreviewItemRead]
+    conflict_status: str = "none"
+    conflict_dates: list[date] = Field(default_factory=list)
+    conflict_message: str | None = None
 
 
 class BatchAssignmentPreviewRead(BaseModel):

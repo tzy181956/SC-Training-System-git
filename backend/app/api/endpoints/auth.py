@@ -19,7 +19,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     login_ip = request.client.host if request.client else None
-    return TokenResponse(access_token=authenticate_user(db, payload.username, payload.password, login_ip=login_ip))
+    user_agent = request.headers.get("user-agent")
+    return TokenResponse(
+        access_token=authenticate_user(
+            db,
+            payload.username,
+            payload.password,
+            login_ip=login_ip,
+            user_agent=user_agent,
+        )
+    )
 
 
 @router.post("/verify-password", response_model=VerifyPasswordResponse)
@@ -54,6 +63,7 @@ def me(current_user=Depends(get_current_user)) -> UserRead:
         mode=mode,
         available_modes=available_modes,
         capabilities=_build_capabilities(
+            role_code=role_code,
             available_modes=available_modes,
             can_manage_users=can_manage_users,
             can_manage_system=can_manage_system,
@@ -66,15 +76,33 @@ def me(current_user=Depends(get_current_user)) -> UserRead:
 
 def _build_capabilities(
     *,
+    role_code: str,
     available_modes: list[str],
     can_manage_users: bool,
     can_manage_system: bool,
 ) -> dict[str, bool]:
     modes = set(available_modes)
+    can_access_management = "management" in modes
+    can_access_training = "training" in modes
+    can_access_monitor = "monitor" in modes
+    can_manage_admin_only = role_code == "admin"
+    can_manage_coach_scope = role_code in {"admin", "coach"} and can_access_management
+
     return {
+        "can_manage_users": can_manage_users,
+        "can_manage_sports": can_manage_admin_only and can_access_management,
+        "can_manage_teams": can_manage_coach_scope,
+        "can_manage_athletes": can_manage_coach_scope,
+        "can_manage_templates": can_manage_coach_scope,
+        "can_manage_backups": can_manage_admin_only and can_access_management,
+        "can_manage_test_definitions": can_manage_coach_scope,
+        "can_import_test_records": can_manage_coach_scope,
+        "can_enter_training": can_access_training,
+        "can_view_monitor": can_access_monitor,
+        "can_run_maintenance": can_manage_admin_only and can_access_management,
         "manage_users": can_manage_users,
         "manage_system": can_manage_system,
-        "access_management": "management" in modes,
-        "access_training": "training" in modes,
-        "access_monitor": "monitor" in modes,
+        "access_management": can_access_management,
+        "access_training": can_access_training,
+        "access_monitor": can_access_monitor,
     }

@@ -55,23 +55,26 @@ def startup_sync_schema() -> None:
             extra={"event": "startup", "path": ",".join(sorted(expected_paths))},
         )
     _close_due_sessions_on_startup()
-    try:
-        daily_backup_result = backup_service.ensure_daily_backup()
-        if daily_backup_result.created and daily_backup_result.backup_path:
-            logger.info(
-                "daily_backup_created",
-                extra={
-                    "event": "backup",
-                    "backup_path": str(daily_backup_result.backup_path),
-                },
+    if settings.enable_in_process_backup_loop:
+        try:
+            daily_backup_result = backup_service.ensure_daily_backup()
+            if daily_backup_result.created and daily_backup_result.backup_path:
+                logger.info(
+                    "daily_backup_created",
+                    extra={
+                        "event": "backup",
+                        "backup_path": str(daily_backup_result.backup_path),
+                    },
+                )
+        except Exception:
+            logger.exception(
+                "startup_daily_backup_failed",
+                extra={"event": "backup", "check": "startup_daily_backup"},
             )
-    except Exception:
-        logger.exception(
-            "startup_daily_backup_failed",
-            extra={"event": "backup", "check": "startup_daily_backup"},
-        )
-    if _daily_backup_task is None:
-        _daily_backup_task = asyncio.create_task(_daily_backup_loop())
+        if _daily_backup_task is None:
+            _daily_backup_task = asyncio.create_task(_daily_backup_loop())
+    else:
+        logger.info("in_process_backup_loop_disabled", extra={"event": "backup"})
 
 
 @app.on_event("shutdown")
@@ -93,6 +96,20 @@ def health() -> dict[str, str]:
 
 @app.get("/ready")
 def ready(response: Response) -> dict:
+    checks = {
+        "database": _check_database_ready(),
+    }
+    is_ready = all(check["status"] == "ok" for check in checks.values())
+    if not is_ready:
+        response.status_code = 503
+    return {
+        "status": "ready" if is_ready else "not_ready",
+        "checks": checks,
+    }
+
+
+@app.get("/ready/deep")
+def ready_deep(response: Response) -> dict:
     checks = {
         "database": _check_database_ready(),
         "backup_directory": _check_backup_directory_ready(),

@@ -1,4 +1,5 @@
 from app.models.assignment import AssignmentItemOverride, AthletePlanAssignment
+from app.models.auth_event_log import AuthEventLog
 from app.models.athlete import Athlete
 from app.models.content_change_log import ContentChangeLog
 from app.models.dashboard_memo import DashboardMemo
@@ -24,6 +25,7 @@ from app.models.user import User
 
 __all__ = [
     "AssignmentItemOverride",
+    "AuthEventLog",
     "Athlete",
     "AthletePlanAssignment",
     "ContentChangeLog",

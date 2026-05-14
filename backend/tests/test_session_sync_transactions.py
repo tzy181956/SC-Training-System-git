@@ -26,7 +26,7 @@ from app.models import (
     TrainingSyncConflict,
     TrainingSyncIssue,
 )
-from app.schemas.training_session import SessionFullSyncPayload, SessionSetSyncOperation
+from app.schemas.training_session import SessionFullSyncPayload, SessionSetSyncOperation, SetRecordCreate
 from app.services import session_service
 
 
@@ -63,6 +63,44 @@ def test_duplicate_local_record_id_returns_existing_record(db_session) -> None:
     second_response = sessions_endpoint.sync_session_operation(payload, db_session, _admin_user())
 
     assert second_response["record"].id == first_response["record"].id
+    assert db_session.query(SetRecord).count() == 1
+
+
+def test_local_record_id_conflict_keeps_outer_staged_change(db_session) -> None:
+    ids = _seed_training_session(db_session)
+    original_payload = _create_set_payload(ids.session_id, ids.session_item_id, local_record_id=203)
+    first_response = sessions_endpoint.sync_session_operation(original_payload, db_session, _admin_user())
+    existing_record_id = first_response["record"].id
+
+    athlete = db_session.get(Athlete, ids.athlete_id)
+    athlete.full_name = "Staged Athlete Rename"
+
+    original_find = session_service._find_set_record_by_local_record_id
+    find_calls = {"count": 0}
+
+    def miss_existing_record_once(db, item_id: int, local_record_id: int):
+        find_calls["count"] += 1
+        if find_calls["count"] == 1:
+            return None
+        return original_find(db, item_id, local_record_id)
+
+    duplicate_payload = SetRecordCreate(
+        actual_weight=50.0,
+        actual_reps=5,
+        actual_rir=2,
+        final_weight=50.0,
+        local_record_id=203,
+    )
+
+    with patch.object(session_service, "_find_set_record_by_local_record_id", side_effect=miss_existing_record_once):
+        record, _, _, _ = session_service.submit_set_record(db_session, ids.session_item_id, duplicate_payload)
+
+    assert record.id == existing_record_id
+    assert db_session.query(SetRecord).count() == 1
+
+    db_session.commit()
+    db_session.expire_all()
+    assert db_session.get(Athlete, ids.athlete_id).full_name == "Staged Athlete Rename"
     assert db_session.query(SetRecord).count() == 1
 
 

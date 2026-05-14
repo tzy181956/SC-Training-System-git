@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
@@ -20,6 +20,19 @@ from app.services import access_control_service, dangerous_operation_service, se
 
 
 router = APIRouter(prefix="/training-reports", tags=["training-reports"])
+
+
+def _commit_or_rollback(db: Session, operation):
+    try:
+        result = operation()
+        db.commit()
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("", response_model=TrainingReportRead)
@@ -43,8 +56,11 @@ def coach_update_set_record(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_set_record(db, current_user, record_id)
-    record, next_suggestion, item, session = session_service.coach_update_set_record(db, record_id, payload)
+    def operation():
+        access_control_service.get_accessible_set_record(db, current_user, record_id)
+        return session_service.coach_update_set_record(db, record_id, payload)
+
+    record, next_suggestion, item, session = _commit_or_rollback(db, operation)
     return {
         "record": record,
         "next_suggestion": next_suggestion,
@@ -62,8 +78,11 @@ def coach_add_set_record(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_session_item(db, current_user, item_id)
-    record, next_suggestion, item, session = session_service.coach_add_set_record(db, item_id, payload)
+    def operation():
+        access_control_service.get_accessible_session_item(db, current_user, item_id)
+        return session_service.coach_add_set_record(db, item_id, payload)
+
+    record, next_suggestion, item, session = _commit_or_rollback(db, operation)
     return {
         "record": record,
         "next_suggestion": next_suggestion,
@@ -81,13 +100,16 @@ def coach_delete_set_record(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    dangerous_operation_service.require_confirmation(payload, action_label="删除训练记录")
-    access_control_service.get_accessible_set_record(db, current_user, record_id)
-    item, session = session_service.coach_delete_set_record(
-        db,
-        record_id,
-        actor_name=payload.actor_name or current_user.display_name,
-    )
+    def operation():
+        dangerous_operation_service.require_confirmation(payload, action_label="删除训练记录")
+        access_control_service.get_accessible_set_record(db, current_user, record_id)
+        return session_service.coach_delete_set_record(
+            db,
+            record_id,
+            actor_name=payload.actor_name or current_user.display_name,
+        )
+
+    item, session = _commit_or_rollback(db, operation)
     return {
         "deleted_record_id": record_id,
         "item": item,
@@ -104,10 +126,13 @@ def coach_void_training_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    dangerous_operation_service.require_confirmation(payload, action_label="作废训练课")
-    access_control_service.get_accessible_session(db, current_user, session_id)
-    return session_service.void_training_session(
-        db,
-        session_id,
-        actor_name=payload.actor_name or current_user.display_name,
-    )
+    def operation():
+        dangerous_operation_service.require_confirmation(payload, action_label="作废训练课")
+        access_control_service.get_accessible_session(db, current_user, session_id)
+        return session_service.void_training_session(
+            db,
+            session_id,
+            actor_name=payload.actor_name or current_user.display_name,
+        )
+
+    return _commit_or_rollback(db, operation)
