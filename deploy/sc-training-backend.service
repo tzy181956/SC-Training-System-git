@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-# If the deploy path changes, update WorkingDirectory, EnvironmentFile, and ExecStart together.
+# If the deploy path changes, update WorkingDirectory, EnvironmentFile, ExecStartPre, and ExecStart together.
 # Create the dedicated service account before enabling this unit:
 #   sudo useradd --system --home /opt/sc-training-system --shell /usr/sbin/nologin sc-training
 # The backend .env must be readable by this account, and /opt/sc-training-system-data must be writable.
@@ -14,6 +14,7 @@ WorkingDirectory=/opt/sc-training-system/backend
 EnvironmentFile=/opt/sc-training-system/backend/.env
 Environment="PYTHONPATH=/opt/sc-training-system/backend"
 Environment="PYTHONDONTWRITEBYTECODE=1"
+ExecStartPre=/opt/sc-training-system/backend/.venv/bin/python scripts/migrate_db.py ensure
 ExecStart=/opt/sc-training-system/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=3

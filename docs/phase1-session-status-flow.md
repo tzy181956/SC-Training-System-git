@@ -329,7 +329,7 @@ partial_complete
 
 ### 事件
 
-系统在后端启动时先收口昨日及更早未结束训练课；训练相关入口继续保留兜底收口
+系统在后端启动时先收口昨日及更早未结束训练课；启动后的兜底收口只放在显式维护接口和非 GET 训练入口，训练端 / 监控端 GET 保持只读。
 
 ### 处理规则
 
@@ -344,7 +344,9 @@ partial_complete
 当前仓库已将跨日自动收口的主触发点收口为：
 
 - 后端每次启动成功前先执行一次跨日收口
-- 训练相关入口继续保留 `close_due_sessions()` 兜底
+- `POST /api/system/maintenance/close-due-sessions` 可显式触发兜底收口
+- `POST /api/training/plans/{assignment_id}/session` 等非 GET 训练入口保留 `close_due_sessions()` 兜底
+- 训练端 / 监控端 GET 只读展示，不再隐式写库
 
 这样即使当天先进入报表、日志或管理页，而不是先进入训练流程，昨天及更早未收口的训练课也会先被统一纠正。
 

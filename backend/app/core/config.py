@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     database_url: str = DEFAULT_DATABASE_URL
     cors_origins: list[str] = Field(default_factory=lambda: DEFAULT_DEVELOPMENT_CORS_ORIGINS.copy())
     cors_origin_regex: str | None = None
+    training_day_rollover_hour: int = Field(default=4, ge=0, le=23)
+    auto_close_overdue_sessions: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

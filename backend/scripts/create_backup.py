@@ -16,16 +16,26 @@ from app.services import backup_service
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create a manual SQLite backup for Phase 1 checks.")
+    parser = argparse.ArgumentParser(description="Create a SQLite backup.")
     parser.add_argument(
-        "label",
+        "legacy_label",
         nargs="?",
+        help="Optional manual backup label kept for existing commands. Example: phase1_acceptance",
+    )
+    parser.add_argument(
+        "--trigger",
         default="manual",
-        help="Optional backup label. Example: phase1_acceptance",
+        help="Backup trigger. Example: manual, daily_auto, before_migration",
+    )
+    parser.add_argument(
+        "--label",
+        default=None,
+        help="Optional backup label. Example: systemd_timer",
     )
     args = parser.parse_args()
 
-    result = backup_service.create_backup(trigger="manual", label=args.label)
+    label = args.label if args.label is not None else (args.legacy_label or "manual")
+    result = backup_service.create_backup(trigger=args.trigger, label=label)
     policy = backup_service.describe_backup_policy()
 
     if not result.backup_path:

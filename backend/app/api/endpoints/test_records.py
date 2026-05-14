@@ -11,6 +11,8 @@ from app.schemas.dangerous_action import DeleteTestRecordsBatchPayload, DeleteTe
 from app.schemas.test_record import (
     TestRecordCreate,
     TestRecordImportRead,
+    TestRecordImportPreviewError,
+    TestRecordImportPreviewRead,
     TestRecordListResponse,
     TestRecordRead,
     TestRecordUpdate,
@@ -20,6 +22,7 @@ from app.services.test_record_excel_service import (
     build_import_template_workbook,
     build_test_record_library_workbook,
     import_test_records_from_workbook,
+    parse_test_record_workbook,
 )
 
 
@@ -39,19 +42,44 @@ def download_test_record_template(
     )
 
 
+@router.post("/import/preview", response_model=TestRecordImportPreviewRead)
+async def preview_test_records_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    file_bytes = await _read_excel_import_file(file)
+
+    try:
+        preview = parse_test_record_workbook(db, file_bytes, current_user)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return TestRecordImportPreviewRead(
+        total_rows=preview.total_rows,
+        valid_rows=preview.valid_rows,
+        duplicate_rows=preview.duplicate_rows,
+        skipped_rows=preview.duplicate_rows,
+        error_rows=preview.error_rows,
+        errors=[
+            TestRecordImportPreviewError(row_number=error.row_number, message=error.message)
+            for error in preview.errors
+        ],
+        pending_records_data=preview.pending_records_data,
+    )
+
+
 @router.post("/import", response_model=TestRecordImportRead)
 async def import_test_records(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="未提供导入文件。")
-    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
-        raise HTTPException(status_code=400, detail="仅支持 .xlsx 或 .xlsm 文件导入。")
+    file_bytes = await _read_excel_import_file(file)
 
     try:
-        summary = import_test_records_from_workbook(db, await file.read(), current_user)
+        summary = import_test_records_from_workbook(db, file_bytes, current_user)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -61,6 +89,14 @@ async def import_test_records(
         imported_rows=summary.imported_rows,
         skipped_rows=summary.skipped_rows,
     )
+
+
+async def _read_excel_import_file(file: UploadFile) -> bytes:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="未提供导入文件。")
+    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx 或 .xlsm 文件导入。")
+    return await file.read()
 
 
 @router.get("/export")

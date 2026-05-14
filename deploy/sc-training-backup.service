@@ -1,0 +1,20 @@
+[Unit]
+Description=SC Training System Daily Backup
+After=network.target
+
+[Service]
+Type=oneshot
+# Keep these paths aligned with sc-training-backend.service.
+User=sc-training
+Group=sc-training
+WorkingDirectory=/opt/sc-training-system/backend
+EnvironmentFile=/opt/sc-training-system/backend/.env
+Environment="PYTHONPATH=/opt/sc-training-system/backend"
+Environment="PYTHONDONTWRITEBYTECODE=1"
+ExecStart=/opt/sc-training-system/backend/.venv/bin/python scripts/create_backup.py --trigger daily_auto --label systemd_timer
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# The backup script reads the SQLite database and writes backup files beside it.
+ReadWritePaths=/opt/sc-training-system-data

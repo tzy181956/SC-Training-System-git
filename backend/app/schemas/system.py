@@ -16,3 +16,7 @@ class DashboardMemoRead(BaseModel):
 
 class DashboardMemoUpdate(BaseModel):
     content: str = Field(default="", max_length=1200)
+
+
+class CloseDueSessionsRead(BaseModel):
+    closed_count: int

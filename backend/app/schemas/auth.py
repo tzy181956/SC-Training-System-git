@@ -30,6 +30,7 @@ class UserRead(ORMModel):
     sport_name: str | None = None
     mode: str
     available_modes: list[str]
+    capabilities: dict[str, bool]
     can_manage_users: bool
     can_manage_system: bool
     is_active: bool

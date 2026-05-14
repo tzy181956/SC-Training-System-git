@@ -1,9 +1,10 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import get_settings
 from app.core.exceptions import bad_request, not_found
 from app.models import (
     Athlete,
@@ -74,8 +75,19 @@ def get_or_create_today_session(db: Session, athlete_id: int, session_date: date
     return open_session_for_assignment(db, assignment.id, session_date)
 
 
+def get_today_session_preview(db: Session, athlete_id: int, session_date: date):
+    athlete = db.query(Athlete).filter(Athlete.id == athlete_id).first()
+    if not athlete:
+        raise not_found("Athlete not found")
+
+    assignment = get_active_assignment_for_date(db, athlete_id, session_date)
+    if not assignment:
+        raise not_found("No active plan for the selected date")
+
+    return preview_session_for_assignment(db, assignment.id, session_date)
+
+
 def list_training_athletes(db: Session, session_date: date, sport_id: int | None = None) -> list[Athlete]:
-    close_due_sessions(db)
     athletes = athlete_service.list_athletes(db, sport_id=sport_id)
     athlete_ids = [athlete.id for athlete in athletes if athlete.is_active]
     status_map = _get_athlete_training_status_map(db, athlete_ids, session_date)
@@ -87,7 +99,6 @@ def list_training_athletes(db: Session, session_date: date, sport_id: int | None
 
 
 def list_training_plans(db: Session, athlete_id: int, session_date: date):
-    close_due_sessions(db)
     athlete = athlete_service.get_athlete(db, athlete_id)
     assignments = list_active_assignments_for_date(db, athlete_id, session_date)
     assignment_status_map = _get_assignment_training_status_map(db, [assignment.id for assignment in assignments], session_date)
@@ -96,7 +107,17 @@ def list_training_plans(db: Session, athlete_id: int, session_date: date):
     return athlete, assignments
 
 
+def preview_session_for_assignment(db: Session, assignment_id: int, session_date: date):
+    assignment = get_assignment(db, assignment_id)
+    ensure_assignment_scheduled_for_date(assignment, session_date)
+    existing = _find_session_by_assignment_and_date(db, assignment.id, session_date)
+    if existing:
+        return _attach_session_signature(existing)
+    return _build_session_preview(assignment, session_date)
+
+
 def open_session_for_assignment(db: Session, assignment_id: int, session_date: date):
+    close_due_sessions(db)
     assignment = get_assignment(db, assignment_id)
     ensure_assignment_scheduled_for_date(assignment, session_date)
     existing = _find_session_by_assignment_and_date(db, assignment.id, session_date)
@@ -276,6 +297,34 @@ def get_session(db: Session, session_id: int) -> TrainingSession:
     return _attach_session_signature(session)
 
 
+def get_session_readonly(db: Session, session_id: int) -> TrainingSession:
+    session = (
+        db.query(TrainingSession)
+        .options(*SESSION_DETAIL_OPTIONS)
+        .filter(TrainingSession.id == session_id)
+        .first()
+    )
+    if not session:
+        raise not_found("Training session not found")
+    return _attach_session_signature(session)
+
+
+def recompute_session_state(db: Session, session_id: int) -> TrainingSession:
+    session = (
+        db.query(TrainingSession)
+        .options(*SESSION_DETAIL_OPTIONS)
+        .filter(TrainingSession.id == session_id)
+        .first()
+    )
+    if not session:
+        raise not_found("Training session not found")
+
+    _sync_session_state(session)
+    _refresh_training_loads(db, session)
+    db.commit()
+    return get_session_readonly(db, session_id)
+
+
 def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
     if payload.local_record_id is not None:
         existing_record = _find_set_record_by_local_record_id(db, item_id, payload.local_record_id)
@@ -290,7 +339,7 @@ def submit_set_record(db: Session, item_id: int, payload: SetRecordCreate):
         _recompute_session_status(item.session)
         item.session.started_at = item.session.started_at or record.completed_at
         _refresh_training_loads(db, item.session)
-        db.commit()
+        db.flush()
     except IntegrityError:
         db.rollback()
         if payload.local_record_id is None:
@@ -309,11 +358,11 @@ def update_set_record(db: Session, record_id: int, payload: SetRecordUpdate):
     _recompute_item_records(record.session_item)
     _recompute_session_status(record.session_item.session)
     _refresh_training_loads(db, record.session_item.session)
-    db.commit()
+    db.flush()
 
     refreshed_item = _get_session_item(db, record.session_item_id)
     refreshed_record = db.query(SetRecord).filter(SetRecord.id == record_id).first()
-    refreshed_session = get_session(db, record.session_item.session_id)
+    refreshed_session = get_session_readonly(db, record.session_item.session_id)
     return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
 
 
@@ -567,8 +616,8 @@ def sync_session_operation(db: Session, payload: SessionSetSyncOperation):
     session = _resolve_session_for_completion(db, payload)
     _finalize_session(session, closure_reason="manual_end")
     _refresh_training_loads(db, session)
-    db.commit()
-    return None, None, None, get_session(db, session.id)
+    db.flush()
+    return None, None, None, get_session_readonly(db, session.id)
 
 
 def sync_session_snapshot(db: Session, payload: SessionFullSyncPayload):
@@ -584,7 +633,7 @@ def sync_session_snapshot(db: Session, payload: SessionFullSyncPayload):
             summary=FULL_SYNC_CONFLICT_REJECT_SUMMARY,
             last_error=FULL_SYNC_CONFLICT_REJECT_DETAIL,
         )
-        db.commit()
+        db.flush()
         raise HTTPException(status_code=409, detail=FULL_SYNC_CONFLICT_REJECT_DETAIL)
     _overwrite_session_from_snapshot(session, payload)
     _refresh_training_loads(
@@ -593,8 +642,8 @@ def sync_session_snapshot(db: Session, payload: SessionFullSyncPayload):
         previous_athlete_id=previous_athlete_id,
         previous_session_date=previous_session_date,
     )
-    db.commit()
-    return get_session(db, session.id), bool(conflict)
+    db.flush()
+    return get_session_readonly(db, session.id), bool(conflict)
 
 
 def complete_session_item(db: Session, item_id: int) -> TrainingSessionItem:
@@ -648,18 +697,25 @@ def submit_session_finish_feedback(
 
 
 def close_due_sessions(db: Session, reference_time: datetime | None = None) -> int:
-    """Finalize sessions dated before today.
+    """Finalize sessions dated before the current training day.
 
     This function is intentionally idempotent and is used in two places:
     - once during backend startup as the primary cross-day close trigger
     - again inside training-related entry points as a fallback safety net
     """
+    settings = get_settings()
+    if not settings.auto_close_overdue_sessions:
+        return 0
+
     now = _resolve_local_now(reference_time)
-    local_today = now.date()
+    local_training_today = _resolve_local_training_today(now, settings.training_day_rollover_hour)
     due_sessions = (
         db.query(TrainingSession)
         .options(joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records))
-        .filter(~TrainingSession.status.in_(tuple(FINAL_SESSION_STATUSES)), TrainingSession.session_date < local_today)
+        .filter(
+            ~TrainingSession.status.in_(tuple(FINAL_SESSION_STATUSES)),
+            TrainingSession.session_date < local_training_today,
+        )
         .all()
     )
     if not due_sessions:
@@ -671,6 +727,12 @@ def close_due_sessions(db: Session, reference_time: datetime | None = None) -> i
 
     db.commit()
     return len(due_sessions)
+
+
+def _resolve_local_training_today(local_now: datetime, rollover_hour: int) -> date:
+    if local_now.hour < rollover_hour:
+        return local_now.date() - timedelta(days=1)
+    return local_now.date()
 
 
 def _validate_set_payload(payload: SessionSetSyncOperation) -> None:
@@ -837,7 +899,7 @@ def _build_set_record_result(db: Session, item_id: int, record_id: int):
     refreshed_record = db.query(SetRecord).filter(SetRecord.id == record_id).first()
     if refreshed_record is None:
         raise not_found("Set record not found")
-    refreshed_session = get_session(db, refreshed_item.session_id)
+    refreshed_session = get_session_readonly(db, refreshed_item.session_id)
     return refreshed_record, _get_next_suggestion(refreshed_item), refreshed_item, refreshed_session
 
 

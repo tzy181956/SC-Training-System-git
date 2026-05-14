@@ -16,14 +16,12 @@ def list_backups(current_user: User = Depends(require_roles("admin"))):
     items = backup_service.list_backup_catalog()
     scopes = backup_service.list_restore_scopes()
     return BackupListRead(
-        backup_directory=str(policy["backup_directory"]),
         filename_pattern=str(policy["filename_pattern"]),
         keep_recent_days=int(policy["keep_recent_days"]),
         keep_recent_weeks=int(policy["keep_recent_weeks"]),
         items=[
             BackupItemRead(
                 filename=item.filename,
-                path=str(item.path),
                 stem=item.stem,
                 restore_point_at=item.restore_point_at,
                 file_modified_at=item.file_modified_at,
@@ -70,7 +68,6 @@ def restore_backup(
         message = f"{message}；{result.post_restore_note}"
     return BackupRestoreRead(
         backup_filename=result.backup_record.filename,
-        backup_path=str(result.backup_record.path),
         restore_scope=result.scope.key,
         restore_scope_label=result.scope.label,
         restore_point_at=result.backup_record.restore_point_at,
@@ -78,10 +75,5 @@ def restore_backup(
         team_name=result.team_name,
         restored_tables=result.restored_tables,
         restored_row_counts=result.restored_row_counts,
-        pre_restore_backup_path=(
-            str(result.pre_restore_backup.backup_path)
-            if result.pre_restore_backup.backup_path
-            else None
-        ),
         message=message,
     )

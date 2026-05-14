@@ -22,14 +22,21 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, *, token_version: int = 1) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    return jwt.encode({"sub": subject, "exp": expire}, settings.secret_key, algorithm=ALGORITHM)
+    return jwt.encode({"sub": subject, "ver": int(token_version or 1), "exp": expire}, settings.secret_key, algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str) -> str | None:
+    payload = decode_access_token_payload(token)
+    if not payload:
+        return None
+    return payload.get("sub")
+
+
+def decode_access_token_payload(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
     except JWTError:
         return None
-    return payload.get("sub")
+    return payload

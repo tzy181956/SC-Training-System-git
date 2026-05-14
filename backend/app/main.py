@@ -1,12 +1,15 @@
 import asyncio
 from contextlib import suppress
+import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.logging import RequestIDMiddleware, get_logger
 from app.core.project_meta import PROJECT_AUTHOR_HANDLE
 from app.core.schema_sync import ensure_runtime_schema
 from app.services import backup_service
@@ -14,6 +17,7 @@ from app.services.session_service import close_due_sessions
 
 
 settings = get_settings()
+logger = get_logger(__name__)
 app = FastAPI(title=settings.app_name, contact={"name": PROJECT_AUTHOR_HANDLE})
 AUTO_BACKUP_INTERVAL_SECONDS = 3600
 _daily_backup_task: asyncio.Task | None = None
@@ -26,6 +30,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIDMiddleware)
 app.include_router(api_router, prefix=settings.api_prefix)
 
 
@@ -40,16 +45,31 @@ def startup_sync_schema() -> None:
     }
     missing_paths = sorted(expected_paths - registered_paths)
     if missing_paths:
-        print(f"[STARTUP] Missing exercise category routes: {', '.join(missing_paths)}")
+        logger.warning(
+            "missing_expected_routes",
+            extra={"event": "startup", "path": ",".join(missing_paths)},
+        )
     else:
-        print(f"[STARTUP] Exercise category routes registered: {', '.join(sorted(expected_paths))}")
+        logger.info(
+            "expected_routes_registered",
+            extra={"event": "startup", "path": ",".join(sorted(expected_paths))},
+        )
     _close_due_sessions_on_startup()
     try:
         daily_backup_result = backup_service.ensure_daily_backup()
         if daily_backup_result.created and daily_backup_result.backup_path:
-            print(f"[BACKUP] Daily backup created: {daily_backup_result.backup_path}")
-    except Exception as exc:
-        print(f"[BACKUP] Failed to create daily backup during startup: {exc}")
+            logger.info(
+                "daily_backup_created",
+                extra={
+                    "event": "backup",
+                    "backup_path": str(daily_backup_result.backup_path),
+                },
+            )
+    except Exception:
+        logger.exception(
+            "startup_daily_backup_failed",
+            extra={"event": "backup", "check": "startup_daily_backup"},
+        )
     if _daily_backup_task is None:
         _daily_backup_task = asyncio.create_task(_daily_backup_loop())
 
@@ -63,6 +83,7 @@ async def shutdown_background_tasks() -> None:
     with suppress(asyncio.CancelledError):
         await _daily_backup_task
     _daily_backup_task = None
+    logger.info("background_tasks_shutdown", extra={"event": "shutdown"})
 
 
 @app.get("/health")
@@ -70,14 +91,35 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/ready")
+def ready(response: Response) -> dict:
+    checks = {
+        "database": _check_database_ready(),
+        "backup_directory": _check_backup_directory_ready(),
+    }
+    is_ready = all(check["status"] == "ok" for check in checks.values())
+    if not is_ready:
+        response.status_code = 503
+    return {
+        "status": "ready" if is_ready else "not_ready",
+        "checks": checks,
+    }
+
+
 def _close_due_sessions_on_startup() -> None:
     db = SessionLocal()
     try:
         closed_count = close_due_sessions(db)
         if closed_count:
-            print(f"[STARTUP] Closed {closed_count} overdue training sessions before serving requests.")
-    except Exception as exc:
-        print(f"[STARTUP] Failed to close overdue training sessions: {exc}")
+            logger.info(
+                "overdue_training_sessions_closed",
+                extra={"event": "startup", "closed_count": closed_count},
+            )
+    except Exception:
+        logger.exception(
+            "close_due_sessions_failed",
+            extra={"event": "startup", "check": "close_due_sessions"},
+        )
         raise
     finally:
         db.close()
@@ -85,14 +127,48 @@ def _close_due_sessions_on_startup() -> None:
 
 def _apply_startup_schema_strategy() -> None:
     if settings.is_production:
-        print(
-            "[STARTUP] APP_ENV=production detected; runtime schema sync disabled. "
-            "Apply Alembic migrations with `python scripts/migrate_db.py ensure` before startup."
+        logger.info(
+            "runtime_schema_sync_disabled",
+            extra={"event": "startup", "check": "schema"},
         )
         return
 
-    print("[STARTUP] APP_ENV=development detected; runtime schema fallback is enabled.")
+    logger.info(
+        "runtime_schema_fallback_enabled",
+        extra={"event": "startup", "check": "schema"},
+    )
     ensure_runtime_schema()
+
+
+def _check_database_ready() -> dict[str, str]:
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception:
+        logger.exception("readiness_database_failed", extra={"event": "ready", "check": "database"})
+        return {"status": "error", "detail": "database check failed"}
+    finally:
+        db.close()
+
+
+def _check_backup_directory_ready() -> dict[str, str]:
+    marker_path = None
+    try:
+        backup_dir = backup_service.get_backup_directory()
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        marker_path = backup_dir / f".ready-check-{uuid.uuid4().hex}.tmp"
+        marker_path.write_text("ok", encoding="utf-8")
+        return {"status": "ok"}
+    except Exception:
+        logger.exception(
+            "readiness_backup_directory_failed",
+            extra={"event": "ready", "check": "backup_directory"},
+        )
+        return {"status": "error", "detail": "backup directory is not writable"}
+    finally:
+        if marker_path is not None:
+            marker_path.unlink(missing_ok=True)
 
 
 async def _daily_backup_loop() -> None:
@@ -100,8 +176,14 @@ async def _daily_backup_loop() -> None:
         try:
             result = backup_service.ensure_daily_backup()
             if result.created and result.backup_path:
-                print(f"[BACKUP] Daily backup created: {result.backup_path}")
-        except Exception as exc:
-            print(f"[BACKUP] Daily backup loop failed: {exc}")
+                logger.info(
+                    "daily_backup_created",
+                    extra={
+                        "event": "backup",
+                        "backup_path": str(result.backup_path),
+                    },
+                )
+        except Exception:
+            logger.exception("daily_backup_loop_failed", extra={"event": "backup"})
 
         await asyncio.sleep(AUTO_BACKUP_INTERVAL_SECONDS)

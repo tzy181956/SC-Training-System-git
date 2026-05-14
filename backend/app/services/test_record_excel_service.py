@@ -55,6 +55,22 @@ class TestRecordImportSummary:
     skipped_rows: int
 
 
+@dataclass
+class TestRecordImportRowError:
+    row_number: int
+    message: str
+
+
+@dataclass
+class TestRecordImportPreviewResult:
+    total_rows: int
+    valid_rows: int
+    duplicate_rows: int
+    error_rows: int
+    errors: list[TestRecordImportRowError]
+    pending_records_data: list[dict[str, object]]
+
+
 def build_import_template_workbook(db: Session, user: User) -> bytes:
     visible_sport_id = access_control_service.resolve_visible_sport_id(user)
     athletes = _query_visible_athletes(db, visible_sport_id)
@@ -198,7 +214,7 @@ def build_test_record_library_workbook(db: Session, user: User) -> bytes:
     return _workbook_to_bytes(workbook)
 
 
-def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User) -> TestRecordImportSummary:
+def parse_test_record_workbook(db: Session, file_bytes: bytes, user: User) -> TestRecordImportPreviewResult:
     workbook = load_workbook(BytesIO(file_bytes), data_only=True)
     sheet = workbook[workbook.sheetnames[0]]
     headers = [str(cell.value).strip() if cell.value is not None else "" for cell in sheet[1]]
@@ -262,9 +278,9 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
         for record in existing_query.all()
     }
 
-    pending_records: list[TestRecord] = []
-    errors: list[str] = []
-    skipped_rows = 0
+    pending_records_data: list[dict[str, object]] = []
+    errors: list[TestRecordImportRowError] = []
+    duplicate_rows = 0
     total_rows = 0
 
     for row_number in range(2, sheet.max_row + 1):
@@ -314,37 +330,54 @@ def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User
                 unit,
             )
             if duplicate_key in existing_keys:
-                skipped_rows += 1
+                duplicate_rows += 1
                 continue
 
-            pending_records.append(
-                TestRecord(
-                    athlete_id=athlete.id,
-                    test_date=record_date,
-                    test_type=test_type,
-                    metric_name=metric_name,
-                    result_value=result_value,
-                    result_text=result_text,
-                    unit=unit,
-                    notes=notes,
-                )
+            pending_records_data.append(
+                {
+                    "athlete_id": athlete.id,
+                    "test_date": record_date,
+                    "test_type": test_type,
+                    "metric_name": metric_name,
+                    "result_value": result_value,
+                    "result_text": result_text,
+                    "unit": unit,
+                    "notes": notes,
+                }
             )
             existing_keys.add(duplicate_key)
         except ValueError as exc:
-            errors.append(f"第 {row_number} 行：{exc}")
+            errors.append(TestRecordImportRowError(row_number=row_number, message=str(exc)))
 
-    if errors:
-        raise ValueError("；".join(errors[:10]))
+    return TestRecordImportPreviewResult(
+        total_rows=total_rows,
+        valid_rows=len(pending_records_data),
+        duplicate_rows=duplicate_rows,
+        error_rows=len(errors),
+        errors=errors,
+        pending_records_data=pending_records_data,
+    )
 
+
+def import_test_records_from_workbook(db: Session, file_bytes: bytes, user: User) -> TestRecordImportSummary:
+    preview = parse_test_record_workbook(db, file_bytes, user)
+    if preview.errors:
+        raise ValueError("；".join(_format_import_error(error) for error in preview.errors[:10]))
+
+    pending_records = [TestRecord(**record_data) for record_data in preview.pending_records_data]
     if pending_records:
         db.add_all(pending_records)
         db.commit()
 
     return TestRecordImportSummary(
-        total_rows=total_rows,
+        total_rows=preview.total_rows,
         imported_rows=len(pending_records),
-        skipped_rows=skipped_rows,
+        skipped_rows=preview.duplicate_rows,
     )
+
+
+def _format_import_error(error: TestRecordImportRowError) -> str:
+    return f"第 {error.row_number} 行：{error.message}"
 
 
 def _style_template_header_row(sheet) -> None:

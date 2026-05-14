@@ -21,7 +21,7 @@
 4. 单组增量补传
 5. 整课覆盖同步兜底
 6. `manual_retry_required` / 待人工处理闭环
-7. 启动后跨日收口 + 训练入口兜底收口
+7. 启动后跨日收口 + 显式维护 / 非 GET 训练入口兜底收口
 8. 训练状态流
 9. 课后补录 / 修改 / 删除后的日志
 10. 危险操作前备份与日志
@@ -110,7 +110,7 @@ cd backend
 5. 增量补传和整课兜底都不能把本地草稿补回后端
 6. `manual_retry_required` 对教练 / 管理端不可见
 7. 启动后跨日收口失效
-8. 训练入口兜底收口失效
+8. 显式维护 / 非 GET 训练入口兜底收口失效
 9. `not_started / in_progress / completed / absent / partial_complete` 任一状态流不符合预期
 10. 课后修改 / 补录 / 删除后不重算状态或无日志
 11. 危险操作前没有自动备份或没有日志
@@ -130,7 +130,7 @@ cd backend
 6. `A06` 增量失败后整课覆盖同步兜底
 7. `A07` 自动重试失败后进入 `manual_retry_required`
 8. `A08` 启动后跨日收口
-9. `A09` 训练入口兜底收口
+9. `A09` 显式维护 / 非 GET 入口兜底收口
 10. `A10` 手动结束未录完课程，验证 `partial_complete`
 11. `A11` 课后补录 / 修改 / 删除 + 日志
 12. `A12` 危险操作前备份与日志
@@ -504,11 +504,12 @@ print(conn.execute("SELECT id, session_date, status, completed_at FROM training_
 
 ---
 
-### A09｜训练入口兜底收口仍有效
+### A09｜显式维护与非 GET 入口兜底收口仍有效
 
 **测试目标**
 
-- 验证就算启动后没有触发到，也能在进入训练入口时兜底收口
+- 验证就算启动后没有触发到，也能通过显式维护接口或非 GET 训练入口兜底收口
+- 验证训练端 / 监控端 GET 只读页面不会因为展示数据而隐式写库
 
 **前置条件**
 
@@ -534,8 +535,9 @@ print('mutated session', SESSION_ID)
 ```
 
 3. **不要重启后端。**
-4. 直接在 iPad A 或电脑端打开训练模式首页。
-5. 回到电脑 PowerShell，再查一次这堂课状态：
+4. 先只刷新训练模式首页或监控端页面，确认只读页面不会触发状态变化。
+5. 登录后选择该队员对应计划并进入计划详情，触发非 GET 开课入口；或由管理员调用 `POST /api/system/maintenance/close-due-sessions` 显式维护接口。
+6. 回到电脑 PowerShell，再查一次这堂课状态：
 
 ```powershell
 cd backend
@@ -549,12 +551,13 @@ print(conn.execute("SELECT id, session_date, status, completed_at FROM training_
 
 **预期结果**
 
-- 仅仅进入训练入口后，这堂课也会被纠正
+- 只刷新训练 / 监控 GET 页面时，这堂课不会被隐式写库
+- 触发非 GET 训练入口或显式维护接口后，这堂课会被纠正
 - 由于它有部分记录，状态应变为 `partial_complete`
 
 **不通过时意味着什么**
 
-- 启动时主收口之外的保险层失效了
+- 启动时主收口之外的保险层失效，或 GET 只读边界被破坏
 
 ---
 
@@ -810,7 +813,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\phase1_acceptance_ch
 3. 断网 / 断服后无法继续录课
 4. `manual_retry_required` 不可见或无法人工重试
 5. 启动后跨日收口失效
-6. 训练入口兜底收口失效
+6. 显式维护 / 非 GET 训练入口兜底收口失效
 7. 状态流错乱
 8. 危险操作无备份或无日志
 9. 迁移 / 备份命令不可用

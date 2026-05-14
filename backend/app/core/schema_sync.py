@@ -61,6 +61,10 @@ def ensure_runtime_schema() -> None:
         "ALTER TABLE training_plan_templates ADD COLUMN source_template_id INTEGER REFERENCES training_plan_templates(id)",
         "ALTER TABLE users ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
         "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
+        "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE users ADD COLUMN password_changed_at DATETIME",
+        "ALTER TABLE users ADD COLUMN last_login_at DATETIME",
+        "ALTER TABLE users ADD COLUMN last_login_ip VARCHAR(45)",
         "ALTER TABLE test_type_definitions ADD COLUMN sport_id INTEGER REFERENCES sports(id)",
         "ALTER TABLE test_type_definitions ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     ]

@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models import User
-from app.schemas.system import DashboardMemoRead, DashboardMemoUpdate, ServerTimeRead
-from app.services import dashboard_memo_service
+from app.schemas.system import CloseDueSessionsRead, DashboardMemoRead, DashboardMemoUpdate, ServerTimeRead
+from app.services import dashboard_memo_service, session_service
 
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -45,3 +45,12 @@ def update_dashboard_memo(
 ):
     memo = dashboard_memo_service.upsert_memo_for_user(db, current_user.id, payload.content)
     return DashboardMemoRead(content=memo.content, updated_at=memo.updated_at)
+
+
+@router.post("/maintenance/close-due-sessions", response_model=CloseDueSessionsRead)
+def close_due_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    _ = current_user
+    return CloseDueSessionsRead(closed_count=session_service.close_due_sessions(db))

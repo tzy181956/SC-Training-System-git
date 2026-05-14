@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import bad_request, not_found
@@ -114,12 +116,15 @@ def update_user(
         sport_id=requested_sport_id,
         allow_sportless_role=False,
     )
+    should_revoke_tokens = next_role_code != normalize_role_code(user.role_code) or next_is_active != user.is_active
 
     user.display_name = next_display_name
     user.role_code = next_role_code
     user.sport_id = next_sport_id
     user.team_id = None
     user.is_active = next_is_active
+    if should_revoke_tokens:
+        _increment_token_version(user)
     db.flush()
 
     content_change_log_service.log_content_change(
@@ -150,6 +155,8 @@ def reset_password(
 
     before_snapshot = {"password_updated": False}
     user.password_hash = get_password_hash(password)
+    user.password_changed_at = datetime.now(timezone.utc)
+    _increment_token_version(user)
     db.flush()
     content_change_log_service.log_content_change(
         db,
@@ -254,3 +261,7 @@ def _serialize_user(user: User) -> dict:
         "sport_id": user.sport_id,
         "is_active": user.is_active,
     }
+
+
+def _increment_token_version(user: User) -> None:
+    user.token_version = int(user.token_version or 1) + 1

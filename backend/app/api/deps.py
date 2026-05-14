@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.exceptions import unauthorized
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token_payload
 from app.models import User
 
 
@@ -17,7 +17,10 @@ def _normalize_role(role_code: str | None) -> str:
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    user_id = decode_access_token(token)
+    payload = decode_access_token_payload(token)
+    if not payload:
+        raise unauthorized()
+    user_id = payload.get("sub")
     if not user_id:
         raise unauthorized()
     try:
@@ -26,6 +29,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise unauthorized() from None
     user = db.query(User).filter(User.id == resolved_user_id, User.is_active.is_(True)).first()
     if not user:
+        raise unauthorized()
+    if _resolve_token_version(payload.get("ver")) != int(user.token_version or 1):
         raise unauthorized()
     return user
 
@@ -36,14 +41,29 @@ def get_optional_current_user(
 ) -> User | None:
     if not token:
         return None
-    user_id = decode_access_token(token)
+    payload = decode_access_token_payload(token)
+    if not payload:
+        return None
+    user_id = payload.get("sub")
     if not user_id:
         return None
     try:
         resolved_user_id = int(user_id)
     except (TypeError, ValueError):
         return None
-    return db.query(User).filter(User.id == resolved_user_id, User.is_active.is_(True)).first()
+    user = db.query(User).filter(User.id == resolved_user_id, User.is_active.is_(True)).first()
+    if not user:
+        return None
+    if _resolve_token_version(payload.get("ver")) != int(user.token_version or 1):
+        return None
+    return user
+
+
+def _resolve_token_version(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def require_roles(*allowed_roles: str):

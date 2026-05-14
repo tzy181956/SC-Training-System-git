@@ -16,6 +16,8 @@
 
 ### Fixed
 
+- 修复整课覆盖同步冲突在返回 `409` 时同步异常 / 冲突记录被事务回滚的问题，确保 `manual_retry_required` 可被教练或管理员后续处理。
+- 修复训练端 / 监控端 GET 接口仍可能隐式触发跨日收口写库的问题；只读接口保持只读，兜底收口改由启动、显式维护接口和非 GET 训练入口承担。
 - 修复前端开发服务器下登录请求误打到 `5173/api/*` 自身导致 `404` 的问题：`frontend/vite.config.ts` 和 `frontend/scripts/dev-server.mjs` 已补 `/api -> http://127.0.0.1:8000` 开发代理，登录页不再因为前后端端口分离而直接报 `Request failed with status code 404`。
 
 - 修复 `backend/app/services/__init__.py` 的包级联导入导致的循环依赖，恢复 `scripts/phase1_acceptance_check.ps1` 中 `Backend phase1 smoke` 的通过能力，避免 `schema_sync -> services.__init__ -> backup_service` 启动链路再次被阻塞。
@@ -163,7 +165,7 @@
 - 跨日未收口训练课的主收口触发点已改为“后端启动时先执行一次”：
   - `backend/app/main.py` 在对外提供请求前先执行 `close_due_sessions()`，并移除原来的周期性自动收口循环
   - 启动时收口失败会明确打印错误并阻止启动，确保“启动成功”就意味着昨天及更早未收口训练课已完成状态纠正
-  - `backend/app/services/session_service.py` 保留训练相关入口里的 `close_due_sessions()` 兜底调用，继续作为保险层
+  - `backend/app/services/session_service.py` 保留非 GET 训练入口里的 `close_due_sessions()` 兜底调用，继续作为保险层
   - `docs/phase1-session-status-flow.md`、`docs/phase1-step-index.md` 已补充本次阶段收尾修复记录
 
 - 启动器失败摘要已收口为“可复制摘要 + 详细日志 + 排障文档”闭环：

@@ -1,10 +1,11 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.core.database import get_db
+from app.core.exceptions import bad_request
 from app.models import User
 from app.schemas.training_session import (
     SessionFinishFeedbackUpdate,
@@ -28,6 +29,50 @@ from app.services import access_control_service, session_service, training_sync_
 
 
 router = APIRouter(prefix="/training", tags=["training"])
+
+
+def _commit_or_rollback(
+    db: Session,
+    operation,
+    *,
+    commit_on_http_statuses: set[int] | None = None,
+):
+    try:
+        result = operation()
+        db.commit()
+        return result
+    except HTTPException as exc:
+        if commit_on_http_statuses and exc.status_code in commit_on_http_statuses:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        else:
+            db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _ensure_sync_operation_access(db: Session, current_user: User, payload: SessionSetSyncOperation) -> None:
+    if payload.operation_type == "update_set" and payload.record_id is not None:
+        access_control_service.get_accessible_set_record(db, current_user, payload.record_id)
+    elif payload.operation_type == "create_set":
+        if payload.session_item_id is not None:
+            access_control_service.get_accessible_session_item(db, current_user, payload.session_item_id)
+        elif payload.session_id is not None:
+            access_control_service.get_accessible_session(db, current_user, payload.session_id)
+        elif payload.assignment_id is not None:
+            access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
+        else:
+            raise bad_request("create_set requires session_item_id, session_id or assignment_id")
+    else:
+        if payload.session_id is not None:
+            access_control_service.get_accessible_session(db, current_user, payload.session_id)
+        else:
+            access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
 
 
 @router.get("/athletes", response_model=list[TrainingAthleteRead])
@@ -72,7 +117,7 @@ def get_today_session(
     current_user: User = Depends(require_roles("coach")),
 ):
     access_control_service.get_accessible_athlete(db, current_user, athlete_id)
-    return session_service.get_or_create_today_session(db, athlete_id, session_date or date.today())
+    return session_service.get_today_session_preview(db, athlete_id, session_date or date.today())
 
 
 @router.get("/sessions/{session_id}", response_model=SessionRead)
@@ -82,7 +127,17 @@ def get_session(
     current_user: User = Depends(require_roles("coach")),
 ):
     access_control_service.get_accessible_session(db, current_user, session_id)
-    return session_service.get_session(db, session_id)
+    return session_service.get_session_readonly(db, session_id)
+
+
+@router.post("/sessions/{session_id}/recompute", response_model=SessionRead)
+def recompute_session_state(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    access_control_service.get_accessible_session(db, current_user, session_id)
+    return session_service.recompute_session_state(db, session_id)
 
 
 @router.post("/session-items/{item_id}/sets", response_model=SetSubmissionResponse)
@@ -92,8 +147,11 @@ def submit_set(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_session_item(db, current_user, item_id)
-    record, next_suggestion, item, session = session_service.submit_set_record(db, item_id, payload)
+    def operation():
+        access_control_service.get_accessible_session_item(db, current_user, item_id)
+        return session_service.submit_set_record(db, item_id, payload)
+
+    record, next_suggestion, item, session = _commit_or_rollback(db, operation)
     return {
         "record": record,
         "next_suggestion": next_suggestion,
@@ -111,8 +169,11 @@ def update_set_record(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_set_record(db, current_user, record_id)
-    record, next_suggestion, item, session = session_service.update_set_record(db, record_id, payload)
+    def operation():
+        access_control_service.get_accessible_set_record(db, current_user, record_id)
+        return session_service.update_set_record(db, record_id, payload)
+
+    record, next_suggestion, item, session = _commit_or_rollback(db, operation)
     return {
         "record": record,
         "next_suggestion": next_suggestion,
@@ -129,21 +190,11 @@ def sync_session_operation(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    if payload.operation_type == "update_set" and payload.record_id is not None:
-        access_control_service.get_accessible_set_record(db, current_user, payload.record_id)
-    elif payload.operation_type == "create_set":
-        access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
-        if payload.session_id is not None:
-            access_control_service.get_accessible_session(db, current_user, payload.session_id)
-        if payload.session_item_id is not None:
-            access_control_service.get_accessible_session_item(db, current_user, payload.session_item_id)
-    else:
-        if payload.session_id is not None:
-            access_control_service.get_accessible_session(db, current_user, payload.session_id)
-        else:
-            access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
+    def operation():
+        _ensure_sync_operation_access(db, current_user, payload)
+        return session_service.sync_session_operation(db, payload)
 
-    record, next_suggestion, item, session = session_service.sync_session_operation(db, payload)
+    record, next_suggestion, item, session = _commit_or_rollback(db, operation)
     return {
         "record": record,
         "next_suggestion": next_suggestion,
@@ -163,11 +214,14 @@ def sync_session_snapshot(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
-    access_control_service.get_accessible_athlete(db, current_user, payload.athlete_id)
-    access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
-    if payload.session_id is not None:
-        access_control_service.get_accessible_session(db, current_user, payload.session_id)
-    session, conflict_logged = session_service.sync_session_snapshot(db, payload)
+    def operation():
+        access_control_service.get_accessible_athlete(db, current_user, payload.athlete_id)
+        access_control_service.get_accessible_assignment(db, current_user, payload.assignment_id)
+        if payload.session_id is not None:
+            access_control_service.get_accessible_session(db, current_user, payload.session_id)
+        return session_service.sync_session_snapshot(db, payload)
+
+    session, conflict_logged = _commit_or_rollback(db, operation, commit_on_http_statuses={409})
     return {
         "session": session,
         "session_status": session.status,

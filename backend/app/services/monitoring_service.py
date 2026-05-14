@@ -16,7 +16,6 @@ from app.models import (
     TrainingSessionItem,
     TrainingSyncIssue,
 )
-from app.services import session_service
 from app.services.assignment_service import is_assignment_scheduled_for_date
 
 
@@ -42,7 +41,6 @@ def get_today_monitoring(
 ) -> dict:
     """Build the first read-only monitoring board payload for one training date."""
     monitor_now = _resolve_monitor_now(reference_time)
-    session_service.close_due_sessions(db, reference_time=monitor_now)
 
     all_active_athletes = _list_active_athletes(db, sport_id=sport_id)
     visible_athletes = _filter_athletes(all_active_athletes, team_id, include_unassigned)
@@ -78,7 +76,6 @@ def get_athlete_monitoring_detail(
 ) -> dict:
     """Build a read-only training detail payload for one athlete on one date."""
     monitor_now = _resolve_monitor_now(reference_time)
-    session_service.close_due_sessions(db, reference_time=monitor_now)
 
     athlete = (
         db.query(Athlete)

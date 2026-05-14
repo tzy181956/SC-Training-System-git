@@ -149,6 +149,26 @@ CORS_ORIGINS=["https://your-domain.example"]
 CORS_ORIGIN_REGEX=
 ```
 
+## 训练日切换与自动收口配置
+
+训练课自动收口不再按自然日 `00:00` 切换，而是按“训练日切换时间”判断。默认配置为凌晨 `04:00`：
+
+- `TRAINING_DAY_ROLLOVER_HOUR=4`
+- `AUTO_CLOSE_OVERDUE_SESSIONS=true`
+
+含义：
+
+- 当服务器本地时间早于 `04:00` 时，系统仍认为当前训练日是昨天，不会自动关闭昨天的训练课。
+- 当服务器本地时间到达或晚于 `04:00` 时，当前训练日切到今天，昨日及更早未终结训练课会按规则自动收口。
+- 前天及更早训练课在后端启动、显式维护接口或训练端非 GET 开课入口触发检查时仍会被收口。
+- 训练端 / 监控端 GET 接口保持只读，不再为了兜底收口隐式写库。
+
+如果需要临时关闭自动收口，可在 `backend/.env` 中设置：
+
+```dotenv
+AUTO_CLOSE_OVERDUE_SESSIONS=false
+```
+
 ## systemd 后端服务模板
 
 项目已提供 systemd 后端服务模板：
@@ -166,7 +186,16 @@ CORS_ORIGIN_REGEX=
 
 - `WorkingDirectory`
 - `EnvironmentFile`
+- `ExecStartPre`
 - `ExecStart`
+
+服务启动前会自动执行：
+
+```bash
+/opt/sc-training-system/backend/.venv/bin/python scripts/migrate_db.py ensure
+```
+
+这一步用于生产库启动前迁移检查。数据库落后于 Alembic head 时会先创建迁移前备份，再升级到最新 revision。
 
 常用命令：
 
@@ -184,16 +213,53 @@ curl http://127.0.0.1:8000/health
 说明：
 
 - service 使用 `backend/.env` 作为 `EnvironmentFile`
+- service 使用 `ExecStartPre` 执行 `scripts/migrate_db.py ensure`
 - 启动命令不使用 `--reload`
 - 启动命令不使用多 worker
 - 该模板只监听 `127.0.0.1:8000`，用于交给 Nginx 在本机反向代理
 - 如果 `APP_ENV=production` 但 `.env` 缺少 `SECRET_KEY`、`DATABASE_URL` 或 `CORS_ORIGINS`，后端会在启动时直接失败
+
+## systemd 每日备份 timer 模板
+
+项目已提供 systemd 每日备份模板：
+
+- `deploy/sc-training-backup.service`
+- `deploy/sc-training-backup.timer`
+
+默认每天服务器本地时间 `03:20` 执行一次：
+
+```bash
+/opt/sc-training-system/backend/.venv/bin/python scripts/create_backup.py --trigger daily_auto --label systemd_timer
+```
+
+备份文件写入生产数据库同级的 `backups` 目录，例如：
+
+- `/opt/sc-training-system-data/backups`
+
+常用命令：
+
+```bash
+sudo cp deploy/sc-training-backup.service /etc/systemd/system/sc-training-backup.service
+sudo cp deploy/sc-training-backup.timer /etc/systemd/system/sc-training-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now sc-training-backup.timer
+sudo systemctl list-timers sc-training-backup.timer
+sudo systemctl start sc-training-backup.service
+journalctl -u sc-training-backup.service -n 80 --no-pager
+```
+
+说明：
+
+- 当前只新增 systemd timer 模板，不要求删除后端进程内已有的自动备份兜底逻辑
+- timer service 使用同一个 `backend/.env`，因此必须能读取生产 `DATABASE_URL`
+- `/opt/sc-training-system-data` 必须允许 `sc-training` 用户读写
 
 ## Nginx 同域反代模板
 
 项目已提供 Nginx 配置模板：
 
 - `deploy/nginx-sc-training.conf`
+- `deploy/nginx-sc-training-https.conf.example`
 
 用途：
 
@@ -203,7 +269,7 @@ curl http://127.0.0.1:8000/health
 - `/health` 回源到 `http://127.0.0.1:8000/health`
 - Vue Router 使用 history fallback
 
-常用命令：
+HTTP 模板常用命令：
 
 ```bash
 sudo cp deploy/nginx-sc-training.conf /etc/nginx/sites-available/sc-training
@@ -219,5 +285,91 @@ curl http://127.0.0.1/
 说明：
 
 - 模板默认 `server_name _;`，有正式域名后再改成真实域名
-- 当前模板不包含 HTTPS，HTTPS 后续单独配置
 - `8000` 只供 Nginx 本机回源，不应直接开放到公网
+
+HTTPS 示例模板：
+
+- `deploy/nginx-sc-training-https.conf.example`
+
+包含：
+
+- `80` 跳转 `443`
+- `443 ssl http2`
+- `/api/` 反代到 `127.0.0.1:8000`
+- `/health` 反代到 `127.0.0.1:8000/health`
+- Vue history fallback
+- 登录接口 `limit_req` 示例
+- 基础安全 headers
+
+启用 HTTPS 前，先在 `/etc/nginx/nginx.conf` 的全局 `http {}` 块内加入限流 zone：
+
+```nginx
+limit_req_zone $binary_remote_addr zone=sc_training_login:10m rate=5r/m;
+```
+
+然后复制示例并替换域名和证书路径：
+
+```bash
+sudo cp deploy/nginx-sc-training-https.conf.example /etc/nginx/sites-available/sc-training
+sudo nano /etc/nginx/sites-available/sc-training
+sudo nginx -t
+sudo systemctl reload nginx
+curl -I https://your-domain.example/health
+```
+
+## 生产部署步骤（Ubuntu）
+
+以下步骤默认代码位于 `/opt/sc-training-system`，生产数据位于 `/opt/sc-training-system-data`。
+
+首次部署或服务器更新代码后：
+
+```bash
+cd /opt/sc-training-system
+git pull
+
+id -u sc-training >/dev/null 2>&1 || sudo useradd --system --home /opt/sc-training-system --shell /usr/sbin/nologin sc-training
+sudo mkdir -p /opt/sc-training-system-data
+sudo chown -R sc-training:sc-training /opt/sc-training-system-data
+
+cd backend
+python3.12 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+如果还没有生产环境变量文件，先创建并检查：
+
+```bash
+sudo cp /opt/sc-training-system/deploy/backend.env.production.example /opt/sc-training-system/backend/.env
+sudo nano /opt/sc-training-system/backend/.env
+sudo chown sc-training:sc-training /opt/sc-training-system/backend/.env
+sudo chmod 640 /opt/sc-training-system/backend/.env
+```
+
+构建前端并启用 systemd 服务：
+
+```bash
+cd /opt/sc-training-system
+cd frontend
+npm install
+npm run build
+
+cd /opt/sc-training-system
+sudo cp deploy/sc-training-backend.service /etc/systemd/system/sc-training-backend.service
+sudo cp deploy/sc-training-backup.service /etc/systemd/system/sc-training-backup.service
+sudo cp deploy/sc-training-backup.timer /etc/systemd/system/sc-training-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now sc-training-backend
+sudo systemctl enable --now sc-training-backup.timer
+```
+
+更新后验收：
+
+```bash
+sudo systemctl restart sc-training-backend
+sudo systemctl status sc-training-backend
+journalctl -u sc-training-backend -n 120 --no-pager
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1/health
+sudo systemctl list-timers sc-training-backup.timer
+```

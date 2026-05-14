@@ -17,7 +17,6 @@ const actionTone = ref<'success' | 'warning' | 'error'>('success')
 const backups = ref<BackupItem[]>([])
 const restoreScopes = ref<RestoreScope[]>([])
 const teams = ref<TeamRead[]>([])
-const backupDirectory = ref('')
 const filenamePattern = ref('')
 const keepRecentDays = ref(0)
 const keepRecentWeeks = ref(0)
@@ -72,7 +71,6 @@ async function loadBackupList() {
     const response = await fetchBackups()
     backups.value = response.items || []
     restoreScopes.value = response.available_restore_scopes || []
-    backupDirectory.value = response.backup_directory || ''
     filenamePattern.value = response.filename_pattern || ''
     keepRecentDays.value = response.keep_recent_days || 0
     keepRecentWeeks.value = response.keep_recent_weeks || 0
@@ -223,10 +221,6 @@ onMounted(() => {
         </div>
         <div class="summary-grid">
           <div class="summary-item">
-            <span class="summary-label">备份目录</span>
-            <strong>{{ backupDirectory || '—' }}</strong>
-          </div>
-          <div class="summary-item">
             <span class="summary-label">文件命名规则</span>
             <strong>{{ filenamePattern || '—' }}</strong>
           </div>
@@ -306,10 +300,6 @@ onMounted(() => {
                 <span class="summary-label">文件大小</span>
                 <strong>{{ formatFileSize(selectedBackup.size_bytes) }}</strong>
               </div>
-              <div class="detail-item">
-                <span class="summary-label">文件路径</span>
-                <strong>{{ selectedBackup.path }}</strong>
-              </div>
             </div>
 
             <div class="scope-section">
@@ -383,10 +373,6 @@ onMounted(() => {
                 <div v-if="lastRestoreResult.team_name" class="detail-item">
                   <span class="summary-label">恢复队伍</span>
                   <strong>{{ lastRestoreResult.team_name }}</strong>
-                </div>
-                <div v-if="lastRestoreResult.pre_restore_backup_path" class="detail-item detail-item-wide">
-                  <span class="summary-label">恢复前兜底备份</span>
-                  <strong>{{ lastRestoreResult.pre_restore_backup_path }}</strong>
                 </div>
               </div>
               <div v-if="restoreResultRows.length" class="restore-count-grid">

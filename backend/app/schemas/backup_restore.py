@@ -16,7 +16,6 @@ class RestoreScopeRead(BaseModel):
 
 class BackupItemRead(BaseModel):
     filename: str
-    path: str
     stem: str
     restore_point_at: datetime
     file_modified_at: datetime
@@ -29,7 +28,6 @@ class BackupItemRead(BaseModel):
 
 
 class BackupListRead(BaseModel):
-    backup_directory: str
     filename_pattern: str
     keep_recent_days: int
     keep_recent_weeks: int
@@ -45,7 +43,6 @@ class BackupRestorePayload(DangerousActionConfirm):
 
 class BackupRestoreRead(BaseModel):
     backup_filename: str
-    backup_path: str
     restore_scope: str
     restore_scope_label: str
     restore_point_at: datetime
@@ -53,5 +50,4 @@ class BackupRestoreRead(BaseModel):
     team_name: str | None = None
     restored_tables: list[str] = Field(default_factory=list)
     restored_row_counts: dict[str, dict[str, int]] = Field(default_factory=dict)
-    pre_restore_backup_path: str | None = None
     message: str

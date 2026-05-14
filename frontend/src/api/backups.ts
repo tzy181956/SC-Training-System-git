@@ -8,7 +8,6 @@ type DangerousActionPayload = {
 
 export interface BackupItem {
   filename: string
-  path: string
   stem: string
   restore_point_at: string
   file_modified_at: string
@@ -29,7 +28,6 @@ export interface RestoreScope {
 }
 
 export interface BackupListResponse {
-  backup_directory: string
   filename_pattern: string
   keep_recent_days: number
   keep_recent_weeks: number
@@ -39,7 +37,6 @@ export interface BackupListResponse {
 
 export interface BackupRestoreResponse {
   backup_filename: string
-  backup_path: string
   restore_scope: string
   restore_scope_label: string
   restore_point_at: string
@@ -47,7 +44,6 @@ export interface BackupRestoreResponse {
   team_name: string | null
   restored_tables: string[]
   restored_row_counts: Record<string, { deleted: number; inserted: number }>
-  pre_restore_backup_path: string | null
   message: string
 }
 

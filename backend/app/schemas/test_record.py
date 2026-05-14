@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -48,3 +49,18 @@ class TestRecordImportRead(BaseModel):
     total_rows: int
     imported_rows: int
     skipped_rows: int
+
+
+class TestRecordImportPreviewError(BaseModel):
+    row_number: int
+    message: str
+
+
+class TestRecordImportPreviewRead(BaseModel):
+    total_rows: int
+    valid_rows: int
+    duplicate_rows: int
+    skipped_rows: int
+    error_rows: int
+    errors: list[TestRecordImportPreviewError] = Field(default_factory=list)
+    pending_records_data: list[dict[str, Any]] = Field(default_factory=list)

@@ -115,7 +115,10 @@ def list_templates(
             query = query.filter(TrainingPlanTemplate.visibility == visibility_key)
         if owner_user_id is not None:
             query = query.filter(TrainingPlanTemplate.owner_user_id == owner_user_id)
-        return [_serialize_template_list_row(template, modules_count, items_count) for template, modules_count, items_count in query.all()]
+        return [
+            _serialize_template_list_row(template, modules_count, items_count, current_user)
+            for template, modules_count, items_count in query.all()
+        ]
 
     if owner_user_id is not None and owner_user_id != current_user.id:
         raise bad_request("教练账号不能查看其他教练的自建模板")
@@ -135,10 +138,20 @@ def list_templates(
             TrainingPlanTemplate.visibility == TEMPLATE_VISIBILITY_PRIVATE,
             TrainingPlanTemplate.owner_user_id == current_user.id,
         )
-    return [_serialize_template_list_row(template, modules_count, items_count) for template, modules_count, items_count in query.all()]
+    return [
+        _serialize_template_list_row(template, modules_count, items_count, current_user)
+        for template, modules_count, items_count in query.all()
+    ]
 
 
-def _serialize_template_list_row(template: TrainingPlanTemplate, modules_count: int, items_count: int) -> dict:
+def _serialize_template_list_row(
+    template: TrainingPlanTemplate,
+    modules_count: int,
+    items_count: int,
+    current_user: User,
+) -> dict:
+    can_edit = access_control_service.can_edit_template(current_user, template)
+    can_copy = access_control_service.can_copy_template(current_user, template)
     return {
         "id": template.id,
         "name": template.name,
@@ -156,7 +169,19 @@ def _serialize_template_list_row(template: TrainingPlanTemplate, modules_count: 
         "source_template_name": template.source_template_name,
         "modules_count": int(modules_count or 0),
         "items_count": int(items_count or 0),
+        "can_edit": can_edit,
+        "can_copy": can_copy,
+        "edit_lock_reason": _resolve_template_edit_lock_reason(template, can_edit=can_edit),
     }
+
+
+def _resolve_template_edit_lock_reason(template: TrainingPlanTemplate, *, can_edit: bool) -> str | None:
+    if can_edit:
+        return None
+    visibility = (template.visibility or TEMPLATE_VISIBILITY_PRIVATE).strip().lower()
+    if visibility == TEMPLATE_VISIBILITY_PUBLIC:
+        return access_control_service.PUBLIC_TEMPLATE_EDIT_DENIED_DETAIL
+    return access_control_service.TEMPLATE_ACCESS_DENIED_DETAIL
 
 
 def get_template(db: Session, template_id: int) -> TrainingPlanTemplate:

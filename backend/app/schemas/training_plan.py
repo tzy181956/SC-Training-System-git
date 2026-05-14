@@ -147,6 +147,9 @@ class PlanTemplateListRead(ORMModel, PlanTemplateBase):
     source_template_name: str | None = None
     modules_count: int = 0
     items_count: int = 0
+    can_edit: bool
+    can_copy: bool
+    edit_lock_reason: str | None = None
 
 
 class PlanTemplateRead(ORMModel, PlanTemplateBase):

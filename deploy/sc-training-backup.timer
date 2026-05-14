@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SC Training System daily backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+Unit=sc-training-backup.service
+
+[Install]
+WantedBy=timers.target
