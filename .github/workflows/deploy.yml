@@ -186,6 +186,23 @@ jobs:
             exit 1
           }
 
+          retry() {
+            local max_attempts="$1"
+            local sleep_seconds="$2"
+            shift 2
+            local attempt
+            for attempt in $(seq 1 "$max_attempts"); do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" -lt "$max_attempts" ]; then
+                log "Command failed on attempt $attempt/$max_attempts; retrying in ${sleep_seconds}s: $*"
+                sleep "$sleep_seconds"
+              fi
+            done
+            return 1
+          }
+
           print_diagnostics() {
             local exit_code=$?
             printf '[remote][error] Deploy failed at line %s with exit code %s.\n' "${BASH_LINENO[0]:-unknown}" "$exit_code" >&2
@@ -215,7 +232,7 @@ jobs:
 
           cd "$DEPLOY_PATH"
           log "Fetching branch from origin."
-          git fetch --prune origin "$DEPLOY_BRANCH"
+          retry 3 10 timeout 90 git fetch --prune origin "$DEPLOY_BRANCH"
 
           log "Checking out deploy branch."
           if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
@@ -225,7 +242,7 @@ jobs:
           fi
 
           log "Pulling latest code with fast-forward only."
-          git pull --ff-only origin "$DEPLOY_BRANCH"
+          retry 3 10 timeout 90 git pull --ff-only origin "$DEPLOY_BRANCH"
           git rev-parse --short HEAD | sed 's/^/[remote] Current commit: /'
 
           log "Checking production backend environment file."
@@ -275,5 +292,5 @@ jobs:
 
           cat /tmp/sc-training-healthcheck.out 2>/dev/null || true
           fail "Health check failed after 12 attempts."
-REMOTE_DEPLOY
+          REMOTE_DEPLOY
           echo "::endgroup::"
