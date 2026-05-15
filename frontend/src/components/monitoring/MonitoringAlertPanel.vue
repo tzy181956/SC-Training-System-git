@@ -138,8 +138,11 @@ const archivedAlerts = computed(() =>
 <style scoped>
 .alert-panel {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
-  align-content: start;
+  align-content: stretch;
+  height: 100%;
+  min-height: 0;
   padding: 14px;
   border: 1px solid rgba(185, 28, 28, 0.18);
   border-radius: 14px;
@@ -167,6 +170,12 @@ const archivedAlerts = computed(() =>
 .alert-list {
   display: grid;
   gap: 10px;
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .alert-row {
@@ -281,6 +290,12 @@ const archivedAlerts = computed(() =>
 .archived-list {
   display: grid;
   gap: 10px;
+  align-content: start;
+  max-height: min(36vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .alert-row.archived {
@@ -296,5 +311,15 @@ const archivedAlerts = computed(() =>
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.72);
   text-align: center;
+}
+
+@media (max-width: 1180px) {
+  .alert-panel {
+    height: auto;
+  }
+
+  .alert-list {
+    max-height: min(70vh, 760px);
+  }
 }
 </style>

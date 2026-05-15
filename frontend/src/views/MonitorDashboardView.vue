@@ -525,26 +525,28 @@ onBeforeUnmount(() => {
         <MonitoringSummaryCards :athletes="sortedAthletes" :loading="loading" />
       </section>
 
-      <section class="dashboard-grid">
-        <MonitoringAthleteBoard
-          class="board-main"
-          :athletes="sortedAthletes"
-          :session-date="monitorDate"
-          :dismissed-alert-keys="hiddenAlertKeys"
-          :loading="loading"
-          @select-athlete="handleAthleteClick"
-        />
-        <MonitoringAlertPanel
-          class="board-side"
-          :athletes="displayedAthletes"
-          :session-date="monitorDate"
-          :dismissed-alert-keys="dismissedAlertKeys"
-          :deleted-alert-keys="deletedAlertKeys"
-          :loading="loading"
-          @dismiss-alert="dismissAlert"
-          @restore-alert="restoreAlert"
-          @delete-alert="deleteAlert"
-        />
+      <section class="panel board-panel">
+        <div class="dashboard-grid">
+          <MonitoringAthleteBoard
+            class="board-main"
+            :athletes="sortedAthletes"
+            :session-date="monitorDate"
+            :dismissed-alert-keys="hiddenAlertKeys"
+            :loading="loading"
+            @select-athlete="handleAthleteClick"
+          />
+          <MonitoringAlertPanel
+            class="board-side"
+            :athletes="displayedAthletes"
+            :session-date="monitorDate"
+            :dismissed-alert-keys="dismissedAlertKeys"
+            :deleted-alert-keys="deletedAlertKeys"
+            :loading="loading"
+            @dismiss-alert="dismissAlert"
+            @restore-alert="restoreAlert"
+            @delete-alert="deleteAlert"
+          />
+        </div>
       </section>
 
       <MonitoringAthleteDetailOverlay
@@ -675,12 +677,24 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.board-panel {
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .board-main,
 .board-side {
   min-width: 0;
+  min-height: 0;
+}
+
+.board-side {
+  padding-left: 16px;
+  border-left: 1px solid rgba(148, 163, 184, 0.24);
 }
 
 .refresh-btn {
@@ -719,9 +733,6 @@ onBeforeUnmount(() => {
     right: auto;
   }
 
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 760px) {
@@ -742,6 +753,14 @@ onBeforeUnmount(() => {
 @media (max-width: 1180px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .board-side {
+    padding-top: 16px;
+    padding-left: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.24);
+    border-left: 0;
   }
 }
 </style>

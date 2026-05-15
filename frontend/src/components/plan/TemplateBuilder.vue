@@ -254,17 +254,6 @@ function isPendingNewItem(item: any) {
   return Number(item?.id) < 0 && Number(item?.exercise_id || 0) <= 0
 }
 
-function getPinnedPendingItem(module: any) {
-  const pendingItems = module.items.filter((item: any) => isPendingNewItem(item))
-  if (!pendingItems.length) return null
-  return pendingItems.find((item: any) => item.id === activeItemId.value) || pendingItems[pendingItems.length - 1]
-}
-
-function getVisibleModuleItems(module: any) {
-  const pinnedItem = getPinnedPendingItem(module)
-  return module.items.filter((item: any) => item.id !== pinnedItem?.id)
-}
-
 function getModuleItemIndex(module: any, itemId: number) {
   return module.items.findIndex((item: any) => item.id === itemId)
 }
@@ -721,35 +710,12 @@ function removeTemplate() {
             <button v-if="!readonly" class="primary-btn slim" type="button" @click="addItem(module.id)">在 {{ module.display_label }} 中添加动作</button>
           </div>
 
-          <div
-            v-if="getPinnedPendingItem(module)"
-            class="template-item-anchor pending-item-anchor"
-            :data-template-item-id="getPinnedPendingItem(module).id"
-          >
-            <TemplateItemCard
-              :item="getPinnedPendingItem(module)"
-              :item-label="getPinnedPendingItem(module).display_code"
-              :module-options="moduleOptions"
-              :move-up-disabled="getModuleItemIndex(module, getPinnedPendingItem(module).id) <= 0"
-              :move-down-disabled="getModuleItemIndex(module, getPinnedPendingItem(module).id) === module.items.length - 1"
-              :exercises="exercises"
-              :test-metric-options="testMetricOptions || []"
-              :readonly="readonly"
-              :active="true"
-              :open="true"
-              @change="updateItemDraft"
-              @remove="removeItemDraft"
-              @move="moveItemDraft"
-              @toggle-open="toggleItemOpen"
-              @focus="focusItem"
-            />
-          </div>
-
           <div class="module-items">
             <div
-              v-for="item in getVisibleModuleItems(module)"
+              v-for="item in module.items"
               :key="`${template?.id || 'draft'}-${item.id}`"
               class="template-item-anchor"
+              :class="{ 'pending-item-anchor': isPendingNewItem(item) }"
               :data-template-item-id="item.id"
             >
               <TemplateItemCard

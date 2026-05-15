@@ -36,60 +36,25 @@ const exerciseFilterTouched = ref(false)
 let syncingFromProps = false
 let syncedItemId = props.item?.id ?? null
 
-watch(
-  () => props.item,
-  (item) => {
-    const nextItemId = item?.id ?? null
-    if (nextItemId !== syncedItemId) {
-      exerciseFilterTouched.value = false
-      syncedItemId = nextItemId
-    }
-    syncingFromProps = true
-    Object.assign(draft, buildDraft(item))
-    syncExercisePicker(item.exercise_id, item.exercise)
-    queueMicrotask(() => {
-      syncingFromProps = false
-    })
-  },
-  { deep: true, immediate: true },
-)
-
-watch(
-  () => props.exercises,
-  () => {
-    syncExercisePicker(draft.exercise_id, props.item?.exercise)
-  },
-  { deep: true },
-)
-
-watch(
-  draft,
-  () => {
-    if (syncingFromProps || props.readonly) return
-    emit('change', props.item.id, serializeDraft())
-  },
-  { deep: true },
-)
-
-watch(
-  () => draft.enable_auto_load,
-  (enabled) => {
-    if (!enabled) {
-      progressionOpen.value = false
-      return
-    }
-    extraOptionsOpen.value = true
-    progressionOpen.value = true
-  },
-)
-
 const selectedExercise = computed(() => props.exercises.find((exercise) => exercise.id === draft.exercise_id))
+const isNewUnselectedItem = computed(() => Number(props.item?.id) < 0 && Number(draft.exercise_id) <= 0)
 const missingExercise = computed(() => Number(draft.exercise_id) <= 0 || (!selectedExercise.value && !props.item?.exercise))
 const loadModeLabel = computed(() => (draft.initial_load_mode === 'percent_1rm' ? '按最近测试百分比' : '固定重量'))
 const selectedTestMetricLabel = computed(() => {
   const matched = (props.testMetricOptions || []).find((option) => option.id === draft.initial_load_test_metric_definition_id)
   return matched?.label || ''
 })
+const itemTitle = computed(() => {
+  if (selectedExercise.value?.name) return selectedExercise.value.name
+  if (props.item?.exercise?.name) return props.item.exercise.name
+  return isNewUnselectedItem.value ? '未选择动作' : '动作已失效，请重新选择'
+})
+const missingExerciseLabel = computed(() => (isNewUnselectedItem.value ? '待选择动作' : '动作缺失'))
+const missingExerciseHint = computed(() =>
+  isNewUnselectedItem.value
+    ? '请先选择动作，再补组次、负荷和训练目标。'
+    : '这个模板动作当前没有有效动作，请先重新选择动作后再保存模板。',
+)
 const detailsOpen = computed(() => props.open === true)
 const setRepSummary = computed(() => `${draft.prescribed_sets || 0} 组 × ${draft.prescribed_reps || 0} 次`)
 const loadSummary = computed(() => (
@@ -224,6 +189,53 @@ function syncExercisePicker(exerciseId: number, fallbackExercise?: any) {
   searchKeyword.value = ''
 }
 
+watch(
+  () => props.item,
+  (item) => {
+    const nextItemId = item?.id ?? null
+    if (nextItemId !== syncedItemId) {
+      exerciseFilterTouched.value = false
+      syncedItemId = nextItemId
+    }
+    syncingFromProps = true
+    Object.assign(draft, buildDraft(item))
+    syncExercisePicker(item.exercise_id, item.exercise)
+    queueMicrotask(() => {
+      syncingFromProps = false
+    })
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () => props.exercises,
+  () => {
+    syncExercisePicker(draft.exercise_id, props.item?.exercise)
+  },
+  { deep: true },
+)
+
+watch(
+  draft,
+  () => {
+    if (syncingFromProps || props.readonly) return
+    emit('change', props.item.id, serializeDraft())
+  },
+  { deep: true },
+)
+
+watch(
+  () => draft.enable_auto_load,
+  (enabled) => {
+    if (!enabled) {
+      progressionOpen.value = false
+      return
+    }
+    extraOptionsOpen.value = true
+    progressionOpen.value = true
+  },
+)
+
 function clearExerciseSelection() {
   if (props.readonly) return
   draft.exercise_id = 0
@@ -321,7 +333,7 @@ onBeforeUnmount(() => {
     <header class="item-header">
       <div class="item-copy adaptive-card">
         <p class="item-index">{{ itemLabel || '模板动作' }}</p>
-        <h4 class="adaptive-card-title">{{ selectedExercise?.name || item.exercise?.name || (missingExercise ? '动作已失效，请重新选择' : '未选择动作') }}</h4>
+        <h4 class="adaptive-card-title">{{ itemTitle }}</h4>
         <span class="muted adaptive-card-subtitle adaptive-card-clamp-2">{{ loadModeLabel }}</span>
       </div>
       <div class="header-actions">
@@ -333,7 +345,7 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="item-summary">
-      <span v-if="missingExercise" class="summary-pill summary-pill--danger">动作缺失</span>
+      <span v-if="missingExercise" class="summary-pill summary-pill--danger">{{ missingExerciseLabel }}</span>
       <span class="summary-pill summary-pill--strong">{{ setRepSummary }}</span>
       <span class="summary-pill">{{ loadSummary }}</span>
       <span class="summary-pill">{{ goalSummary }}</span>
@@ -351,7 +363,7 @@ onBeforeUnmount(() => {
           <div>
             <strong>基础设置</strong>
             <p class="detail-hint">
-              {{ missingExercise ? '这个模板动作当前没有有效动作，请先重新选择动作后再保存模板。' : '先确定动作，再补组次、负荷和训练目标。' }}
+              {{ missingExercise ? missingExerciseHint : '先确定动作，再补组次、负荷和训练目标。' }}
             </p>
           </div>
         </div>
