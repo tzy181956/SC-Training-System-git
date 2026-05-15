@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import timezone
 from typing import Any
 
 
@@ -50,8 +51,8 @@ def serialize_session_snapshot(session: Any) -> dict:
         "template_id": session.template_id,
         "session_date": session.session_date.isoformat(),
         "status": session.status,
-        "started_at": session.started_at.isoformat() if session.started_at else None,
-        "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+        "started_at": _serialize_datetime(session.started_at),
+        "completed_at": _serialize_datetime(session.completed_at),
         "session_rpe": getattr(session, "session_rpe", None),
         "session_feedback": getattr(session, "session_feedback", None),
         "items": _serialize_session_items(session.items),
@@ -65,8 +66,8 @@ def serialize_full_sync_payload(payload: Any) -> dict:
         "template_id": payload.template_id,
         "session_date": payload.session_date.isoformat(),
         "status": payload.status,
-        "started_at": payload.started_at.isoformat() if payload.started_at else None,
-        "completed_at": payload.completed_at.isoformat() if payload.completed_at else None,
+        "started_at": _serialize_datetime(payload.started_at),
+        "completed_at": _serialize_datetime(payload.completed_at),
         "session_rpe": getattr(payload, "session_rpe", None),
         "session_feedback": getattr(payload, "session_feedback", None),
         "items": _serialize_session_items(payload.items),
@@ -99,10 +100,20 @@ def _serialize_session_items(items: Any) -> list[dict]:
                     "actual_rir": record.actual_rir,
                     "final_weight": record.final_weight,
                     "notes": record.notes,
-                    "completed_at": record.completed_at.isoformat(),
+                    "completed_at": _serialize_datetime(record.completed_at),
                 }
                 for record in sorted(item.records, key=lambda current: current.set_number)
             ],
         }
         for item in sorted(items, key=lambda current: (current.sort_order, current.template_item_id))
     ]
+
+
+def _serialize_datetime(value: Any) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat()

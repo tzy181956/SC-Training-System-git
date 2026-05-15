@@ -39,7 +39,7 @@ const latestRecord = computed(() => {
 const completedSetCount = computed(() => props.item?.records?.length || 0)
 const totalSetCount = computed(() => props.item?.prescribed_sets || 0)
 const currentSetNumber = computed(() => Math.min((props.item?.records?.length || 0) + 1, props.item?.prescribed_sets || 1))
-const hasSelectedCurrentRir = computed(() => currentDraft.rir.trim() !== '')
+const hasSelectedCurrentRir = computed(() => toDraftString(currentDraft.rir).trim() !== '')
 const canSubmitCurrentSet = computed(() => !currentSetSaving.value && !isCompleted.value && hasSelectedCurrentRir.value && Boolean(props.onSubmitCurrentSet))
 const actionTitle = computed(() => props.item?.exercise?.name || '当前动作')
 const actionStatusLabel = computed(() => {
@@ -208,6 +208,10 @@ function setRecordRirValue(recordId: number, value: number) {
   draft.dirty = true
 }
 
+function toDraftString(value: unknown) {
+  return value === null || value === undefined ? '' : String(value)
+}
+
 function toggleRecordExpanded(recordId: number) {
   expandedRecordId.value = expandedRecordId.value === recordId ? null : recordId
 }
@@ -230,17 +234,20 @@ function formatRecordSummary(recordId: number) {
 }
 
 function validateCurrentDraft() {
-  const weight = Number(currentDraft.weight.trim())
-  const reps = Number(currentDraft.reps.trim())
-  const rir = Number(currentDraft.rir.trim())
+  const weightText = toDraftString(currentDraft.weight).trim()
+  const repsText = toDraftString(currentDraft.reps).trim()
+  const rirText = toDraftString(currentDraft.rir).trim()
+  const weight = Number(weightText)
+  const reps = Number(repsText)
+  const rir = Number(rirText)
 
-  if (!currentDraft.weight.trim() || Number.isNaN(weight) || weight < 0) {
+  if (!weightText || Number.isNaN(weight) || weight < 0) {
     return { error: '当前组重量必须是大于等于 0 的数字。' }
   }
   if (!Number.isInteger(reps) || reps <= 0) {
     return { error: '当前组次数必须是正整数。' }
   }
-  if (!currentDraft.rir.trim()) {
+  if (!rirText) {
     return { error: '请先手动选择当前组 RIR（还能做几个）。' }
   }
   if (!Number.isInteger(rir) || rir < 0 || rir > 4) {
@@ -292,11 +299,14 @@ function validateRecordDraft(record: any) {
   const draft = recordDrafts[record.id]
   if (!draft) return { error: '未找到当前历史组。' }
 
-  const weight = Number(draft.weight.trim())
-  const reps = Number(draft.reps.trim())
-  const rir = Number(draft.rir.trim())
+  const weightText = toDraftString(draft.weight).trim()
+  const repsText = toDraftString(draft.reps).trim()
+  const rirText = toDraftString(draft.rir).trim()
+  const weight = Number(weightText)
+  const reps = Number(repsText)
+  const rir = Number(rirText)
 
-  if (!draft.weight.trim() || Number.isNaN(weight) || weight < 0) {
+  if (!weightText || Number.isNaN(weight) || weight < 0) {
     return { error: `第 ${record.set_number} 组重量必须是大于等于 0 的数字。` }
   }
   if (!Number.isInteger(reps) || reps <= 0) {

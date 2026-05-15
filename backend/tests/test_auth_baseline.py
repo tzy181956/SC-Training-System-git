@@ -67,6 +67,14 @@ def test_ready_deep_does_not_require_login_and_returns_database_backup_and_migra
     assert payload["checks"]["alembic_revision"]["status"] == "ok"
 
 
+def test_alembic_ini_path_points_to_backend_config() -> None:
+    from app import main
+
+    assert main.BACKEND_DIR.name == "backend"
+    assert main.ALEMBIC_INI == main.BACKEND_DIR / "alembic.ini"
+    assert main.ALEMBIC_INI.exists()
+
+
 def test_alembic_revision_check_passes_when_database_matches_cached_head(monkeypatch: Any) -> None:
     from app import main
 
