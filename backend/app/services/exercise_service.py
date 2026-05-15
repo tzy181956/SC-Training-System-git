@@ -28,10 +28,14 @@ EXERCISE_FACET_KEYS = (
     "trainingGoal",
     "functionType",
 )
+EXERCISE_LIST_TAG_SUMMARY_LIMIT = 12
 VALID_EXERCISE_VISIBILITIES = {EXERCISE_VISIBILITY_PUBLIC, EXERCISE_VISIBILITY_PRIVATE}
 PUBLIC_EXERCISE_EDIT_DENIED_DETAIL = "公共动作只允许管理员维护，请新建自建动作后再调整"
 PRIVATE_EXERCISE_ACCESS_DENIED_DETAIL = "无权访问其他教练的自建动作"
 NOT_APPLICABLE_TAG_VALUE = "不适用"
+REMOVED_EXERCISE_TAG_VALUES_BY_KEY = {
+    "bodyPosition": {"其他"},
+}
 
 
 def _normalize_exercise_payload_defaults(data: dict) -> dict:
@@ -61,12 +65,18 @@ def _remove_not_applicable_tag_values(structured_tags: dict | None) -> dict:
         seen: set[str] = set()
         for raw_value in raw_values:
             value = str(raw_value or "").strip()
-            if not value or value == NOT_APPLICABLE_TAG_VALUE or value in seen:
+            if not _should_keep_structured_tag_value(key, value) or value in seen:
                 continue
             seen.add(value)
             values.append(value)
         cleaned[key] = values
     return cleaned
+
+
+def _should_keep_structured_tag_value(key: str, value: str) -> bool:
+    if not value or value == NOT_APPLICABLE_TAG_VALUE:
+        return False
+    return value not in REMOVED_EXERCISE_TAG_VALUES_BY_KEY.get(key, set())
 
 
 def normalize_exercise_visibility(value: str | None) -> str:
@@ -210,7 +220,7 @@ def _normalize_tag_filters(tag_filters: dict[str, list[str]] | None) -> dict[str
         if key not in EXERCISE_FACET_KEYS:
             continue
         cleaned = [str(value or "").strip() for value in values]
-        cleaned = [value for value in cleaned if value]
+        cleaned = [value for value in cleaned if _should_keep_structured_tag_value(key, value)]
         if cleaned:
             normalized[key] = cleaned
     return normalized
@@ -226,7 +236,7 @@ def _build_tag_summary(structured_tags: dict | None, *, limit: int = 4) -> list[
             continue
         for raw_value in raw_values:
             value = str(raw_value or "").strip()
-            if not value or value in seen:
+            if not _should_keep_structured_tag_value(key, value) or value in seen:
                 continue
             seen.add(value)
             values.append(value)
@@ -334,7 +344,7 @@ def list_exercises(
             level2_category=item.level2_category,
             category_path=item.category_path,
             is_main_lift_candidate=item.is_main_lift_candidate,
-            tag_summary=_build_tag_summary(item.structured_tags),
+            tag_summary=_build_tag_summary(item.structured_tags, limit=EXERCISE_LIST_TAG_SUMMARY_LIMIT),
         )
         for item in items
     ]
@@ -383,7 +393,7 @@ def list_exercise_facets(db: Session, *, current_user: User) -> dict:
                 continue
             for value in values:
                 normalized_value = str(value or "").strip()
-                if normalized_value:
+                if _should_keep_structured_tag_value(key, normalized_value):
                     facet_values[key].add(normalized_value)
 
     return {

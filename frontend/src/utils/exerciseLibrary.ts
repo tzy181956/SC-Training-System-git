@@ -108,7 +108,7 @@ export function summarizeExerciseTags(item: Pick<ExerciseLibraryItem, 'structure
   return Array.from(new Set(values)).slice(0, limit)
 }
 
-export function summarizeExerciseListTags(item: Pick<ExerciseListItem, 'tag_summary'>, limit = 4) {
+export function summarizeExerciseListTags(item: Pick<ExerciseListItem, 'tag_summary'>, limit = 12) {
   return Array.from(new Set((item.tag_summary || []).filter(Boolean))).slice(0, limit)
 }
 

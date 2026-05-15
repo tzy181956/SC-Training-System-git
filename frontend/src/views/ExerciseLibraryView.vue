@@ -623,6 +623,10 @@ watch(
   flex-wrap: wrap;
 }
 
+.tag-line {
+  gap: 6px;
+}
+
 .facet-panel,
 .facet-group {
   display: grid;
@@ -667,6 +671,14 @@ watch(
 .facet-chip,
 .tag-chip {
   background: #e2e8f0;
+}
+
+.tag-line .tag-chip {
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 700;
 }
 
 .facet-chip.active {

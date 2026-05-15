@@ -22,6 +22,7 @@ const emit = defineEmits<{
   focus: [itemId: number]
 }>()
 
+const DEFAULT_LEVEL1_CATEGORY = '力量动作'
 const draft = reactive(buildDraft(props.item))
 const level1Category = ref('')
 const level2Category = ref('')
@@ -31,11 +32,18 @@ const comboRoot = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const extraOptionsOpen = ref(Boolean(props.item?.target_note || props.item?.is_main_lift || props.item?.ai_adjust_enabled || props.item?.enable_auto_load))
 const progressionOpen = ref(Boolean(props.item?.enable_auto_load))
+const exerciseFilterTouched = ref(false)
 let syncingFromProps = false
+let syncedItemId = props.item?.id ?? null
 
 watch(
   () => props.item,
   (item) => {
+    const nextItemId = item?.id ?? null
+    if (nextItemId !== syncedItemId) {
+      exerciseFilterTouched.value = false
+      syncedItemId = nextItemId
+    }
     syncingFromProps = true
     Object.assign(draft, buildDraft(item))
     syncExercisePicker(item.exercise_id, item.exercise)
@@ -49,8 +57,7 @@ watch(
 watch(
   () => props.exercises,
   () => {
-    if (!draft.exercise_id) return
-    syncExercisePicker(draft.exercise_id)
+    syncExercisePicker(draft.exercise_id, props.item?.exercise)
   },
   { deep: true },
 )
@@ -98,6 +105,12 @@ const level1Options = computed(() =>
     left.localeCompare(right, 'zh-CN'),
   ),
 )
+
+const defaultLevel1Category = computed(() => {
+  const exact = level1Options.value.find((option) => option === DEFAULT_LEVEL1_CATEGORY)
+  if (exact) return exact
+  return level1Options.value.find((option) => option.includes('力量')) || ''
+})
 
 const level2Options = computed(() =>
   Array.from(
@@ -201,8 +214,13 @@ function formatExerciseOption(exercise: any) {
 
 function syncExercisePicker(exerciseId: number, fallbackExercise?: any) {
   const exercise = props.exercises.find((item) => item.id === exerciseId) || fallbackExercise || null
-  level1Category.value = normalizeString(exercise?.level1_category)
-  level2Category.value = normalizeString(exercise?.level2_category)
+  if (exercise) {
+    level1Category.value = normalizeString(exercise.level1_category)
+    level2Category.value = normalizeString(exercise.level2_category)
+  } else if (!exerciseFilterTouched.value) {
+    level1Category.value = defaultLevel1Category.value
+    level2Category.value = ''
+  }
   searchKeyword.value = ''
 }
 
@@ -214,6 +232,7 @@ function clearExerciseSelection() {
 
 function handleLevel1Change(value: string) {
   if (props.readonly) return
+  exerciseFilterTouched.value = true
   level1Category.value = value
   level2Category.value = ''
   clearExerciseSelection()
@@ -221,6 +240,7 @@ function handleLevel1Change(value: string) {
 
 function handleLevel2Change(value: string) {
   if (props.readonly) return
+  exerciseFilterTouched.value = true
   level2Category.value = value
   clearExerciseSelection()
 }

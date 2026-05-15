@@ -38,6 +38,9 @@ TAG_LABEL_MAP = {
     for source_key, target_key in TAG_FIELD_MAP.items()
 }
 NOT_APPLICABLE_TAG_VALUE = "不适用"
+REMOVED_TAG_VALUES_BY_KEY = {
+    "bodyPosition": {"其他"},
+}
 VIBRATION_EQUIPMENT_TAG_VALUE = "振动器材"
 
 ORIGINAL_ENGLISH_FIELDS = {
@@ -85,10 +88,17 @@ def _remove_not_applicable_tags(tags: dict[str, list[str]]) -> dict[str, list[st
         normalized_values = [
             item
             for item in values
-            if _normalize_text(item) and _normalize_text(item) != NOT_APPLICABLE_TAG_VALUE
+            if _should_keep_tag_value(key, item)
         ]
         cleaned[key] = normalized_values
     return cleaned
+
+
+def _should_keep_tag_value(key: str, value: object) -> bool:
+    normalized = _normalize_text(value)
+    if not normalized or normalized == NOT_APPLICABLE_TAG_VALUE:
+        return False
+    return normalized not in REMOVED_TAG_VALUES_BY_KEY.get(key, set())
 
 
 def _build_tag_text(tags: dict[str, list[str]]) -> str:

@@ -449,10 +449,16 @@ async function submitCurrentSet(payload: Record<string, unknown>) {
     latestSuggestion: latestSuggestion.value,
   })
   const userStillFocusedSubmittedItem = activeItemId.value === submittedWhileFocusedItemId
+  const recordedLocally = 'local_only' in response && response.local_only
   if (response.item.status === 'completed') {
     if (userStillFocusedSubmittedItem) {
       latestSuggestion.value = null
       activeItemId.value = findNextPendingItemId(currentItemId) ?? currentItemId
+      restoreToActionList.value = true
+      showSessionNotice(
+        recordedLocally ? '当前动作已保存到本机，已返回动作列表。' : '当前动作已完成，已返回动作列表。',
+        'success',
+      )
     }
   } else {
     if (userStillFocusedSubmittedItem) {
@@ -464,7 +470,6 @@ async function submitCurrentSet(payload: Record<string, unknown>) {
     await router.replace({ name: 'training-session', params: { sessionId: response.session.id } })
   }
   if (response.session_status === 'completed') {
-    const recordedLocally = 'local_only' in response && response.local_only
     showSessionNotice(
       recordedLocally ? '整堂训练已在本机标记为完成，待后续同步。' : '整堂训练已自动完成。',
       'success',
@@ -551,6 +556,11 @@ async function triggerFullSync() {
 function selectActiveItem(itemId: number) {
   restoreToActionList.value = false
   activeItemId.value = itemId
+}
+
+function returnToActionList() {
+  restoreToActionList.value = true
+  latestSuggestion.value = null
 }
 
 function handleDateInput(value: string) {
@@ -792,6 +802,7 @@ onMounted(hydrate)
         :suggestion="latestSuggestion"
         :on-submit-current-set="submitCurrentSet"
         :on-update-record="updateRecord"
+        :on-return-to-action-list="returnToActionList"
       />
     </div>
   </TrainingShell>

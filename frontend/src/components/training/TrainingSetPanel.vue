@@ -6,6 +6,7 @@ const props = defineProps<{
   suggestion?: any | null
   onSubmitCurrentSet?: ((payload: Record<string, unknown>) => Promise<any>) | null
   onUpdateRecord?: ((recordId: number, payload: Record<string, unknown>) => Promise<any>) | null
+  onReturnToActionList?: (() => void) | null
 }>()
 
 const currentDraft = reactive({
@@ -35,14 +36,43 @@ const latestRecord = computed(() => {
   return records.length ? records[records.length - 1] : null
 })
 
+const completedSetCount = computed(() => props.item?.records?.length || 0)
+const totalSetCount = computed(() => props.item?.prescribed_sets || 0)
 const currentSetNumber = computed(() => Math.min((props.item?.records?.length || 0) + 1, props.item?.prescribed_sets || 1))
 const hasSelectedCurrentRir = computed(() => currentDraft.rir.trim() !== '')
-const canSubmitCurrentSet = computed(() => !currentSetSaving.value && !isCompleted.value && hasSelectedCurrentRir.value)
+const canSubmitCurrentSet = computed(() => !currentSetSaving.value && !isCompleted.value && hasSelectedCurrentRir.value && Boolean(props.onSubmitCurrentSet))
+const actionTitle = computed(() => props.item?.exercise?.name || '当前动作')
+const actionStatusLabel = computed(() => {
+  if (isCompleted.value) return '已完成'
+  if (currentSetSaving.value) return '保存中'
+  return '录入中'
+})
+const actionStatusTone = computed(() => {
+  if (isCompleted.value) return 'completed'
+  if (currentSetSaving.value) return 'saving'
+  return 'active'
+})
+const currentRirDisplay = computed(() => {
+  if (!hasSelectedCurrentRir.value) return '未选择'
+  return currentDraft.rir === '4' ? '4+' : currentDraft.rir
+})
+const currentSetSubmitHint = computed(() => {
+  if (currentSetSaving.value) return '正在保存到本机并同步训练记录'
+  if (!hasSelectedCurrentRir.value) return '先选择 RIR，再提交当前组'
+  return '确认后先保存到本机，再同步训练记录'
+})
 
 const currentSetButtonLabel = computed(() => {
   if (!props.item) return '确认提交当前组'
   const completedSets = props.item.records?.length || 0
   return completedSets + 1 >= props.item.prescribed_sets ? '确认并完成当前动作' : '确认提交当前组'
+})
+
+const submitButtonLabel = computed(() => {
+  if (currentSetSaving.value) return '正在保存...'
+  if (isCompleted.value) return '动作已完成'
+  if (!hasSelectedCurrentRir.value) return '请选择 RIR'
+  return currentSetButtonLabel.value
 })
 
 watch(
@@ -326,8 +356,14 @@ function resetRecordDraft(record: any) {
 <template>
   <aside class="panel touch-panel">
     <div v-if="item" class="panel-head">
-      <p class="section-title">当前动作录入</p>
-      <strong>第 {{ currentSetNumber }} 组 / 共 {{ item.prescribed_sets }} 组</strong>
+      <div class="panel-title-block">
+        <p class="section-title">当前动作录入</p>
+        <strong class="action-title">{{ actionTitle }}</strong>
+        <span class="set-progress-title">
+          {{ isCompleted ? `已完成 ${completedSetCount}/${totalSetCount} 组` : `第 ${currentSetNumber} 组 / 共 ${item.prescribed_sets} 组` }}
+        </span>
+      </div>
+      <span class="action-status-pill" :class="`action-status-pill--${actionStatusTone}`">{{ actionStatusLabel }}</span>
     </div>
     <div v-else class="empty-state">
       <strong>请选择一个训练动作。</strong>
@@ -338,15 +374,30 @@ function resetRecordDraft(record: any) {
       <div class="metric-block">
         <div class="block-header">
           <strong>当前组数据</strong>
-          <span>{{ currentSetSaving ? '正在保存当前组...' : '确认后保存到训练记录' }}</span>
+          <span>{{ isCompleted ? '当前动作已收口' : currentSetSubmitHint }}</span>
         </div>
 
-        <div class="current-stack">
+        <div v-if="isCompleted" class="completion-card">
+          <strong>当前动作已完成</strong>
+          <span>{{ currentSetFeedback || `已完成 ${completedSetCount}/${item.prescribed_sets} 组，可返回动作列表选择下一项。` }}</span>
+          <button class="secondary-btn completion-return-btn" type="button" @click="onReturnToActionList && onReturnToActionList()">
+            返回动作列表
+          </button>
+        </div>
+
+        <div v-else class="current-stack">
           <label class="field">
             <span>重量 (千克)</span>
             <input v-model="currentDraft.weight" class="text-input current-input" type="number" step="0.1" min="0" @input="onCurrentInput" />
             <div class="step-row">
-              <button v-for="step in [-5, -2.5, 2.5, 5]" :key="`current-weight-${step}`" class="secondary-btn touch-btn step-btn" @click="bumpWeight(step)">
+              <button
+                v-for="step in [-5, -2.5, 2.5, 5]"
+                :key="`current-weight-${step}`"
+                class="secondary-btn touch-btn step-btn"
+                :class="step < 0 ? 'step-btn--minus' : 'step-btn--plus'"
+                type="button"
+                @click="bumpWeight(step)"
+              >
                 {{ step > 0 ? `+${step}` : step }}
               </button>
             </div>
@@ -362,15 +413,10 @@ function resetRecordDraft(record: any) {
           </label>
 
           <label class="field">
-            <span>RIR（还能做几个）</span>
-            <input
-              v-model="currentDraft.rir"
-              class="text-input current-input readonly-input"
-              type="text"
-              readonly
-              placeholder="请选择 RIR（还能做几个）"
-              @click.prevent
-            />
+            <div class="rir-label-row">
+              <span>RIR（还能做几个）</span>
+              <strong :class="{ selected: hasSelectedCurrentRir }">{{ currentRirDisplay }}</strong>
+            </div>
             <div class="step-row rir-step-row">
               <button
                 v-for="rirValue in RIR_OPTIONS"
@@ -383,15 +429,16 @@ function resetRecordDraft(record: any) {
                 {{ rirValue === 4 ? '4+' : rirValue }}
               </button>
             </div>
-            <span v-if="!hasSelectedCurrentRir" class="field-hint warning">先输入 RIR 后提交</span>
           </label>
         </div>
 
-        <p v-if="currentSetError" class="error-text">{{ currentSetError }}</p>
-        <p v-else-if="currentSetFeedback" class="success-text">{{ currentSetFeedback }}</p>
-        <button class="primary-btn confirm-btn" :disabled="!canSubmitCurrentSet" @click="saveCurrentSet">
-          {{ currentSetButtonLabel }}
-        </button>
+        <div v-if="!isCompleted" class="submit-bar">
+          <p v-if="currentSetError" class="error-text">{{ currentSetError }}</p>
+          <p v-else-if="currentSetFeedback" class="success-text">{{ currentSetFeedback }}</p>
+          <button class="primary-btn confirm-btn" :disabled="!canSubmitCurrentSet" @click="saveCurrentSet">
+            {{ submitButtonLabel }}
+          </button>
+        </div>
       </div>
 
       <div v-if="suggestion" class="suggestion-card">
@@ -452,10 +499,10 @@ function resetRecordDraft(record: any) {
                   @input="onRecordInput(record.id)"
                 />
                 <div class="step-row">
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'weight', -5)">-5</button>
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'weight', -2.5)">-2.5</button>
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'weight', 2.5)">+2.5</button>
-                  <button class="secondary-btn touch-btn history-step-btn" type="button" @click="bumpRecordField(record.id, 'weight', 5)">+5</button>
+                  <button class="secondary-btn touch-btn history-step-btn step-btn--minus" type="button" @click="bumpRecordField(record.id, 'weight', -5)">-5</button>
+                  <button class="secondary-btn touch-btn history-step-btn step-btn--minus" type="button" @click="bumpRecordField(record.id, 'weight', -2.5)">-2.5</button>
+                  <button class="secondary-btn touch-btn history-step-btn step-btn--plus" type="button" @click="bumpRecordField(record.id, 'weight', 2.5)">+2.5</button>
+                  <button class="secondary-btn touch-btn history-step-btn step-btn--plus" type="button" @click="bumpRecordField(record.id, 'weight', 5)">+5</button>
                 </div>
               </label>
 
@@ -511,6 +558,7 @@ function resetRecordDraft(record: any) {
 
 <style scoped>
 .touch-panel {
+  position: relative;
   display: grid;
   gap: 18px;
   align-content: start;
@@ -530,6 +578,61 @@ function resetRecordDraft(record: any) {
   gap: 10px;
 }
 
+.panel-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+}
+
+.panel-title-block {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.action-title {
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1.2;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.set-progress-title {
+  color: var(--text-soft);
+  font-size: 1.35rem;
+  line-height: 1.18;
+  font-weight: 900;
+}
+
+.action-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.action-status-pill--active {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+}
+
+.action-status-pill--saving {
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+}
+
+.action-status-pill--completed {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+
 .section-title,
 p,
 span {
@@ -547,7 +650,7 @@ span {
 .current-stack,
 .history-table {
   display: grid;
-  gap: 10px;
+  gap: 14px;
 }
 
 .field span,
@@ -557,33 +660,70 @@ span {
   color: var(--muted);
 }
 
-.field-hint {
-  font-size: 12px;
-}
-
-.field-hint.warning {
-  color: #dc2626;
-  font-size: 16px;
-  font-weight: 800;
-}
-
 .field input {
   min-height: 52px;
 }
 
 .current-input {
-  min-height: 56px;
-  padding: 0 16px;
-  font-size: 18px;
+  min-height: 64px;
+  padding: 0 18px;
+  font-size: 24px;
+  font-weight: 700;
 }
 
 .touch-btn {
-  min-height: 52px;
+  min-height: 56px;
   border-radius: 14px;
 }
 
 .confirm-btn {
+  width: 100%;
+  min-height: 64px;
+  border-radius: 28px;
+  font-size: 20px;
+}
+
+.confirm-btn:disabled {
+  opacity: 1;
+  filter: none;
+  background: linear-gradient(180deg, #d8e9e6 0%, #bddbd6 100%);
+  border-color: rgba(15, 118, 110, 0.18);
+  color: #55736f;
+}
+
+.submit-bar {
+  position: sticky;
+  bottom: -18px;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+  padding: 14px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, var(--panel) 22%, var(--panel) 100%);
+}
+
+.completion-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(22, 163, 74, 0.18);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(240, 253, 244, 0.96), rgba(236, 253, 245, 0.96));
+}
+
+.completion-card strong {
+  color: #166534;
+  font-size: 18px;
+}
+
+.completion-card span {
+  color: #315c45;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.completion-return-btn {
   min-height: 56px;
+  border-radius: 18px;
 }
 
 .suggestion-card,
@@ -732,6 +872,32 @@ span {
   color: var(--text);
 }
 
+.rir-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.rir-label-row strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.rir-label-row strong.selected {
+  background: var(--primary);
+  color: white;
+}
+
 .step-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -748,14 +914,29 @@ span {
 
 .step-btn,
 .history-step-btn {
-  min-height: 48px;
+  min-height: 56px;
+  font-size: 18px;
+}
+
+.step-btn--minus {
+  background: linear-gradient(180deg, #fff7f7 0%, #fef2f2 100%);
+  border-color: rgba(185, 28, 28, 0.22);
+  color: #b91c1c;
+  box-shadow: 0 10px 20px rgba(185, 28, 28, 0.07);
+}
+
+.step-btn--plus {
+  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+  border-color: rgba(22, 101, 52, 0.2);
+  color: #166534;
+  box-shadow: 0 10px 20px rgba(22, 101, 52, 0.08);
 }
 
 .rir-btn {
-  min-height: 38px;
+  min-height: 56px;
   padding: 0 6px;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: 14px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -786,18 +967,19 @@ span {
 
   .current-input,
   .history-input {
-    min-height: 48px;
+    min-height: 56px;
     padding: 0 12px;
-    font-size: 16px;
+    font-size: 20px;
   }
 
   .touch-btn {
-    min-height: 44px;
+    min-height: 50px;
     border-radius: 12px;
   }
 
   .confirm-btn {
-    min-height: 48px;
+    min-height: 58px;
+    font-size: 18px;
   }
 
   .suggestion-card,
@@ -820,15 +1002,19 @@ span {
   }
 
   .rir-btn {
-    min-height: 34px;
-    border-radius: 9px;
-    font-size: 12px;
+    min-height: 48px;
+    border-radius: 12px;
+    font-size: 16px;
   }
 }
 
 @media (max-width: 767px) {
   .step-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rir-step-row {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 </style>

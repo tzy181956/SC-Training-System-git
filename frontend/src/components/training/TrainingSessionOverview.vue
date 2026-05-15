@@ -53,9 +53,9 @@ function buildLoadText(item: any) {
 function buildPrescriptionSummary(item: any) {
   const loadText = buildLoadText(item)
   if (!loadText) {
-    return `${item.prescribed_sets} 组 × ${item.prescribed_reps} 次 ×`
+    return `${item.prescribed_reps} 次`
   }
-  return `${item.prescribed_sets} 组 × ${item.prescribed_reps} 次 × ${loadText}`
+  return `${item.prescribed_reps} 次 × ${loadText}`
 }
 
 function buildProgressSummary(item: any) {

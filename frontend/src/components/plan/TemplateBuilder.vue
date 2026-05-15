@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 import TemplateItemCard from './TemplateItemCard.vue'
 import { buildDisplayLabel, moduleCodeFromOrder, resolveTemplateModules } from '@/utils/templateModules'
@@ -250,6 +250,73 @@ function syncInteractionState(options: {
   expandedModuleIds.value = Array.from(nextExpanded)
 }
 
+function isPendingNewItem(item: any) {
+  return Number(item?.id) < 0 && Number(item?.exercise_id || 0) <= 0
+}
+
+function getPinnedPendingItem(module: any) {
+  const pendingItems = module.items.filter((item: any) => isPendingNewItem(item))
+  if (!pendingItems.length) return null
+  return pendingItems.find((item: any) => item.id === activeItemId.value) || pendingItems[pendingItems.length - 1]
+}
+
+function getVisibleModuleItems(module: any) {
+  const pinnedItem = getPinnedPendingItem(module)
+  return module.items.filter((item: any) => item.id !== pinnedItem?.id)
+}
+
+function getModuleItemIndex(module: any, itemId: number) {
+  return module.items.findIndex((item: any) => item.id === itemId)
+}
+
+function keepSinglePendingItem(moduleId: number, preferredItemId?: number | null) {
+  const pendingItems = [...draftItems.value]
+    .filter((item) => item.module_id === moduleId && isPendingNewItem(item))
+    .sort((left, right) => left.sort_order - right.sort_order || left.id - right.id)
+  if (!pendingItems.length) return null
+
+  const keptItem =
+    pendingItems.find((item) => item.id === preferredItemId)
+    || pendingItems[pendingItems.length - 1]
+  const removedPendingIds = new Set(
+    pendingItems
+      .filter((item) => item.id !== keptItem.id)
+      .map((item) => item.id),
+  )
+
+  if (removedPendingIds.size) {
+    normalizeBuilderState(
+      draftModules.value,
+      buildItemGroups(draftItems.value.filter((item) => !removedPendingIds.has(item.id))),
+    )
+  }
+
+  return draftItems.value.find((item) => item.id === keptItem.id) || keptItem
+}
+
+function scrollItemIntoView(itemId: number) {
+  nextTick(() => {
+    const target = document.querySelector<HTMLElement>(`[data-template-item-id="${itemId}"]`)
+    if (!target) return
+
+    window.requestAnimationFrame(() => {
+      const scrollContainer = target.closest<HTMLElement>('.builder-panel')
+      if (scrollContainer && scrollContainer.scrollHeight > scrollContainer.clientHeight) {
+        const containerRect = scrollContainer.getBoundingClientRect()
+        const targetRect = target.getBoundingClientRect()
+        const targetOffset = targetRect.top - containerRect.top - (scrollContainer.clientHeight - targetRect.height) / 2
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollTop + targetOffset,
+          behavior: 'smooth',
+        })
+        return
+      }
+
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  })
+}
+
 function isModuleExpanded(moduleId: number) {
   return expandedModuleIds.value.includes(moduleId)
 }
@@ -355,6 +422,16 @@ function removeModuleDraft(moduleId: number) {
 
 function addItem(moduleId: number) {
   if (props.readonly) return
+  const existingPendingItem = keepSinglePendingItem(moduleId, activeItemId.value)
+  if (existingPendingItem) {
+    syncInteractionState({
+      preferredItemId: existingPendingItem.id,
+      preferredExpandedModuleIds: Array.from(new Set([...expandedModuleIds.value, moduleId])),
+    })
+    scrollItemIntoView(existingPendingItem.id)
+    return
+  }
+
   const itemGroups = buildItemGroups()
   const nextItem = buildNewItemDraft(moduleId)
   itemGroups.set(moduleId, [...(itemGroups.get(moduleId) || []), nextItem])
@@ -363,6 +440,7 @@ function addItem(moduleId: number) {
     preferredItemId: nextItem.id,
     preferredExpandedModuleIds: Array.from(new Set([...expandedModuleIds.value, moduleId])),
   })
+  scrollItemIntoView(nextItem.id)
 }
 
 function updateItemDraft(itemId: number, payload: Record<string, unknown>) {
@@ -469,6 +547,7 @@ function saveTemplate() {
   if (invalidItem) {
     expandedModuleIds.value = Array.from(new Set([...expandedModuleIds.value, invalidItem.moduleId]))
     activeItemId.value = invalidItem.itemId
+    scrollItemIntoView(invalidItem.itemId)
     window.alert(`${invalidItem.displayCode} 还没有选择动作，请先补全或删除后再保存。`)
     return
   }
@@ -642,26 +721,55 @@ function removeTemplate() {
             <button v-if="!readonly" class="primary-btn slim" type="button" @click="addItem(module.id)">在 {{ module.display_label }} 中添加动作</button>
           </div>
 
-          <div class="module-items">
+          <div
+            v-if="getPinnedPendingItem(module)"
+            class="template-item-anchor pending-item-anchor"
+            :data-template-item-id="getPinnedPendingItem(module).id"
+          >
             <TemplateItemCard
-              v-for="(item, itemIndex) in module.items"
-              :key="`${template?.id || 'draft'}-${item.id}`"
-              :item="item"
-              :item-label="item.display_code"
+              :item="getPinnedPendingItem(module)"
+              :item-label="getPinnedPendingItem(module).display_code"
               :module-options="moduleOptions"
-              :move-up-disabled="itemIndex === 0"
-              :move-down-disabled="itemIndex === module.items.length - 1"
+              :move-up-disabled="getModuleItemIndex(module, getPinnedPendingItem(module).id) <= 0"
+              :move-down-disabled="getModuleItemIndex(module, getPinnedPendingItem(module).id) === module.items.length - 1"
               :exercises="exercises"
               :test-metric-options="testMetricOptions || []"
               :readonly="readonly"
-              :active="item.id === activeItemId"
-              :open="item.id === activeItemId"
+              :active="true"
+              :open="true"
               @change="updateItemDraft"
               @remove="removeItemDraft"
               @move="moveItemDraft"
               @toggle-open="toggleItemOpen"
               @focus="focusItem"
             />
+          </div>
+
+          <div class="module-items">
+            <div
+              v-for="item in getVisibleModuleItems(module)"
+              :key="`${template?.id || 'draft'}-${item.id}`"
+              class="template-item-anchor"
+              :data-template-item-id="item.id"
+            >
+              <TemplateItemCard
+                :item="item"
+                :item-label="item.display_code"
+                :module-options="moduleOptions"
+                :move-up-disabled="getModuleItemIndex(module, item.id) <= 0"
+                :move-down-disabled="getModuleItemIndex(module, item.id) === module.items.length - 1"
+                :exercises="exercises"
+                :test-metric-options="testMetricOptions || []"
+                :readonly="readonly"
+                :active="item.id === activeItemId"
+                :open="item.id === activeItemId"
+                @change="updateItemDraft"
+                @remove="removeItemDraft"
+                @move="moveItemDraft"
+                @toggle-open="toggleItemOpen"
+                @focus="focusItem"
+              />
+            </div>
             <div v-if="!module.items.length" class="empty-module">
               <h5>{{ module.display_label }} 还没有动作</h5>
               <p>可在这个模块中添加动作。</p>
@@ -763,6 +871,17 @@ function removeTemplate() {
 .module-card {
   background: rgba(240, 253, 250, 0.76);
   border: 1px solid rgba(15, 118, 110, 0.14);
+}
+
+.template-item-anchor {
+  min-width: 0;
+}
+
+.pending-item-anchor {
+  padding: 4px;
+  border-radius: 22px;
+  background: rgba(15, 118, 110, 0.08);
+  border: 1px dashed rgba(15, 118, 110, 0.28);
 }
 
 .module-card--collapsed {
