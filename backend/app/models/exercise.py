@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -35,11 +35,12 @@ class Exercise(BaseModel):
     visibility: Mapped[str] = mapped_column(
         String(20),
         default=EXERCISE_VISIBILITY_PUBLIC,
+        server_default=text("'public'"),
         nullable=False,
         index=True,
     )
     owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
-    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
 
     tags = relationship("ExerciseTag", back_populates="exercise", cascade="all, delete-orphan")
     owner_user = relationship("User", foreign_keys=[owner_user_id])
