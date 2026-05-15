@@ -64,6 +64,7 @@ export type TrainingReportSession = {
   total_sets: number
   items: TrainingReportItem[]
   edit_logs: TrainingReportEditLog[]
+  details_loaded?: boolean
 }
 
 export type TrainingReportSyncIssue = {
@@ -126,8 +127,14 @@ export async function fetchTrainingReport(params: {
   athlete_id: number
   date_from?: string
   date_to?: string
+  include_details?: boolean
 }) {
   const { data } = await client.get<TrainingReportResponse>('/training-reports', { params })
+  return data
+}
+
+export async function fetchTrainingReportSessionDetail(sessionId: number) {
+  const { data } = await client.get<TrainingReportSession>(`/training-reports/sessions/${sessionId}`)
   return data
 }
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
+from time import monotonic
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.exceptions import not_found
 from app.models import (
@@ -29,6 +31,44 @@ ALERT_LEVEL_PRIORITY = {
     "warning": 2,
     "critical": 3,
 }
+MONITORING_TODAY_CACHE_TTL_SECONDS = 5
+MONITORING_TODAY_CACHE_MAX_ENTRIES = 128
+
+
+class TTLCache:
+    def __init__(self, *, ttl_seconds: float, max_entries: int) -> None:
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
+        self._items: OrderedDict[tuple, tuple[float, dict]] = OrderedDict()
+
+    def get(self, key: tuple) -> dict | None:
+        current_time = monotonic()
+        cached = self._items.get(key)
+        if cached is None:
+            return None
+
+        expires_at, value = cached
+        if expires_at <= current_time:
+            self._items.pop(key, None)
+            return None
+
+        self._items.move_to_end(key)
+        return deepcopy(value)
+
+    def set(self, key: tuple, value: dict) -> None:
+        self._items[key] = (monotonic() + self.ttl_seconds, deepcopy(value))
+        self._items.move_to_end(key)
+        while len(self._items) > self.max_entries:
+            self._items.popitem(last=False)
+
+    def clear(self) -> None:
+        self._items.clear()
+
+
+_TODAY_MONITORING_CACHE = TTLCache(
+    ttl_seconds=MONITORING_TODAY_CACHE_TTL_SECONDS,
+    max_entries=MONITORING_TODAY_CACHE_MAX_ENTRIES,
+)
 
 
 def get_today_monitoring(
@@ -38,8 +78,16 @@ def get_today_monitoring(
     team_id: int | None = None,
     include_unassigned: bool = True,
     reference_time: datetime | None = None,
+    *,
+    force_refresh: bool = False,
 ) -> dict:
     """Build the first read-only monitoring board payload for one training date."""
+    cache_key = _build_today_monitoring_cache_key(session_date, sport_id, team_id, include_unassigned)
+    if reference_time is None and not force_refresh:
+        cached_payload = _TODAY_MONITORING_CACHE.get(cache_key)
+        if cached_payload is not None:
+            return cached_payload
+
     monitor_now = _resolve_monitor_now(reference_time)
 
     all_active_athletes = _list_active_athletes(db, sport_id=sport_id)
@@ -50,7 +98,7 @@ def get_today_monitoring(
     sync_issues_by_athlete = _get_sync_issues_by_athlete(db, athlete_ids, session_date)
     training_started_at = _find_earliest_record_time(list(sessions_by_assignment.values()))
 
-    return {
+    payload = {
         "session_date": session_date,
         "updated_at": monitor_now,
         "teams": _build_team_options(all_active_athletes),
@@ -66,6 +114,18 @@ def get_today_monitoring(
             for athlete in visible_athletes
         ],
     }
+    if reference_time is None:
+        _TODAY_MONITORING_CACHE.set(cache_key, payload)
+    return payload
+
+
+def _build_today_monitoring_cache_key(
+    session_date: date,
+    sport_id: int | None,
+    team_id: int | None,
+    include_unassigned: bool,
+) -> tuple[str, int | None, int | None, bool]:
+    return (session_date.isoformat(), sport_id, team_id, include_unassigned)
 
 
 def get_athlete_monitoring_detail(
@@ -177,9 +237,9 @@ def _get_active_assignments_by_athlete(
     assignments = (
         db.query(AthletePlanAssignment)
         .options(
-            joinedload(AthletePlanAssignment.overrides),
+            selectinload(AthletePlanAssignment.overrides),
             joinedload(AthletePlanAssignment.template)
-            .joinedload(TrainingPlanTemplate.items)
+            .selectinload(TrainingPlanTemplate.items)
             .joinedload(TrainingPlanTemplateItem.exercise),
         )
         .filter(
@@ -219,8 +279,8 @@ def _get_sessions_by_assignment(
     sessions = (
         db.query(TrainingSession)
         .options(
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
+            selectinload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
+            selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records),
         )
         .filter(
             TrainingSession.assignment_id.in_(assignment_ids),

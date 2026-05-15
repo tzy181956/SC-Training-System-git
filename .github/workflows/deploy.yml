@@ -69,7 +69,9 @@ jobs:
           echo "::group::Backend checks"
           mkdir -p "$RUNNER_TEMP/sc-training-ci"
           cd backend
-          python scripts/backend_check.py
+          python -m compileall app scripts
+          python ../scripts/check_text_encoding.py
+          python scripts/migrate_db.py ensure
           echo "::endgroup::"
 
       - name: Build frontend

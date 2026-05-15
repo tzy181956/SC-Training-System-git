@@ -7,7 +7,7 @@ from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models import User
 from app.schemas.dangerous_action import DangerousActionConfirm
-from app.schemas.training_report import TrainingReportRead
+from app.schemas.training_report import TrainingReportRead, TrainingReportSessionRead
 from app.schemas.training_session import (
     CoachSetRecordCreate,
     CoachSetRecordDeleteResponse,
@@ -40,13 +40,30 @@ def get_training_report(
     athlete_id: int = Query(...),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    include_details: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
     access_control_service.get_accessible_athlete(db, current_user, athlete_id)
     end_date = date_to or date.today()
     start_date = date_from or (end_date - timedelta(days=29))
-    return training_report_service.get_training_report(db, athlete_id, start_date, end_date)
+    return training_report_service.get_training_report(
+        db,
+        athlete_id,
+        start_date,
+        end_date,
+        include_details=include_details,
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=TrainingReportSessionRead)
+def get_training_report_session_detail(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("coach")),
+):
+    access_control_service.get_accessible_session(db, current_user, session_id)
+    return training_report_service.get_training_report_session_detail(db, session_id)
 
 
 @router.patch("/set-records/{record_id}", response_model=SetRecordUpdateResponse)

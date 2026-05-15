@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import Athlete, SetRecord, TrainingSession, TrainingSessionEditLog, TrainingSessionItem, TrainingSyncConflict
 from app.services.assignment_service import is_assignment_scheduled_for_date
@@ -19,6 +19,8 @@ def get_training_report(
     athlete_id: int,
     date_from: date,
     date_to: date,
+    *,
+    include_details: bool = False,
 ) -> dict:
     """Aggregate coach-facing training history, trends, and flags for one athlete."""
     athlete = db.get(Athlete, athlete_id)
@@ -29,8 +31,9 @@ def get_training_report(
         db.query(TrainingSession)
         .options(
             joinedload(TrainingSession.assignment),
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
+            joinedload(TrainingSession.template),
+            selectinload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
+            selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records),
         )
         .filter(
             TrainingSession.athlete_id == athlete_id,
@@ -47,8 +50,13 @@ def get_training_report(
     ]
     statistic_sessions = [session for session in sessions if session.status != VOIDED_SESSION_STATUS]
 
-    edit_logs_by_session = _get_edit_logs_by_session(db, [session.id for session in sessions])
-    session_payloads = [_build_session_payload(session, edit_logs_by_session.get(session.id, [])) for session in sessions]
+    edit_logs_by_session = _get_edit_logs_by_session(db, [session.id for session in sessions]) if include_details else {}
+    session_payloads = [
+        _build_session_detail_payload(session, edit_logs_by_session.get(session.id, []))
+        if include_details
+        else _build_session_summary_payload(session)
+        for session in sessions
+    ]
     summary = _build_summary(statistic_sessions, voided_count=len(sessions) - len(statistic_sessions))
     trend = _build_trends(statistic_sessions)
     flags = _build_flags(statistic_sessions, athlete.full_name)
@@ -74,11 +82,53 @@ def get_training_report(
     }
 
 
-def _build_session_payload(session: TrainingSession, edit_logs: list[dict]) -> dict:
+def get_training_report_session_detail(db: Session, session_id: int) -> dict:
+    session = (
+        db.query(TrainingSession)
+        .options(
+            joinedload(TrainingSession.template),
+            selectinload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
+            selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records),
+        )
+        .filter(TrainingSession.id == session_id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="未找到对应训练课。")
+
+    edit_logs_by_session = _get_edit_logs_by_session(db, [session.id])
+    return _build_session_detail_payload(session, edit_logs_by_session.get(session.id, []))
+
+
+def _build_session_summary_payload(session: TrainingSession) -> dict:
     total_items = len(session.items)
     completed_items = sum(1 for item in session.items if item.status == "completed")
     total_sets = sum(item.prescribed_sets for item in session.items)
     completed_sets = sum(len(item.records) for item in session.items)
+
+    return {
+        "id": session.id,
+        "session_date": session.session_date,
+        "template_name": getattr(getattr(session, "template", None), "name", None) or f"计划 {session.template_id}",
+        "status": session.status,
+        "started_at": session.started_at,
+        "session_duration_minutes": session.session_duration_minutes,
+        "session_rpe": session.session_rpe,
+        "session_srpe_load": session.session_srpe_load,
+        "session_feedback": session.session_feedback,
+        "completed_at": session.completed_at,
+        "completed_items": completed_items,
+        "total_items": total_items,
+        "completed_sets": completed_sets,
+        "total_sets": total_sets,
+        "items": [],
+        "edit_logs": [],
+        "details_loaded": False,
+    }
+
+
+def _build_session_detail_payload(session: TrainingSession, edit_logs: list[dict]) -> dict:
+    payload = _build_session_summary_payload(session)
 
     items = []
     for item in session.items:
@@ -119,22 +169,10 @@ def _build_session_payload(session: TrainingSession, edit_logs: list[dict]) -> d
         )
 
     return {
-        "id": session.id,
-        "session_date": session.session_date,
-        "template_name": getattr(getattr(session, "template", None), "name", None) or f"计划 {session.template_id}",
-        "status": session.status,
-        "started_at": session.started_at,
-        "session_duration_minutes": session.session_duration_minutes,
-        "session_rpe": session.session_rpe,
-        "session_srpe_load": session.session_srpe_load,
-        "session_feedback": session.session_feedback,
-        "completed_at": session.completed_at,
-        "completed_items": completed_items,
-        "total_items": total_items,
-        "completed_sets": completed_sets,
-        "total_sets": total_sets,
+        **payload,
         "items": items,
         "edit_logs": edit_logs,
+        "details_loaded": True,
     }
 
 

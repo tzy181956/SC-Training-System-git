@@ -40,6 +40,21 @@ export type TestRecordLibraryResponse = {
   total_pages: number
 }
 
+export type TestRecordImportPreviewResponse = {
+  total_rows: number
+  valid_rows: number
+  duplicate_rows: number
+  skipped_rows: number
+  error_rows: number
+  errors: Array<{ row_number: number; message: string }>
+  has_more_errors: boolean
+  error_limit: number
+  sample_records: Array<Record<string, unknown>>
+  has_more_valid_rows: boolean
+  sample_limit: number
+  pending_records_data: Array<Record<string, unknown>>
+}
+
 export type TestMetricDefinitionSummary = {
   id: number
   test_type_id: number
@@ -251,6 +266,15 @@ export async function importTestRecords(file: File) {
   const formData = new FormData()
   formData.append('file', file)
   const { data } = await client.post('/test-records/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export async function previewTestRecordsImport(file: File): Promise<TestRecordImportPreviewResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await client.post('/test-records/import/preview', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return data

@@ -6,7 +6,12 @@ import { useRoute } from 'vue-router'
 import { fetchAthletes, fetchSports, fetchTeams } from '@/api/athletes'
 import { fetchAllExerciseListItems } from '@/api/exercises'
 import { retryTrainingSyncIssue } from '@/api/sessions'
-import { fetchTrainingReport, type TrainingReportResponse } from '@/api/trainingReports'
+import {
+  fetchTrainingReport,
+  fetchTrainingReportSessionDetail,
+  type TrainingReportResponse,
+  type TrainingReportSession,
+} from '@/api/trainingReports'
 import StatCard from '@/components/common/StatCard.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import TrainingSessionCard from '@/components/report/TrainingSessionCard.vue'
@@ -29,6 +34,9 @@ const teams = ref<any[]>([])
 const exerciseOptions = ref<ExerciseListItem[]>([])
 const loading = ref(false)
 const report = ref<TrainingReportResponse | null>(null)
+const sessionDetails = ref<Record<number, TrainingReportSession>>({})
+const sessionDetailLoading = ref<Record<number, boolean>>({})
+const sessionDetailErrors = ref<Record<number, string>>({})
 const reportNotice = ref('')
 const reportNoticeTone = ref<'success' | 'warning' | 'error'>('success')
 const retryingIssueId = ref<number | null>(null)
@@ -40,6 +48,7 @@ const selectedTrackedExerciseNames = ref<string[]>([])
 const exerciseOptionLoadError = ref('')
 let mainLiftChart: echarts.ECharts | null = null
 let completionChart: echarts.ECharts | null = null
+let activeReportRequestId = 0
 const TRACKED_EXERCISE_STORAGE_KEY = 'training-report-tracked-exercise-names-v1'
 
 const filters = reactive({
@@ -71,7 +80,11 @@ const availableAthletes = computed(() => {
   })
 })
 
-const reportSessions = computed(() => report.value?.sessions.filter((session) => session.status !== 'voided') || [])
+const reportSessions = computed(() => (
+  report.value?.sessions
+    .map((session) => sessionDetails.value[session.id] ? { ...session, ...sessionDetails.value[session.id] } : session)
+    .filter((session) => session.status !== 'voided') || []
+))
 
 const reportSetRecords = computed(() => reportSessions.value.flatMap((session) => (
   session.items.flatMap((item) => item.records || [])
@@ -262,17 +275,67 @@ async function loadExerciseOptions() {
 
 async function loadReport() {
   if (!filters.athleteId) return
+  const requestId = activeReportRequestId + 1
+  activeReportRequestId = requestId
   loading.value = true
   try {
-    report.value = await fetchTrainingReport({
+    const nextReport = await fetchTrainingReport({
       athlete_id: filters.athleteId,
       date_from: filters.dateFrom,
       date_to: filters.dateTo,
     })
+    if (requestId !== activeReportRequestId) return
+    report.value = nextReport
+    sessionDetails.value = {}
+    sessionDetailLoading.value = {}
+    sessionDetailErrors.value = {}
     await nextTick()
     renderCharts()
   } finally {
-    loading.value = false
+    if (requestId === activeReportRequestId) {
+      loading.value = false
+    }
+  }
+}
+
+async function loadSessionDetail(sessionId: number) {
+  if (sessionDetails.value[sessionId] || sessionDetailLoading.value[sessionId]) return
+
+  const reportRequestId = activeReportRequestId
+  sessionDetailErrors.value = { ...sessionDetailErrors.value, [sessionId]: '' }
+  sessionDetailLoading.value = { ...sessionDetailLoading.value, [sessionId]: true }
+  try {
+    const detail = await fetchTrainingReportSessionDetail(sessionId)
+    if (reportRequestId !== activeReportRequestId) return
+    if (!report.value?.sessions.some((session) => session.id === sessionId)) return
+    sessionDetails.value = {
+      ...sessionDetails.value,
+      [sessionId]: detail,
+    }
+    await nextTick()
+    renderCharts()
+  } catch {
+    if (reportRequestId === activeReportRequestId) {
+      sessionDetailErrors.value = {
+        ...sessionDetailErrors.value,
+        [sessionId]: '训练明细加载失败，请稍后重试。',
+      }
+    }
+  } finally {
+    if (reportRequestId === activeReportRequestId) {
+      sessionDetailLoading.value = {
+        ...sessionDetailLoading.value,
+        [sessionId]: false,
+      }
+    }
+  }
+}
+
+async function reloadChangedSession(sessionId: number) {
+  const shouldReloadDetail = Boolean(sessionDetails.value[sessionId])
+  await loadReport()
+  if (shouldReloadDetail) {
+    await loadSessionDetail(sessionId)
   }
 }
 
@@ -691,14 +754,17 @@ function parseStringQuery(value: unknown) {
               </div>
             </div>
 
-            <div v-if="report.sessions.length" class="session-list">
+            <div v-if="reportSessions.length" class="session-list">
               <TrainingSessionCard
-                v-for="session in report.sessions"
+                v-for="session in reportSessions"
                 :key="session.id"
                 :session="session"
                 :only-incomplete="filters.onlyIncomplete"
                 :only-main-lift="filters.onlyMainLift"
-                @changed="loadReport"
+                :detail-loading="!!sessionDetailLoading[session.id]"
+                :detail-error="sessionDetailErrors[session.id] || ''"
+                @request-details="loadSessionDetail"
+                @changed="reloadChangedSession(session.id)"
                 @notify="showNotice"
               />
             </div>

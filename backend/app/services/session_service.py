@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.config import get_settings
 from app.core.exceptions import bad_request, not_found
@@ -53,12 +53,12 @@ FULL_SYNC_CONFLICT_REJECT_SUMMARY = "检测到服务器端在本地最后一次�
 FULL_SYNC_CONFLICT_REJECT_DETAIL = "服务器端训练课在本地最后一次确认同步后已更新，已拒绝自动覆盖，请手动重试或由管理员处理。"
 
 SESSION_DETAIL_OPTIONS = (
-    joinedload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
-    joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
-    joinedload(TrainingSession.items)
+    selectinload(TrainingSession.items).joinedload(TrainingSessionItem.exercise),
+    selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records),
+    selectinload(TrainingSession.items)
     .joinedload(TrainingSessionItem.template_item)
     .joinedload(TrainingPlanTemplateItem.module)
-    .joinedload(TrainingPlanTemplateModule.items),
+    .selectinload(TrainingPlanTemplateModule.items),
 )
 
 
@@ -681,7 +681,7 @@ def submit_session_finish_feedback(
     session = (
         db.query(TrainingSession)
         .options(
-            joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records),
+            selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records),
         )
         .filter(TrainingSession.id == session_id)
         .first()
@@ -719,7 +719,7 @@ def close_due_sessions(db: Session, reference_time: datetime | None = None, *, c
     local_training_today = _resolve_local_training_today(now, settings.training_day_rollover_hour)
     due_sessions = (
         db.query(TrainingSession)
-        .options(joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records))
+        .options(selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records))
         .filter(
             ~TrainingSession.status.in_(tuple(FINAL_SESSION_STATUSES)),
             TrainingSession.session_date < local_training_today,
@@ -755,7 +755,7 @@ def _resolve_session_for_create_set(db: Session, payload: SessionSetSyncOperatio
     if payload.session_id is not None:
         session = (
             db.query(TrainingSession)
-            .options(joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records))
+            .options(selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records))
             .filter(TrainingSession.id == payload.session_id)
             .first()
         )
@@ -812,7 +812,7 @@ def _resolve_session_for_full_sync(db: Session, payload: SessionFullSyncPayload)
     if payload.session_id is not None:
         session = (
             db.query(TrainingSession)
-            .options(joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records))
+            .options(selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records))
             .filter(TrainingSession.id == payload.session_id)
             .first()
         )
@@ -838,11 +838,11 @@ def _get_session_item(db: Session, item_id: int) -> TrainingSessionItem:
         db.query(TrainingSessionItem)
         .options(
             joinedload(TrainingSessionItem.exercise),
-            joinedload(TrainingSessionItem.records),
+            selectinload(TrainingSessionItem.records),
             joinedload(TrainingSessionItem.session),
             joinedload(TrainingSessionItem.template_item)
             .joinedload(TrainingPlanTemplateItem.module)
-            .joinedload(TrainingPlanTemplateModule.items),
+            .selectinload(TrainingPlanTemplateModule.items),
         )
         .filter(TrainingSessionItem.id == item_id)
         .first()
@@ -857,12 +857,12 @@ def _get_set_record(db: Session, record_id: int) -> SetRecord:
         db.query(SetRecord)
         .options(
             joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.exercise),
-            joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.records),
+            joinedload(SetRecord.session_item).selectinload(TrainingSessionItem.records),
             joinedload(SetRecord.session_item).joinedload(TrainingSessionItem.session),
             joinedload(SetRecord.session_item)
             .joinedload(TrainingSessionItem.template_item)
             .joinedload(TrainingPlanTemplateItem.module)
-            .joinedload(TrainingPlanTemplateModule.items),
+            .selectinload(TrainingPlanTemplateModule.items),
         )
         .filter(SetRecord.id == record_id)
         .first()
@@ -1383,7 +1383,7 @@ def _get_assignment_training_status_map(db: Session, assignment_ids: list[int], 
 
     sessions = (
         db.query(TrainingSession)
-        .options(joinedload(TrainingSession.items).joinedload(TrainingSessionItem.records))
+        .options(selectinload(TrainingSession.items).selectinload(TrainingSessionItem.records))
         .filter(TrainingSession.assignment_id.in_(assignment_ids), TrainingSession.session_date == session_date)
         .all()
     )
@@ -1415,17 +1415,17 @@ def _get_active_assignments_by_athlete(db: Session, athlete_ids: list[int], sess
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
             joinedload(AthletePlanAssignment.template)
-            .joinedload(TrainingPlanTemplate.modules)
-            .joinedload(TrainingPlanTemplateModule.items)
+            .selectinload(TrainingPlanTemplate.modules)
+            .selectinload(TrainingPlanTemplateModule.items)
             .joinedload(TrainingPlanTemplateItem.exercise),
             joinedload(AthletePlanAssignment.template)
-            .joinedload(TrainingPlanTemplate.items)
+            .selectinload(TrainingPlanTemplate.items)
             .joinedload(TrainingPlanTemplateItem.exercise),
             joinedload(AthletePlanAssignment.template)
-            .joinedload(TrainingPlanTemplate.items)
+            .selectinload(TrainingPlanTemplate.items)
             .joinedload(TrainingPlanTemplateItem.module)
-            .joinedload(TrainingPlanTemplateModule.items),
-            joinedload(AthletePlanAssignment.overrides),
+            .selectinload(TrainingPlanTemplateModule.items),
+            selectinload(AthletePlanAssignment.overrides),
         )
         .filter(
             AthletePlanAssignment.athlete_id.in_(athlete_ids),

@@ -133,6 +133,64 @@ def test_import_still_writes_valid_records(
     assert record.result_value == 100
 
 
+def test_import_preview_returns_limited_valid_samples(
+    asgi_client: Any,
+    db_session: Session,
+) -> None:
+    data = _seed_import_data(db_session)
+    workbook = _build_workbook([_valid_row(result_value=100 + index) for index in range(55)])
+
+    with _api_overrides(current_user=data["coach"], db=db_session):
+        response = asgi_client.post("/api/test-records/import/preview", files=_upload_file(workbook))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_rows"] == 55
+    assert payload["valid_rows"] == 55
+    assert payload["sample_limit"] == 50
+    assert payload["has_more_valid_rows"] is True
+    assert len(payload["sample_records"]) == 50
+    assert len(payload["pending_records_data"]) == 50
+
+
+def test_import_preview_returns_limited_errors(
+    asgi_client: Any,
+    db_session: Session,
+) -> None:
+    data = _seed_import_data(db_session)
+    workbook = _build_workbook([
+        _valid_row(metric_name=f"不存在项目{index}", result_value=100 + index)
+        for index in range(55)
+    ])
+
+    with _api_overrides(current_user=data["coach"], db=db_session):
+        response = asgi_client.post("/api/test-records/import/preview", files=_upload_file(workbook))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_rows"] == 55
+    assert payload["valid_rows"] == 0
+    assert payload["error_rows"] == 55
+    assert payload["error_limit"] == 50
+    assert payload["has_more_errors"] is True
+    assert len(payload["errors"]) == 50
+
+
+def test_import_still_writes_all_valid_records_after_preview_slimming(
+    asgi_client: Any,
+    db_session: Session,
+) -> None:
+    data = _seed_import_data(db_session)
+    workbook = _build_workbook([_valid_row(result_value=100 + index) for index in range(55)])
+
+    with _api_overrides(current_user=data["coach"], db=db_session):
+        response = asgi_client.post("/api/test-records/import", files=_upload_file(workbook))
+
+    assert response.status_code == 200
+    assert response.json() == {"total_rows": 55, "imported_rows": 55, "skipped_rows": 0}
+    assert db_session.query(RecordModel).count() == 55
+
+
 @contextmanager
 def _api_overrides(current_user: User, db: Session):
     previous_user_override = app.dependency_overrides.get(get_current_user)

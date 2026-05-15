@@ -340,6 +340,7 @@ async function hydrate() {
   if (sessionId) {
     try {
       const session = await trainingStore.loadSession(sessionId)
+      if (!session) return
       trainingStore.selectedAthleteId = session.athlete_id
       trainingStore.sessionDate = session.session_date
       try {
@@ -380,6 +381,7 @@ async function hydrate() {
       ])
     }
     const nextSession = await trainingStore.openPlanSession(assignmentId, requestedDate)
+    if (!nextSession) return
     if (nextSession.id) {
       await router.replace({
         name: 'training-session',
@@ -418,6 +420,7 @@ async function openPlan(assignmentId?: number) {
   const nextAssignmentId = assignmentId || trainingStore.previewAssignmentId
   if (!nextAssignmentId) return
   const session = await trainingStore.openPlanSession(nextAssignmentId, trainingStore.sessionDate)
+  if (!session) return
   restoreToActionList.value = false
   activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
   latestSuggestion.value = null

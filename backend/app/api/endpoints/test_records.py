@@ -27,6 +27,8 @@ from app.services.test_record_excel_service import (
 
 
 router = APIRouter(prefix="/test-records", tags=["test-records"])
+IMPORT_PREVIEW_SAMPLE_LIMIT = 50
+IMPORT_PREVIEW_ERROR_LIMIT = 50
 
 
 @router.get("/template")
@@ -56,6 +58,8 @@ async def preview_test_records_import(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    visible_errors = preview.errors[:IMPORT_PREVIEW_ERROR_LIMIT]
+    sample_records = preview.pending_records_data[:IMPORT_PREVIEW_SAMPLE_LIMIT]
     return TestRecordImportPreviewRead(
         total_rows=preview.total_rows,
         valid_rows=preview.valid_rows,
@@ -64,9 +68,14 @@ async def preview_test_records_import(
         error_rows=preview.error_rows,
         errors=[
             TestRecordImportPreviewError(row_number=error.row_number, message=error.message)
-            for error in preview.errors
+            for error in visible_errors
         ],
-        pending_records_data=preview.pending_records_data,
+        has_more_errors=preview.error_rows > IMPORT_PREVIEW_ERROR_LIMIT,
+        error_limit=IMPORT_PREVIEW_ERROR_LIMIT,
+        sample_records=sample_records,
+        has_more_valid_rows=preview.valid_rows > IMPORT_PREVIEW_SAMPLE_LIMIT,
+        sample_limit=IMPORT_PREVIEW_SAMPLE_LIMIT,
+        pending_records_data=sample_records,
     )
 
 

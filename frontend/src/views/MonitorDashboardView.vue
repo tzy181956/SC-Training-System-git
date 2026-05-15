@@ -19,9 +19,9 @@ import { buildMonitoringAlertKey, buildMonitoringAlertStorageKey } from '@/utils
 import { sortMonitoringAthletes } from '@/utils/monitoringSort'
 
 const AUTO_REFRESH_OPTIONS = [
-  { label: '5 秒', value: 5000 },
-  { label: '10 秒', value: 10000 },
   { label: '30 秒', value: 30000 },
+  { label: '60 秒', value: 60000 },
+  { label: '120 秒', value: 120000 },
 ] as const
 
 const router = useRouter()
@@ -36,7 +36,7 @@ const loadError = ref('')
 const monitorNotice = ref('')
 const lastRefreshAt = ref<string | null>(null)
 const autoRefreshEnabled = ref(true)
-const refreshIntervalMs = ref(5000)
+const refreshIntervalMs = ref(30000)
 const refreshSettingsOpen = ref(false)
 const backgroundRefreshing = ref(false)
 const pageVisible = ref(true)
@@ -55,6 +55,7 @@ const isSportFilterLocked = computed(() => isSportScoped(authStore.currentUser?.
 
 type LoadMonitoringOptions = {
   background?: boolean
+  forceRefresh?: boolean
 }
 
 const monitorSportOptions = computed(() => {
@@ -174,7 +175,7 @@ async function handleTeamFilterInput(value: string) {
 }
 
 async function handleManualRefresh() {
-  await loadMonitoringData()
+  await loadMonitoringData({ forceRefresh: true })
   if (selectedAthleteId.value) {
     await loadAthleteDetail(selectedAthleteId.value)
   }
@@ -200,6 +201,7 @@ async function loadMonitoringData(options: LoadMonitoringOptions = {}) {
       sport_id: selectedSportId.value,
       team_id: resolveSelectedTeamId(),
       include_unassigned: selectedTeamFilter.value !== ALL_TEAMS_VALUE ? selectedTeamFilter.value === UNASSIGNED_TEAM_VALUE : true,
+      force_refresh: options.forceRefresh === true,
     })
     if (requestId !== activeRequestId) return
 

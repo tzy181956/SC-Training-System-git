@@ -13,11 +13,18 @@ import { getTrainingStatusLabel, getTrainingStatusTone } from '@/constants/train
 import { confirmDangerousAction } from '@/utils/dangerousAction'
 import { formatDurationMinutes } from '@/utils/sessionDuration'
 
-const props = defineProps<{ session: any; onlyIncomplete?: boolean; onlyMainLift?: boolean }>()
+const props = defineProps<{
+  session: any
+  onlyIncomplete?: boolean
+  onlyMainLift?: boolean
+  detailLoading?: boolean
+  detailError?: string
+}>()
 
 const emit = defineEmits<{
   changed: []
   notify: [payload: { message: string; tone: 'success' | 'warning' | 'error' }]
+  requestDetails: [sessionId: number]
 }>()
 
 const editingRecordId = ref<number | null>(null)
@@ -43,6 +50,17 @@ const addForm = reactive({
 
 function shouldShowItem(item: any) {
   return (!props.onlyIncomplete || item.status !== 'completed') && (!props.onlyMainLift || item.is_main_lift)
+}
+
+function hasLoadedDetails() {
+  return props.session.details_loaded || (props.session.items?.length || 0) > 0
+}
+
+function handleToggle(event: Event) {
+  const target = event.target as HTMLDetailsElement
+  if (!target.open) return
+  if (hasLoadedDetails() || props.detailLoading) return
+  emit('requestDetails', props.session.id)
 }
 
 function isVoidedSession() {
@@ -245,7 +263,7 @@ function sessionSrpeLoadText() {
 </script>
 
 <template>
-  <details class="session-card">
+  <details class="session-card" @toggle="handleToggle">
     <summary class="session-head">
       <div class="session-copy adaptive-card">
         <p class="session-date">{{ session.session_date }}</p>
@@ -292,6 +310,15 @@ function sessionSrpeLoadText() {
         <p class="feedback-note">{{ sessionFeedbackText() }}</p>
         <p v-if="isVoidedSession()" class="feedback-note danger-note">该训练课已作废，默认不计入训练统计和完成率。</p>
       </section>
+
+      <div v-if="detailLoading" class="detail-state">正在加载训练明细...</div>
+      <div v-else-if="detailError" class="detail-state danger-note">
+        <span>{{ detailError }}</span>
+        <button class="link-btn" type="button" @click="emit('requestDetails', session.id)">重试</button>
+      </div>
+      <div v-else-if="!hasLoadedDetails()" class="detail-state">
+        展开后加载动作和组记录明细，避免一次性拉取过多训练数据。
+      </div>
 
       <article
         v-for="item in session.items"
@@ -480,6 +507,7 @@ function sessionSrpeLoadText() {
 .feedback-metric span,.feedback-note{margin:0;color:var(--text-soft)}
 .feedback-note{font-size:14px}
 .danger-note{color:#b91c1c;font-weight:700}
+.detail-state{padding:12px 14px;border-radius:14px;background:rgba(15,23,42,.04);color:var(--text-soft);display:flex;align-items:center;gap:12px;justify-content:space-between}
 .item-card{border-radius:18px;background:var(--panel-soft);padding:16px;display:grid;gap:12px}
 .item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .item-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}

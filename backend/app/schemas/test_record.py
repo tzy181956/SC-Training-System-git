@@ -63,4 +63,9 @@ class TestRecordImportPreviewRead(BaseModel):
     skipped_rows: int
     error_rows: int
     errors: list[TestRecordImportPreviewError] = Field(default_factory=list)
+    has_more_errors: bool = False
+    error_limit: int = 50
+    sample_records: list[dict[str, Any]] = Field(default_factory=list)
+    has_more_valid_rows: bool = False
+    sample_limit: int = 50
     pending_records_data: list[dict[str, Any]] = Field(default_factory=list)

@@ -1,5 +1,5 @@
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.exceptions import bad_request, not_found
 from app.models import (
@@ -38,20 +38,20 @@ TEMPLATE_DETAIL_OPTIONS = (
     joinedload(TrainingPlanTemplate.owner_user),
     joinedload(TrainingPlanTemplate.created_by_user),
     joinedload(TrainingPlanTemplate.source_template),
-    joinedload(TrainingPlanTemplate.modules)
-    .joinedload(TrainingPlanTemplateModule.items)
+    selectinload(TrainingPlanTemplate.modules)
+    .selectinload(TrainingPlanTemplateModule.items)
     .joinedload(TrainingPlanTemplateItem.exercise),
-    joinedload(TrainingPlanTemplate.modules)
-    .joinedload(TrainingPlanTemplateModule.items)
+    selectinload(TrainingPlanTemplate.modules)
+    .selectinload(TrainingPlanTemplateModule.items)
     .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
     .joinedload(TestMetricDefinition.test_type),
-    joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
-    joinedload(TrainingPlanTemplate.items)
+    selectinload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+    selectinload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
     .joinedload(TestMetricDefinition.test_type),
-    joinedload(TrainingPlanTemplate.items)
+    selectinload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.module)
-    .joinedload(TrainingPlanTemplateModule.items),
+    .selectinload(TrainingPlanTemplateModule.items),
 )
 
 ITEM_DETAIL_OPTIONS = (
@@ -60,14 +60,14 @@ ITEM_DETAIL_OPTIONS = (
     joinedload(TrainingPlanTemplateItem.template).joinedload(TrainingPlanTemplate.source_template),
     joinedload(TrainingPlanTemplateItem.exercise),
     joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition).joinedload(TestMetricDefinition.test_type),
-    joinedload(TrainingPlanTemplateItem.module).joinedload(TrainingPlanTemplateModule.items),
+    joinedload(TrainingPlanTemplateItem.module).selectinload(TrainingPlanTemplateModule.items),
 )
 
 MODULE_DETAIL_OPTIONS = (
-    joinedload(TrainingPlanTemplateModule.template).joinedload(TrainingPlanTemplate.items),
+    joinedload(TrainingPlanTemplateModule.template).selectinload(TrainingPlanTemplate.items),
     joinedload(TrainingPlanTemplateModule.template).joinedload(TrainingPlanTemplate.owner_user),
     joinedload(TrainingPlanTemplateModule.template).joinedload(TrainingPlanTemplate.source_template),
-    joinedload(TrainingPlanTemplateModule.items).joinedload(TrainingPlanTemplateItem.exercise),
+    selectinload(TrainingPlanTemplateModule.items).joinedload(TrainingPlanTemplateItem.exercise),
 )
 
 
@@ -619,7 +619,7 @@ def delete_template_item(db: Session, item_id: int, *, actor_name: str | None = 
 def delete_template(db: Session, template_id: int, *, actor_name: str | None = None) -> None:
     template = (
         db.query(TrainingPlanTemplate)
-        .options(joinedload(TrainingPlanTemplate.items), joinedload(TrainingPlanTemplate.modules))
+        .options(selectinload(TrainingPlanTemplate.items), selectinload(TrainingPlanTemplate.modules))
         .filter(TrainingPlanTemplate.id == template_id)
         .first()
     )

@@ -7,6 +7,7 @@ export type FetchMonitoringTodayParams = {
   sport_id?: number | null
   team_id?: number | null
   include_unassigned?: boolean
+  force_refresh?: boolean
 }
 
 export type FetchMonitoringAthleteDetailParams = {

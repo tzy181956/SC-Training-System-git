@@ -88,6 +88,8 @@ export const useTrainingStore = defineStore('training', () => {
   })
   let syncRetryTimer: number | null = null
   let syncInFlight = false
+  let activePlansRequestId = 0
+  let activeSessionRequestId = 0
 
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
@@ -108,18 +110,36 @@ export const useTrainingStore = defineStore('training', () => {
   }
 
   async function loadPlans(athleteId: number, targetDate: string) {
+    const contextChanged = selectedAthleteId.value !== athleteId || sessionDate.value !== targetDate
+    const requestId = activePlansRequestId + 1
+    activePlansRequestId = requestId
     selectedAthleteId.value = athleteId
     sessionDate.value = targetDate
+    assignments.value = []
+    previewAssignmentId.value = 0
+    if (contextChanged) {
+      _resetCurrentSessionUi()
+    }
     const response = await fetchTrainingPlans(athleteId, targetDate)
+    if (requestId !== activePlansRequestId || selectedAthleteId.value !== athleteId || sessionDate.value !== targetDate) {
+      return response
+    }
     assignments.value = response.assignments
     previewAssignmentId.value = response.assignments[0]?.id || 0
     return response
   }
 
   async function openPlanSession(assignmentId: number, targetDate: string) {
+    const requestId = activeSessionRequestId + 1
+    activeSessionRequestId = requestId
     previewAssignmentId.value = assignmentId
     sessionDate.value = targetDate
-    session.value = await startTrainingSession(assignmentId, targetDate)
+    _resetCurrentSessionUi()
+    const nextSession = await startTrainingSession(assignmentId, targetDate)
+    if (requestId !== activeSessionRequestId || previewAssignmentId.value !== assignmentId || sessionDate.value !== targetDate) {
+      return null
+    }
+    session.value = nextSession
     activeDraftSessionKey.value = buildTrainingSessionKey(session.value)
     syncIssueId.value = null
     manualRetryReason.value = null
@@ -128,7 +148,14 @@ export const useTrainingStore = defineStore('training', () => {
   }
 
   async function loadSession(sessionId: number) {
-    session.value = await fetchSession(sessionId)
+    const requestId = activeSessionRequestId + 1
+    activeSessionRequestId = requestId
+    _resetCurrentSessionUi()
+    const nextSession = await fetchSession(sessionId)
+    if (requestId !== activeSessionRequestId) {
+      return null
+    }
+    session.value = nextSession
     activeDraftSessionKey.value = buildTrainingSessionKey(session.value)
     syncIssueId.value = null
     manualRetryReason.value = null
@@ -355,6 +382,19 @@ export const useTrainingStore = defineStore('training', () => {
     draftPendingSync.value = nextStatus !== TRAINING_DRAFT_SYNC_STATUS.SYNCED
   }
 
+  function _resetCurrentSessionUi() {
+    _clearScheduledSyncRetry()
+    session.value = null
+    activeDraftSessionKey.value = ''
+    syncIssueId.value = null
+    manualRetryReason.value = null
+    draftUiState.value = {
+      activeItemId: null,
+      latestSuggestion: null,
+    }
+    _setSyncStatus(TRAINING_DRAFT_SYNC_STATUS.SYNCED)
+  }
+
   function _sortTrainingAthletes(nextAthletes: any[]) {
     return [...nextAthletes].sort((left, right) => {
       const leftHasPlan = Array.isArray(left.assignments) && left.assignments.length > 0
@@ -557,6 +597,10 @@ export const useTrainingStore = defineStore('training', () => {
       final_weight: Number(payload.final_weight ?? payload.actual_weight),
       notes: (payload.notes as string | null | undefined) ?? null,
     }
+  }
+
+  function _isHttpStatus(error: unknown, statusCode: number) {
+    return (error as { response?: { status?: number } })?.response?.status === statusCode
   }
   function _scheduleIncrementalSync(delayMs = SYNC_RETRY_IDLE_MS) {
     if (typeof window === 'undefined') return
@@ -797,6 +841,10 @@ export const useTrainingStore = defineStore('training', () => {
       await hydrateAthletes(sessionDate.value)
       return response
     } catch (error) {
+      if (_isHttpStatus(error, 409)) {
+        await handoffConflictToCoach(draft)
+        return null
+      }
       await _markManualRetryRequired(draft, triggerReason, error)
       return null
     } finally {

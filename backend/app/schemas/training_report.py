@@ -44,7 +44,7 @@ class TrainingReportItemRead(BaseModel):
     target_note: str | None = None
     is_main_lift: bool
     status: str
-    records: list[TrainingReportSetRead]
+    records: list[TrainingReportSetRead] = Field(default_factory=list)
 
 
 class TrainingReportSessionRead(BaseModel):
@@ -62,8 +62,9 @@ class TrainingReportSessionRead(BaseModel):
     total_items: int
     completed_sets: int
     total_sets: int
-    items: list[TrainingReportItemRead]
+    items: list[TrainingReportItemRead] = Field(default_factory=list)
     edit_logs: list[TrainingSessionEditLogRead] = Field(default_factory=list)
+    details_loaded: bool = False
 
 
 class TrainingReportSummaryRead(BaseModel):

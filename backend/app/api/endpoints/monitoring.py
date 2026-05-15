@@ -19,6 +19,7 @@ def get_monitoring_today(
     sport_id: int | None = Query(default=None),
     team_id: int | None = Query(default=None),
     include_unassigned: bool = Query(default=True),
+    force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("coach")),
 ):
@@ -30,6 +31,7 @@ def get_monitoring_today(
         sport_id=resolved_sport_id,
         team_id=resolved_team_id,
         include_unassigned=include_unassigned if access_control_service.is_admin(current_user) else False,
+        force_refresh=force_refresh,
     )
 
 

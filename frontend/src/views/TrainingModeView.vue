@@ -80,6 +80,7 @@ async function loadPlans() {
 async function openPlanById(assignmentId: number) {
   trainingStore.setPreviewAssignment(assignmentId)
   const session = await trainingStore.openPlanSession(assignmentId, trainingStore.sessionDate)
+  if (!session) return
   if (session.id) {
     router.push({ name: 'training-session', params: { sessionId: session.id } })
     return

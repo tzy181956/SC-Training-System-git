@@ -27,7 +27,7 @@ from app.models import (
 )
 from app.schemas.dangerous_action import DangerousActionConfirm
 from app.schemas.training_session import CoachSetRecordCreate
-from app.services import session_service
+from app.services import session_service, training_report_service
 
 
 @pytest.fixture()
@@ -125,6 +125,75 @@ def test_void_training_session_failure_does_not_write_dangerous_operation_log(db
     assert db_session.query(DangerousOperationLog).count() == 0
 
 
+def test_training_report_default_omits_detail_records(db_session) -> None:
+    ids = _seed_training_session(db_session, record_count=2, status="in_progress")
+
+    report = training_report_service.get_training_report(
+        db_session,
+        ids.athlete_id,
+        date(2026, 5, 14),
+        date(2026, 5, 14),
+    )
+
+    assert report["summary"]["completed_sets"] == 2
+    assert report["trend"]["main_lift_series"][0]["points"][0]["value"] == 82.0
+    assert len(report["sessions"]) == 1
+    session_payload = report["sessions"][0]
+    assert session_payload["completed_sets"] == 2
+    assert session_payload["items"] == []
+    assert session_payload["edit_logs"] == []
+    assert session_payload["details_loaded"] is False
+
+
+def test_training_report_details_include_records(db_session) -> None:
+    ids = _seed_training_session(db_session, record_count=2, status="in_progress")
+
+    report = training_report_service.get_training_report(
+        db_session,
+        ids.athlete_id,
+        date(2026, 5, 14),
+        date(2026, 5, 14),
+        include_details=True,
+    )
+    detail = training_report_service.get_training_report_session_detail(db_session, ids.session_id)
+
+    assert report["sessions"][0]["details_loaded"] is True
+    assert len(report["sessions"][0]["items"]) == 1
+    assert [record["actual_weight"] for record in report["sessions"][0]["items"][0]["records"]] == [81.0, 82.0]
+    assert detail["items"][0]["records"][1]["final_weight"] == 82.0
+
+
+def test_training_report_empty_result_for_athlete_without_sessions(db_session) -> None:
+    athlete_id = _seed_training_athlete(db_session)
+
+    report = training_report_service.get_training_report(
+        db_session,
+        athlete_id,
+        date(2026, 5, 1),
+        date(2026, 5, 14),
+    )
+
+    assert report["summary"]["total_sessions"] == 0
+    assert report["summary"]["completed_sets"] == 0
+    assert report["sessions"] == []
+    assert report["trend"]["main_lift_series"] == []
+
+
+def test_voided_training_report_session_is_not_counted_in_summary(db_session) -> None:
+    ids = _seed_training_session(db_session, record_count=0, status="voided")
+
+    report = training_report_service.get_training_report(
+        db_session,
+        ids.athlete_id,
+        date(2026, 5, 14),
+        date(2026, 5, 14),
+    )
+
+    assert report["summary"]["total_sessions"] == 0
+    assert report["summary"]["voided_sessions"] == 1
+    assert report["sessions"][0]["status"] == "voided"
+
+
 def _admin_user():
     return SimpleNamespace(role_code="admin", display_name="Admin user")
 
@@ -197,6 +266,16 @@ def _seed_training_session(db, *, record_count: int, status: str):
     db.add(session)
     db.commit()
     return SimpleNamespace(
+        athlete_id=athlete.id,
         session_id=session.id,
         session_item_id=session_item.id,
     )
+
+
+def _seed_training_athlete(db) -> int:
+    sport = Sport(name="Empty Sport", code="empty-sport")
+    team = Team(name="Empty Team", code="empty-team", sport=sport)
+    athlete = Athlete(code="E001", full_name="Empty Athlete", sport=sport, team=team)
+    db.add(athlete)
+    db.commit()
+    return athlete.id

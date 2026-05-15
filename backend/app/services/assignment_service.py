@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.exceptions import bad_request, not_found
 from app.models import (
@@ -29,25 +29,25 @@ from app.services.load_prescription_service import build_assignment_item_overrid
 
 ASSIGNMENT_TEMPLATE_LOAD_OPTIONS = (
     joinedload(AthletePlanAssignment.template)
-    .joinedload(TrainingPlanTemplate.modules)
-    .joinedload(TrainingPlanTemplateModule.items)
+    .selectinload(TrainingPlanTemplate.modules)
+    .selectinload(TrainingPlanTemplateModule.items)
     .joinedload(TrainingPlanTemplateItem.exercise),
     joinedload(AthletePlanAssignment.template)
-    .joinedload(TrainingPlanTemplate.modules)
-    .joinedload(TrainingPlanTemplateModule.items)
+    .selectinload(TrainingPlanTemplate.modules)
+    .selectinload(TrainingPlanTemplateModule.items)
     .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
     .joinedload(TestMetricDefinition.test_type),
     joinedload(AthletePlanAssignment.template)
-    .joinedload(TrainingPlanTemplate.items)
+    .selectinload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.exercise),
     joinedload(AthletePlanAssignment.template)
-    .joinedload(TrainingPlanTemplate.items)
+    .selectinload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
     .joinedload(TestMetricDefinition.test_type),
     joinedload(AthletePlanAssignment.template)
-    .joinedload(TrainingPlanTemplate.items)
+    .selectinload(TrainingPlanTemplate.items)
     .joinedload(TrainingPlanTemplateItem.module)
-    .joinedload(TrainingPlanTemplateModule.items),
+    .selectinload(TrainingPlanTemplateModule.items),
 )
 
 
@@ -192,7 +192,7 @@ def list_assignments(db: Session, sport_id: int | None = None) -> list[AthletePl
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
             *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
-            joinedload(AthletePlanAssignment.overrides),
+            selectinload(AthletePlanAssignment.overrides),
         )
     )
     if sport_id is not None:
@@ -207,7 +207,7 @@ def get_assignment(db: Session, assignment_id: int) -> AthletePlanAssignment:
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
             *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
-            joinedload(AthletePlanAssignment.overrides),
+            selectinload(AthletePlanAssignment.overrides),
         )
         .filter(AthletePlanAssignment.id == assignment_id)
         .first()
@@ -307,7 +307,7 @@ def list_active_assignments_for_date(db: Session, athlete_id: int, target_date: 
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
             *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
-            joinedload(AthletePlanAssignment.overrides),
+            selectinload(AthletePlanAssignment.overrides),
         )
         .filter(
             AthletePlanAssignment.athlete_id == athlete_id,
@@ -444,7 +444,7 @@ def assignment_overview(db: Session, target_date: date, sport_id: int | None = N
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.sport),
             joinedload(AthletePlanAssignment.athlete).joinedload(Athlete.team),
             *ASSIGNMENT_TEMPLATE_LOAD_OPTIONS,
-            joinedload(AthletePlanAssignment.overrides),
+            selectinload(AthletePlanAssignment.overrides),
         )
     )
     if sport_id is not None:
@@ -524,20 +524,20 @@ def _get_template_for_assignment(db: Session, template_id: int) -> TrainingPlanT
     template = (
         db.query(TrainingPlanTemplate)
         .options(
-            joinedload(TrainingPlanTemplate.modules)
-            .joinedload(TrainingPlanTemplateModule.items)
+            selectinload(TrainingPlanTemplate.modules)
+            .selectinload(TrainingPlanTemplateModule.items)
             .joinedload(TrainingPlanTemplateItem.exercise),
-            joinedload(TrainingPlanTemplate.modules)
-            .joinedload(TrainingPlanTemplateModule.items)
+            selectinload(TrainingPlanTemplate.modules)
+            .selectinload(TrainingPlanTemplateModule.items)
             .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
             .joinedload(TestMetricDefinition.test_type),
-            joinedload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
-            joinedload(TrainingPlanTemplate.items)
+            selectinload(TrainingPlanTemplate.items).joinedload(TrainingPlanTemplateItem.exercise),
+            selectinload(TrainingPlanTemplate.items)
             .joinedload(TrainingPlanTemplateItem.initial_load_test_metric_definition)
             .joinedload(TestMetricDefinition.test_type),
-            joinedload(TrainingPlanTemplate.items)
+            selectinload(TrainingPlanTemplate.items)
             .joinedload(TrainingPlanTemplateItem.module)
-            .joinedload(TrainingPlanTemplateModule.items),
+            .selectinload(TrainingPlanTemplateModule.items),
         )
         .filter(TrainingPlanTemplate.id == template_id)
         .first()
