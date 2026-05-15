@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import ActiveMixin, BaseModel
@@ -25,7 +25,13 @@ class TrainingPlanTemplate(BaseModel, ActiveMixin):
     sport_id: Mapped[int | None] = mapped_column(ForeignKey("sports.id"))
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    visibility: Mapped[str] = mapped_column(String(20), default=TEMPLATE_VISIBILITY_PRIVATE, nullable=False, index=True)
+    visibility: Mapped[str] = mapped_column(
+        String(20),
+        default=TEMPLATE_VISIBILITY_PRIVATE,
+        server_default=text("'private'"),
+        nullable=False,
+        index=True,
+    )
     owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     source_template_id: Mapped[int | None] = mapped_column(ForeignKey("training_plan_templates.id"), index=True)
@@ -68,8 +74,8 @@ class TrainingPlanTemplate(BaseModel, ActiveMixin):
 class TrainingPlanTemplateModule(BaseModel):
     __tablename__ = "training_plan_template_modules"
 
-    template_id: Mapped[int] = mapped_column(ForeignKey("training_plan_templates.id"), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    template_id: Mapped[int] = mapped_column(ForeignKey("training_plan_templates.id"), nullable=False, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
     title: Mapped[str | None] = mapped_column(String(120))
     note: Mapped[str | None] = mapped_column(Text)
 
@@ -95,7 +101,7 @@ class TrainingPlanTemplateItem(BaseModel):
     __tablename__ = "training_plan_template_items"
 
     template_id: Mapped[int] = mapped_column(ForeignKey("training_plan_templates.id"), nullable=False)
-    module_id: Mapped[int] = mapped_column(ForeignKey("training_plan_template_modules.id"), nullable=False)
+    module_id: Mapped[int] = mapped_column(ForeignKey("training_plan_template_modules.id"), nullable=False, index=True)
     exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id"), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     prescribed_sets: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -105,7 +111,10 @@ class TrainingPlanTemplateItem(BaseModel):
     enable_auto_load: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     initial_load_mode: Mapped[str] = mapped_column(String(30), default="fixed_weight", nullable=False)
     initial_load_value: Mapped[float | None] = mapped_column(Float)
-    initial_load_test_metric_definition_id: Mapped[int | None] = mapped_column(ForeignKey("test_metric_definitions.id"))
+    initial_load_test_metric_definition_id: Mapped[int | None] = mapped_column(
+        ForeignKey("test_metric_definitions.id"),
+        index=True,
+    )
     progression_goal: Mapped[str | None] = mapped_column(String(30))
     progression_rules: Mapped[dict | None] = mapped_column(JSON)
     ai_adjust_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

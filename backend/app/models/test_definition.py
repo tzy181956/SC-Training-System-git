@@ -9,8 +9,8 @@ class TestTypeDefinition(BaseModel):
 
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
-    sport_id: Mapped[int | None] = mapped_column(ForeignKey("sports.id"))
-    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    sport_id: Mapped[int | None] = mapped_column(ForeignKey("sports.id"), index=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), index=True)
     notes: Mapped[str | None] = mapped_column(Text)
 
     sport = relationship("Sport", back_populates="test_type_definitions")
@@ -38,7 +38,7 @@ class TestMetricDefinition(BaseModel):
         UniqueConstraint("test_type_id", "code", name="uq_test_metric_definition_type_code"),
     )
 
-    test_type_id: Mapped[int] = mapped_column(ForeignKey("test_type_definitions.id"), nullable=False)
+    test_type_id: Mapped[int] = mapped_column(ForeignKey("test_type_definitions.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     code: Mapped[str] = mapped_column(String(80), nullable=False)
     default_unit: Mapped[str | None] = mapped_column(String(30))
