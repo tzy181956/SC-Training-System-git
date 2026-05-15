@@ -24,6 +24,7 @@ import {
   isRecoverableTrainingDraft,
   listTrainingLocalDrafts,
   loadTrainingLocalDraft,
+  saveTrainingLocalDraft,
   TRAINING_DRAFT_SYNC_STATUS,
   type TrainingManualRetryReason,
   type TrainingDraftSetPayload,
@@ -302,6 +303,7 @@ export const useTrainingStore = defineStore('training', () => {
   }
 
   function restoreDraft(draft: TrainingLocalDraft) {
+    saveTrainingLocalDraft(draft)
     session.value = cloneTrainingSession(draft.session_snapshot)
     selectedAthleteId.value = draft.athlete_id
     sessionDate.value = draft.session_date

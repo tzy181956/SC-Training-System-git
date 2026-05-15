@@ -24,7 +24,7 @@ settings = get_settings()
 logger = get_logger(__name__)
 app = FastAPI(title=settings.app_name, contact={"name": PROJECT_AUTHOR_HANDLE})
 AUTO_BACKUP_INTERVAL_SECONDS = 3600
-BACKEND_DIR = Path(__file__).resolve().parents[2]
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 ALLOWED_CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 ALLOWED_CORS_HEADERS = ["Authorization", "Content-Type", "X-Request-ID"]

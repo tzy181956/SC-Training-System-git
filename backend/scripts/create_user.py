@@ -25,10 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--role-code",
         required=True,
-        choices=["admin", "coach", "training"],
+        choices=["admin", "coach"],
         help="Role code to create.",
     )
-    parser.add_argument("--team-id", type=int, help="Optional team id. Recommended for coach/training users.")
+    parser.add_argument("--sport-id", type=int, help="Optional sport id. Required for coach users.")
+    parser.add_argument(
+        "--allow-sportless-role",
+        action="store_true",
+        help="Allow creating coach users without sport binding for initial setup or local testing.",
+    )
     return parser
 
 
@@ -57,20 +62,20 @@ def main() -> None:
             display_name=args.display_name,
             role_code=args.role_code,
             password=password,
-            team_id=args.team_id,
+            sport_id=args.sport_id,
             actor_name="系统脚本",
-            allow_teamless_role=True,
+            allow_sportless_role=args.allow_sportless_role,
         )
     finally:
         db.close()
 
-    if args.role_code in {"coach", "training"} and args.team_id is None:
-        print("[USER] Warning: coach/training user created without team_id. Team-scoped APIs will reject this account until a team is assigned.")
+    if args.role_code == "coach" and args.sport_id is None:
+        print("[USER] Warning: coach user created without sport_id. Sport-scoped APIs may reject this account until a sport is assigned.")
 
     print(f"[USER] Created: {user.username}")
     print(f"[USER] Display name: {user.display_name}")
     print(f"[USER] Role: {user.role_code}")
-    print(f"[USER] Team id: {user.team_id if user.team_id is not None else 'none'}")
+    print(f"[USER] Sport id: {user.sport_id if user.sport_id is not None else 'none'}")
 
 
 if __name__ == "__main__":

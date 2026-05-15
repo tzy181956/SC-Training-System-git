@@ -14,7 +14,7 @@ import { getTrainingStatusLabel, getTrainingStatusTone, isFinalTrainingStatus } 
 import { useTeamFilter } from '@/composables/useTeamFilter'
 import { useTrainingStore } from '@/stores/training'
 import { todayString } from '@/utils/date'
-import { TRAINING_DRAFT_REMOTE_RELATION } from '@/utils/trainingDraft'
+import { classifyTrainingDraftAgainstRemote, TRAINING_DRAFT_REMOTE_RELATION } from '@/utils/trainingDraft'
 
 const route = useRoute()
 const router = useRouter()
@@ -229,8 +229,8 @@ async function submitSessionRpeFeedback(payload: { session_rpe: number; session_
   }
 }
 
-async function maybeRestoreDraftForSession(nextSession: any) {
-  const draft = trainingStore.getDraftForSession(nextSession)
+async function maybeRestoreDraftForSession(nextSession: any, draftOverride: any = null) {
+  const draft = draftOverride || trainingStore.getDraftForSession(nextSession)
   if (!draft) {
     if (route.query.resumeDraft === '1') {
       await clearResumeQuery()
@@ -238,7 +238,7 @@ async function maybeRestoreDraftForSession(nextSession: any) {
     return false
   }
 
-  const relation = trainingStore.classifyDraftRelation(nextSession)
+  const relation = classifyTrainingDraftAgainstRemote(draft, nextSession)
   if (!relation) {
     if (isExplicitResumeRequest(draft)) {
       await clearResumeQuery()
@@ -338,6 +338,7 @@ async function hydrate() {
   const requestedDate = typeof route.query.sessionDate === 'string' ? route.query.sessionDate : trainingStore.sessionDate
 
   if (sessionId) {
+    const draftBeforeRemoteLoad = trainingStore.getDraftBySessionId(sessionId)
     try {
       const session = await trainingStore.loadSession(sessionId)
       if (!session) return
@@ -352,7 +353,7 @@ async function hydrate() {
         // Existing draft restore should not be blocked by temporary backend failures here.
       }
       trainingStore.setPreviewAssignment(session.assignment_id)
-      const restored = await maybeRestoreDraftForSession(session)
+      const restored = await maybeRestoreDraftForSession(session, draftBeforeRemoteLoad)
       if (!restored) {
         restoreToActionList.value = false
         activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
@@ -372,6 +373,8 @@ async function hydrate() {
   if (athleteId) {
     trainingStore.selectedAthleteId = athleteId
   }
+  const draftBeforeSessionOpen =
+    athleteId && assignmentId && requestedDate ? trainingStore.getDraftByContext(athleteId, assignmentId, requestedDate) : null
 
   try {
     if (athleteId) {
@@ -383,6 +386,12 @@ async function hydrate() {
     const nextSession = await trainingStore.openPlanSession(assignmentId, requestedDate)
     if (!nextSession) return
     if (nextSession.id) {
+      const restored = await maybeRestoreDraftForSession(nextSession, draftBeforeSessionOpen)
+      if (!restored) {
+        restoreToActionList.value = false
+        activeItemId.value = findNextPendingItemId() ?? (nextSession.items?.[0]?.id || null)
+        latestSuggestion.value = null
+      }
       await router.replace({
         name: 'training-session',
         params: { sessionId: nextSession.id },
@@ -391,7 +400,7 @@ async function hydrate() {
       return
     }
 
-    const restored = await maybeRestoreDraftForSession(nextSession)
+    const restored = await maybeRestoreDraftForSession(nextSession, draftBeforeSessionOpen)
     if (!restored) {
       restoreToActionList.value = false
       activeItemId.value = findNextPendingItemId() ?? (nextSession.items?.[0]?.id || null)

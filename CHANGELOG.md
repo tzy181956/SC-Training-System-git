@@ -16,6 +16,11 @@
 
 ### Fixed
 
+- 修复后端真实启动时 `/ready/deep` Alembic head 检查误把 `alembic.ini` 定位到仓库根目录的问题，恢复深度就绪检查对后端迁移配置的正常读取。
+- 修复 `backend/scripts/create_user.py` 仍使用旧 `team_id / allow_teamless_role` 参数导致临时账号创建失败的问题，改为当前账号服务使用的 `sport_id / allow_sportless_role`。
+- 修复训练端组记录数字输入在真实浏览器中会把 `v-model` 值转成数字，导致提交时调用 `.trim()` 崩溃的问题，恢复平板端第一组录入能力。
+- 修复整课覆盖同步签名把数据库 naive datetime 和前端 UTC datetime 视为不同内容的问题，避免无真实远端修改时误报 `409 Conflict`。
+- 修复训练端断网录入后刷新页面时，带 `assignmentId / athleteId / sessionDate` 的训练课恢复路径会跳过本地草稿判断，导致未同步组记录被服务器旧快照覆盖的问题。
 - 修复整课覆盖同步冲突在返回 `409` 时同步异常 / 冲突记录被事务回滚的问题，确保 `manual_retry_required` 可被教练或管理员后续处理。
 - 修复训练端 / 监控端 GET 接口仍可能隐式触发跨日收口写库的问题；只读接口保持只读，兜底收口改由启动、显式维护接口和非 GET 训练入口承担。
 - 修复前端开发服务器下登录请求误打到 `5173/api/*` 自身导致 `404` 的问题：`frontend/vite.config.ts` 和 `frontend/scripts/dev-server.mjs` 已补 `/api -> http://127.0.0.1:8000` 开发代理，登录页不再因为前后端端口分离而直接报 `Request failed with status code 404`。
