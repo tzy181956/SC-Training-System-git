@@ -30,6 +30,8 @@ const sessionRpeDeferred = ref(false)
 const sessionRpeSubmitting = ref(false)
 const sessionRpeError = ref('')
 const restoreToActionList = ref(false)
+const openingPlan = ref(false)
+const hydratingSession = ref(false)
 let noticeTimer: number | null = null
 const selectedAthleteIdRef = computed({
   get: () => trainingStore.selectedAthleteId,
@@ -321,95 +323,100 @@ async function maybeRecoverDraftByContext(assignmentId: number, athleteId: numbe
 }
 
 async function hydrate() {
-  if (!trainingStore.sessionDate) {
-    trainingStore.sessionDate = todayString()
-  }
-  if (!trainingStore.athletes.length) {
-    try {
-      await trainingStore.hydrateAthletes(trainingStore.sessionDate)
-    } catch {
-      // The session page can still recover from a local draft without athlete hydration.
-    }
-  }
-
-  const sessionId = Number(route.params.sessionId)
-  const assignmentId = Number(route.query.assignmentId)
-  const athleteId = Number(route.query.athleteId)
-  const requestedDate = typeof route.query.sessionDate === 'string' ? route.query.sessionDate : trainingStore.sessionDate
-
-  if (sessionId) {
-    const draftBeforeRemoteLoad = trainingStore.getDraftBySessionId(sessionId)
-    try {
-      const session = await trainingStore.loadSession(sessionId)
-      if (!session) return
-      trainingStore.selectedAthleteId = session.athlete_id
-      trainingStore.sessionDate = session.session_date
-      try {
-        await Promise.all([
-          trainingStore.loadPlans(session.athlete_id, session.session_date),
-          trainingStore.hydrateAthletes(session.session_date),
-        ])
-      } catch {
-        // Existing draft restore should not be blocked by temporary backend failures here.
-      }
-      trainingStore.setPreviewAssignment(session.assignment_id)
-      const restored = await maybeRestoreDraftForSession(session, draftBeforeRemoteLoad)
-      if (!restored) {
-        restoreToActionList.value = false
-        activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
-      }
-    } catch {
-      const recovered = await maybeRecoverDraftWithoutBackend(sessionId)
-      if (!recovered) {
-        await router.replace({ name: 'training-mode' })
-      }
-    }
-    return
-  }
-
-  if (!assignmentId) return
-
-  trainingStore.sessionDate = requestedDate
-  if (athleteId) {
-    trainingStore.selectedAthleteId = athleteId
-  }
-  const draftBeforeSessionOpen =
-    athleteId && assignmentId && requestedDate ? trainingStore.getDraftByContext(athleteId, assignmentId, requestedDate) : null
-
+  hydratingSession.value = true
   try {
-    if (athleteId) {
-      await Promise.all([
-        trainingStore.loadPlans(athleteId, requestedDate),
-        trainingStore.hydrateAthletes(requestedDate),
-      ])
+    if (!trainingStore.sessionDate) {
+      trainingStore.sessionDate = todayString()
     }
-    const nextSession = await trainingStore.openPlanSession(assignmentId, requestedDate)
-    if (!nextSession) return
-    if (nextSession.id) {
+    if (!trainingStore.athletes.length) {
+      try {
+        await trainingStore.hydrateAthletes(trainingStore.sessionDate)
+      } catch {
+        // The session page can still recover from a local draft without athlete hydration.
+      }
+    }
+
+    const sessionId = Number(route.params.sessionId)
+    const assignmentId = Number(route.query.assignmentId)
+    const athleteId = Number(route.query.athleteId)
+    const requestedDate = typeof route.query.sessionDate === 'string' ? route.query.sessionDate : trainingStore.sessionDate
+
+    if (sessionId) {
+      const draftBeforeRemoteLoad = trainingStore.getDraftBySessionId(sessionId)
+      try {
+        const session = await trainingStore.loadSession(sessionId)
+        if (!session) return
+        trainingStore.selectedAthleteId = session.athlete_id
+        trainingStore.sessionDate = session.session_date
+        try {
+          await Promise.all([
+            trainingStore.loadPlans(session.athlete_id, session.session_date),
+            trainingStore.hydrateAthletes(session.session_date),
+          ])
+        } catch {
+          // Existing draft restore should not be blocked by temporary backend failures here.
+        }
+        trainingStore.setPreviewAssignment(session.assignment_id)
+        const restored = await maybeRestoreDraftForSession(session, draftBeforeRemoteLoad)
+        if (!restored) {
+          restoreToActionList.value = false
+          activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
+        }
+      } catch {
+        const recovered = await maybeRecoverDraftWithoutBackend(sessionId)
+        if (!recovered) {
+          await router.replace({ name: 'training-mode' })
+        }
+      }
+      return
+    }
+
+    if (!assignmentId) return
+
+    trainingStore.sessionDate = requestedDate
+    if (athleteId) {
+      trainingStore.selectedAthleteId = athleteId
+    }
+    const draftBeforeSessionOpen =
+      athleteId && assignmentId && requestedDate ? trainingStore.getDraftByContext(athleteId, assignmentId, requestedDate) : null
+
+    try {
+      if (athleteId) {
+        await Promise.all([
+          trainingStore.loadPlans(athleteId, requestedDate),
+          trainingStore.hydrateAthletes(requestedDate),
+        ])
+      }
+      const nextSession = await trainingStore.openPlanSession(assignmentId, requestedDate)
+      if (!nextSession) return
+      if (nextSession.id) {
+        const restored = await maybeRestoreDraftForSession(nextSession, draftBeforeSessionOpen)
+        if (!restored) {
+          restoreToActionList.value = false
+          activeItemId.value = findNextPendingItemId() ?? (nextSession.items?.[0]?.id || null)
+          latestSuggestion.value = null
+        }
+        await router.replace({
+          name: 'training-session',
+          params: { sessionId: nextSession.id },
+          query: buildResumeQuery(),
+        })
+        return
+      }
+
       const restored = await maybeRestoreDraftForSession(nextSession, draftBeforeSessionOpen)
       if (!restored) {
         restoreToActionList.value = false
         activeItemId.value = findNextPendingItemId() ?? (nextSession.items?.[0]?.id || null)
         latestSuggestion.value = null
       }
-      await router.replace({
-        name: 'training-session',
-        params: { sessionId: nextSession.id },
-        query: buildResumeQuery(),
-      })
-      return
+    } catch {
+      if (!(await maybeRecoverDraftByContext(assignmentId, athleteId, requestedDate))) {
+        await router.replace({ name: 'training-mode' })
+      }
     }
-
-    const restored = await maybeRestoreDraftForSession(nextSession, draftBeforeSessionOpen)
-    if (!restored) {
-      restoreToActionList.value = false
-      activeItemId.value = findNextPendingItemId() ?? (nextSession.items?.[0]?.id || null)
-      latestSuggestion.value = null
-    }
-  } catch {
-    if (!(await maybeRecoverDraftByContext(assignmentId, athleteId, requestedDate))) {
-      await router.replace({ name: 'training-mode' })
-    }
+  } finally {
+    hydratingSession.value = false
   }
 }
 
@@ -428,24 +435,29 @@ async function loadPlans() {
 async function openPlan(assignmentId?: number) {
   const nextAssignmentId = assignmentId || trainingStore.previewAssignmentId
   if (!nextAssignmentId) return
-  const session = await trainingStore.openPlanSession(nextAssignmentId, trainingStore.sessionDate)
-  if (!session) return
-  restoreToActionList.value = false
-  activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
-  latestSuggestion.value = null
-  if (session.id) {
-    await router.replace({ name: 'training-session', params: { sessionId: session.id } })
-    return
-  }
+  openingPlan.value = true
+  try {
+    const session = await trainingStore.openPlanSession(nextAssignmentId, trainingStore.sessionDate)
+    if (!session) return
+    restoreToActionList.value = false
+    activeItemId.value = findNextPendingItemId() ?? (session.items?.[0]?.id || null)
+    latestSuggestion.value = null
+    if (session.id) {
+      await router.replace({ name: 'training-session', params: { sessionId: session.id } })
+      return
+    }
 
-  await router.replace({
-    name: 'training-session',
-    query: {
-      assignmentId: String(nextAssignmentId),
-      athleteId: String(trainingStore.selectedAthleteId),
-      sessionDate: trainingStore.sessionDate,
-    },
-  })
+    await router.replace({
+      name: 'training-session',
+      query: {
+        assignmentId: String(nextAssignmentId),
+        athleteId: String(trainingStore.selectedAthleteId),
+        sessionDate: trainingStore.sessionDate,
+      },
+    })
+  } finally {
+    openingPlan.value = false
+  }
 }
 
 async function submitCurrentSet(payload: Record<string, unknown>) {
@@ -611,6 +623,8 @@ watch(
 watch(
   () => [trainingStore.selectedAthleteId, trainingStore.sessionDate],
   async ([athleteId, sessionDate], [prevAthleteId, prevDate]) => {
+    if (hydratingSession.value) return
+    if (openingPlan.value) return
     if (!athleteId || !sessionDate) return
     if (athleteId === prevAthleteId && sessionDate === prevDate) return
     await loadPlans()
@@ -734,10 +748,21 @@ onMounted(hydrate)
         <div class="panel hero">
           <div class="hero-copy">
             <h3 class="hero-athlete-name">{{ currentAthleteName || '未选择队员' }}</h3>
-            <span class="hero-status-pill" :class="trainingStore.session ? sessionStatusTone : 'neutral'">
+            <span
+              class="hero-status-pill"
+              data-testid="training-session-status"
+              :data-session-status="trainingStore.session?.status || ''"
+              :class="trainingStore.session ? sessionStatusTone : 'neutral'"
+            >
               {{ trainingStore.session ? sessionStatusText : '待开始' }}
             </span>
-            <div v-if="trainingStore.session" class="sync-indicator" :class="syncIndicatorTone">
+            <div
+              v-if="trainingStore.session"
+              class="sync-indicator"
+              data-testid="training-sync-status"
+              :data-sync-status="trainingStore.syncStatus"
+              :class="syncIndicatorTone"
+            >
               <span class="sync-indicator-dot"></span>
               <span>{{ syncIndicatorLabel }}</span>
             </div>
@@ -751,6 +776,7 @@ onMounted(hydrate)
             <button
               v-if="canTriggerManualSync"
               class="secondary-btn end-plan-btn"
+              data-testid="manual-full-sync"
               type="button"
               :disabled="syncingFullSession"
               @click="triggerFullSync"

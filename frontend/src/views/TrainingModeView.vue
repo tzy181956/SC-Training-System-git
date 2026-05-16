@@ -14,6 +14,7 @@ const router = useRouter()
 const route = useRoute()
 const trainingStore = useTrainingStore()
 const loading = ref(false)
+const openingPlan = ref(false)
 const selectedAthleteIdRef = computed({
   get: () => trainingStore.selectedAthleteId,
   set: (value: number) => {
@@ -78,22 +79,27 @@ async function loadPlans() {
 }
 
 async function openPlanById(assignmentId: number) {
-  trainingStore.setPreviewAssignment(assignmentId)
-  const session = await trainingStore.openPlanSession(assignmentId, trainingStore.sessionDate)
-  if (!session) return
-  if (session.id) {
-    router.push({ name: 'training-session', params: { sessionId: session.id } })
-    return
-  }
+  openingPlan.value = true
+  try {
+    trainingStore.setPreviewAssignment(assignmentId)
+    const session = await trainingStore.openPlanSession(assignmentId, trainingStore.sessionDate)
+    if (!session) return
+    if (session.id) {
+      router.push({ name: 'training-session', params: { sessionId: session.id } })
+      return
+    }
 
-  router.push({
-    name: 'training-session',
-    query: {
-      assignmentId: String(assignmentId),
-      athleteId: String(trainingStore.selectedAthleteId),
-      sessionDate: trainingStore.sessionDate,
-    },
-  })
+    router.push({
+      name: 'training-session',
+      query: {
+        assignmentId: String(assignmentId),
+        athleteId: String(trainingStore.selectedAthleteId),
+        sessionDate: trainingStore.sessionDate,
+      },
+    })
+  } finally {
+    openingPlan.value = false
+  }
 }
 
 function handleDateInput(value: string) {
@@ -125,6 +131,7 @@ function formatSessionDate(value: string) {
 watch(
   () => [trainingStore.selectedAthleteId, trainingStore.sessionDate],
   async ([athleteId, sessionDate], [prevAthleteId, prevDate]) => {
+    if (openingPlan.value) return
     if (!athleteId || !sessionDate) return
     if (athleteId === prevAthleteId && sessionDate === prevDate) return
     await loadPlans()
