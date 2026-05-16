@@ -108,7 +108,7 @@ function submitFeedback() {
 </script>
 
 <template>
-  <div v-if="open" class="session-rpe-modal-overlay" role="presentation">
+  <div v-if="open" class="session-rpe-modal-overlay" role="presentation" data-testid="session-rpe-modal">
     <article
       class="session-rpe-modal"
       :style="themeStyle"
@@ -201,7 +201,7 @@ function submitFeedback() {
       <p v-if="error" class="submit-error">{{ error }}</p>
 
       <footer class="modal-actions">
-        <button class="secondary-btn modal-btn" type="button" :disabled="props.submitting" @click="emit('closeLater')">
+        <button class="secondary-btn modal-btn" type="button" data-testid="session-rpe-later" :disabled="props.submitting" @click="emit('closeLater')">
           稍后填写
         </button>
         <button class="primary-btn modal-btn submit-btn" type="button" :disabled="!canSubmit" @click="submitFeedback">

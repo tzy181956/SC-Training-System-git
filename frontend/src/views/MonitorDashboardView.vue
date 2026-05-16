@@ -485,6 +485,7 @@ onBeforeUnmount(() => {
               <button
                 class="meta-pill refresh-settings-toggle"
                 type="button"
+                data-testid="monitor-refresh-settings-toggle"
                 :aria-expanded="refreshSettingsOpen"
                 aria-controls="monitor-refresh-settings"
                 @click="toggleRefreshSettings"
@@ -514,7 +515,7 @@ onBeforeUnmount(() => {
                 <button class="secondary-btn refresh-btn" type="button" @click="toggleAutoRefresh">
                   {{ autoRefreshEnabled ? '关闭自动刷新' : '开启自动刷新' }}
                 </button>
-                <button class="secondary-btn refresh-btn" type="button" :disabled="loading" @click="handleManualRefresh">
+                <button class="secondary-btn refresh-btn" type="button" data-testid="monitor-manual-refresh" :disabled="loading" @click="handleManualRefresh">
                   {{ loading ? '刷新中...' : '刷新' }}
                 </button>
               </div>

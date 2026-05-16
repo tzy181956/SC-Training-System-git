@@ -98,6 +98,10 @@ function statusTone() {
     class="athlete-card"
     :class="[statusTone(), visibleAlertLevel, { alert: showAlert }]"
     :style="progressStyle()"
+    data-testid="monitoring-athlete-card"
+    :data-athlete-name="athlete.athlete_name"
+    :data-session-status="athlete.session_status"
+    :data-sync-status="athlete.sync_status"
     type="button"
     @click="emit('select')"
   >

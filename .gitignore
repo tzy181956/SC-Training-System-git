@@ -39,6 +39,9 @@ frontend/public/runtime-access.json
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
 
 # Logs
 *.log

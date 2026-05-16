@@ -364,7 +364,13 @@ function resetRecordDraft(record: any) {
 </script>
 
 <template>
-  <aside class="panel touch-panel">
+  <aside
+    class="panel touch-panel"
+    data-testid="training-set-panel"
+    :data-current-exercise="item?.exercise?.name || ''"
+    :data-record-count="item?.records?.length || 0"
+    :data-item-status="item?.status || ''"
+  >
     <div v-if="item" class="panel-head">
       <div class="panel-title-block">
         <p class="section-title">当前动作录入</p>
@@ -398,7 +404,15 @@ function resetRecordDraft(record: any) {
         <div v-else class="current-stack">
           <label class="field">
             <span>重量 (千克)</span>
-            <input v-model="currentDraft.weight" class="text-input current-input" type="number" step="0.1" min="0" @input="onCurrentInput" />
+            <input
+              v-model="currentDraft.weight"
+              class="text-input current-input"
+              data-testid="current-set-weight"
+              type="number"
+              step="0.1"
+              min="0"
+              @input="onCurrentInput"
+            />
             <div class="step-row">
               <button
                 v-for="step in [-5, -2.5, 2.5, 5]"
@@ -415,7 +429,15 @@ function resetRecordDraft(record: any) {
 
           <label class="field">
             <span>次数</span>
-            <input v-model="currentDraft.reps" class="text-input current-input" type="number" step="1" min="1" @input="onCurrentInput" />
+            <input
+              v-model="currentDraft.reps"
+              class="text-input current-input"
+              data-testid="current-set-reps"
+              type="number"
+              step="1"
+              min="1"
+              @input="onCurrentInput"
+            />
             <div class="step-row step-row-compact">
               <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('reps', -1)">-1</button>
               <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('reps', 1)">+1</button>
@@ -433,6 +455,8 @@ function resetRecordDraft(record: any) {
                 :key="`current-rir-${rirValue}`"
                 class="secondary-btn touch-btn step-btn rir-btn"
                 :class="{ active: currentDraft.rir === String(rirValue) }"
+                data-testid="current-set-rir"
+                :data-rir-value="rirValue"
                 type="button"
                 @click="setCurrentRirValue(rirValue)"
               >
@@ -445,7 +469,7 @@ function resetRecordDraft(record: any) {
         <div v-if="!isCompleted" class="submit-bar">
           <p v-if="currentSetError" class="error-text">{{ currentSetError }}</p>
           <p v-else-if="currentSetFeedback" class="success-text">{{ currentSetFeedback }}</p>
-          <button class="primary-btn confirm-btn" :disabled="!canSubmitCurrentSet" @click="saveCurrentSet">
+          <button class="primary-btn confirm-btn" data-testid="submit-current-set" :disabled="!canSubmitCurrentSet" @click="saveCurrentSet">
             {{ submitButtonLabel }}
           </button>
         </div>
@@ -473,6 +497,8 @@ function resetRecordDraft(record: any) {
               :key="`record-select-${record.id}`"
               class="secondary-btn touch-btn history-selector-btn"
               :class="{ active: isRecordExpanded(record.id) }"
+              data-testid="history-record-selector"
+              :data-set-number="record.set_number"
               type="button"
               @click="toggleRecordExpanded(record.id)"
             >

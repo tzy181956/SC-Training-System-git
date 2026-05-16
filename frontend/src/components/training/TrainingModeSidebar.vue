@@ -47,8 +47,10 @@ function handleAthleteClick(athlete: any) {
           :key="athlete.id"
           class="athlete-card adaptive-card"
           :class="{ active: athlete.id === selectedAthleteId }"
+          data-testid="training-athlete-card"
+          :data-athlete-name="athlete.full_name"
         >
-          <button class="athlete-main" type="button" @click="handleAthleteClick(athlete)">
+          <button class="athlete-main" type="button" data-testid="training-athlete-main" @click="handleAthleteClick(athlete)">
             <div class="athlete-header">
               <strong class="adaptive-card-title athlete-name">{{ athlete.full_name }}</strong>
               <span class="status-pill" :class="statusTone(athlete.training_status)">
@@ -65,6 +67,9 @@ function handleAthleteClick(athlete: any) {
                 :key="assignment.id"
                 class="inline-plan adaptive-card"
                 :class="[statusTone(assignment.training_status), { active: assignment.id === previewAssignmentId }]"
+                data-testid="training-plan-card"
+                :data-athlete-name="athlete.full_name"
+                :data-template-name="assignment.template.name"
                 type="button"
                 @click="openAthletePlan(athlete.id, assignment.id)"
               >
