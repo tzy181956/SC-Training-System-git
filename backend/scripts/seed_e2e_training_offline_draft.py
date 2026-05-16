@@ -4,6 +4,8 @@ from datetime import date
 from pathlib import Path
 import sys
 
+from sqlalchemy.engine import make_url
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -29,10 +31,24 @@ EXPECTED_DB_NAME = "tmp_e2e_training_offline_draft.db"
 E2E_PASSWORD = "e2e-password-123"
 
 
-def require_e2e_database() -> None:
+def require_e2e_database() -> Path:
     database_url = get_settings().database_url
-    if EXPECTED_DB_NAME not in database_url:
-        raise SystemExit(f"Refusing to seed non-E2E database: {database_url}")
+    try:
+        url = make_url(database_url)
+    except Exception as exc:
+        raise SystemExit(f"Refusing to seed invalid database URL: {database_url}") from exc
+
+    if url.drivername.split("+", 1)[0] != "sqlite":
+        raise SystemExit(f"Refusing to seed non-SQLite database: {database_url}")
+
+    if not url.database:
+        raise SystemExit(f"Refusing to seed SQLite database without file path: {database_url}")
+
+    db_path = Path(url.database)
+    if db_path.name != EXPECTED_DB_NAME:
+        raise SystemExit(f"Refusing to seed non-E2E database path: {db_path} from {database_url}")
+
+    return db_path
 
 
 def get_or_create_user(db, username: str, display_name: str) -> User:
@@ -186,8 +202,7 @@ def ensure_assignment(db, *, athlete: Athlete, template: TrainingPlanTemplate, t
 
 
 def main() -> None:
-    require_e2e_database()
-    db_path = Path(get_settings().database_url.removeprefix("sqlite:///"))
+    db_path = require_e2e_database()
     print(f"[E2E_SEED] Seeding {db_path}")
     db = SessionLocal()
     try:

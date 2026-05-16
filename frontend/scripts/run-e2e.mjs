@@ -16,6 +16,11 @@ const pythonExe = join(backendDir, '.venv', 'Scripts', 'python.exe')
 const nodeExe = process.execPath
 const viteCli = join(frontendDir, 'node_modules', 'vite', 'bin', 'vite.js')
 const playwrightCli = join(frontendDir, 'node_modules', 'playwright', 'cli.js')
+const playwrightArtifactDirs = [
+  join(frontendDir, 'test-results'),
+  join(frontendDir, 'playwright-report'),
+  join(frontendDir, 'blob-report'),
+]
 
 const e2eEnv = {
   ...process.env,
@@ -35,6 +40,19 @@ function cleanupDatabase() {
       rmSync(target, { force: true })
     }
   }
+}
+
+function cleanupPlaywrightArtifacts() {
+  for (const target of playwrightArtifactDirs) {
+    if (existsSync(target)) {
+      rmSync(target, { recursive: true, force: true })
+    }
+  }
+}
+
+function cleanupRuntimeFiles() {
+  cleanupDatabase()
+  cleanupPlaywrightArtifacts()
 }
 
 function run(command, args, options = {}) {
@@ -93,7 +111,7 @@ async function stopChildren() {
 }
 
 async function main() {
-  cleanupDatabase()
+  cleanupRuntimeFiles()
   try {
     await run(pythonExe, ['scripts/migrate_db.py', 'ensure'], { cwd: backendDir, env: e2eEnv })
     await run(pythonExe, ['scripts/seed_e2e_training_offline_draft.py'], { cwd: backendDir, env: e2eEnv })
@@ -123,7 +141,7 @@ async function main() {
     })
   } finally {
     await stopChildren()
-    cleanupDatabase()
+    cleanupRuntimeFiles()
   }
 }
 
