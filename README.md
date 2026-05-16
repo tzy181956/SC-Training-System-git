@@ -1,5 +1,44 @@
 # 体能训练管理平台
 
+## 2026-05-16 当前稳定性基线
+
+当前 `服务器端` 分支已完成 Alembic drift 收口、FK migration 收口和训练端离线草稿 Playwright E2E 覆盖。当前数据库迁移 head revision 为 `c9d0e1f2a3b4`。
+
+后端本地验收建议执行：
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe scripts\check_fk_orphans.py
+.\.venv\Scripts\python.exe scripts\migrate_db.py ensure
+.\.venv\Scripts\python.exe scripts\backend_check.py
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe ..\scripts\check_text_encoding.py
+```
+
+前端本地验收建议执行：
+
+```powershell
+cd frontend
+npm ci
+npm run build
+npm run test:e2e
+```
+
+`npm run test:e2e` 使用 Playwright 覆盖训练端核心离线草稿链路：正常训练录入完成、断网后 pending 草稿刷新不丢失、恢复网络后 pending 草稿可同步。E2E 使用 `backend/tmp_e2e_training_offline_draft.db` 临时 SQLite 数据库，seed 脚本会拒绝写入非该 basename 的数据库，测试结束会清理临时数据库和 Playwright 产物目录。
+
+数据库文件、备份、日志、E2E 临时数据库、Playwright 报告和运行时产物都不应进入 Git，包括但不限于 `backend/training.db`、`backend/backups/`、`backend/tmp_e2e_training_offline_draft.db*`、`frontend/test-results/`、`frontend/playwright-report/`、`frontend/blob-report/`、`logs/`。
+
+服务器正式迁移前必须先备份生产数据库，并在服务器生产库或生产库快照上运行：
+
+```bash
+cd backend
+python scripts/check_fk_orphans.py
+```
+
+只有确认 orphan=0 后，才能执行 `python scripts/migrate_db.py ensure`。迁移后需要检查 `/health`、`/ready`、`/ready/deep`，其中 `/ready/deep` 应显示 `current_revision=head_revision=c9d0e1f2a3b4`。
+
+仓库仍保留 GitHub Actions workflow；当前实际部署方式应以用户确认的手动部署流程为准，自动部署开关状态以 GitHub Actions 设置为准，不要仅凭文档假定自动部署已开启。
+
 这是一个面向体能教练、运动队训练执行与测试分析的 Web 平台。系统当前采用“服务器运行 + 本地开发并行”的形态，核心目标是让教练可以稳定完成：
 
 作者：`@TZY`

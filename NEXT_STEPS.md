@@ -1,5 +1,24 @@
 # NEXT_STEPS
 
+## 2026-05-16 下一阶段优先级
+
+Alembic drift 收口、FK migration `c9d0e1f2a3b4`、FK orphan 预检脚本和训练端离线草稿 Playwright E2E 已完成并合并。当前下一阶段优先级调整为：
+
+1. 统一服务器手动部署前检查和部署流程；
+2. 在服务器生产库或生产库快照上运行 `python scripts/check_fk_orphans.py`；
+3. orphan=0 后执行服务器 `python scripts/migrate_db.py ensure`，并检查 `/health`、`/ready`、`/ready/deep`；
+4. 使用真实 iPad / 浏览器抽测训练端、监控端、训练报告；
+5. 后续再进入产品功能开发，例如训练报告分析、监控端优化、计划分配 UI、性能优化。
+
+已完成项不再作为待办推进：
+
+- Alembic metadata-only drift 收口；
+- Alembic business metadata 决策；
+- FK orphan 预检脚本；
+- FK migration `c9d0e1f2a3b4`；
+- 训练端离线草稿 Playwright E2E；
+- 新电脑本地最终验收。
+
 ## 当前优先级
 
 ### 1. 文档体系与代码事实继续对齐
