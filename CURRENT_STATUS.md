@@ -1,5 +1,39 @@
 # CURRENT_STATUS
 
+## 2026-05-16 最终验收状态
+
+当前 `服务器端` 分支可作为继续开发的干净基线。新电脑本地最终验收已通过：
+
+- 最新提交：`9b43c19 test: add training offline draft e2e coverage`
+- 数据库 revision：`c9d0e1f2a3b4`
+- `backend/scripts/check_fk_orphans.py` 通过，orphan=0
+- `backend/scripts/migrate_db.py ensure` 通过，数据库已在 head
+- `backend/scripts/backend_check.py` 完全通过
+- `pytest -q` 通过，93 passed
+- `scripts/check_text_encoding.py` 通过
+- `npm ci` 通过
+- `npm run build` 通过，仅既有 Vite chunk size warning
+- `npm run test:e2e` 通过，3 passed
+- E2E 临时数据库和 Playwright 产物已清理
+
+近期已完成并合并的稳定性工作：
+
+- PR #1：训练端同步 P0/P1 修复，包含数字输入崩溃、pending 草稿刷新被远端旧 session 覆盖、full sync datetime 签名、`/ready/deep` Alembic 路径和 `create_user.py` 参数收口；
+- PR #2：Alembic metadata-only drift 收口；
+- PR #3：Alembic business metadata 决策收口；
+- PR #4：新增 FK orphan 只读预检脚本；
+- PR #5：新增 FK migration `c9d0e1f2a3b4`，backend_check.py 完全通过；
+- PR #6：训练端离线草稿 Playwright E2E 与两个训练端状态恢复 bug 修复。
+
+服务器生产迁移前仍需在服务器生产库或生产库快照上运行：
+
+```bash
+cd backend
+python scripts/check_fk_orphans.py
+```
+
+只有确认 orphan=0 后，才能执行服务器 `python scripts/migrate_db.py ensure`，并在迁移后检查 `/health`、`/ready`、`/ready/deep`。
+
 ## 文档身份
 
 这份文档是当前系统状态快照，用来回答“现在已经做到哪里了”。  

@@ -1,5 +1,40 @@
 # CODEX_HANDOFF
 
+## 2026-05-16 接手补充
+
+接手当前 `服务器端` 分支时，除常规 build、compileall 和文本编码检查外，建议直接执行完整本地基线检查：
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe scripts\check_fk_orphans.py
+.\.venv\Scripts\python.exe scripts\migrate_db.py ensure
+.\.venv\Scripts\python.exe scripts\backend_check.py
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe ..\scripts\check_text_encoding.py
+
+cd ..\frontend
+npm ci
+npm run build
+npm run test:e2e
+```
+
+当前已落地训练端离线草稿 Playwright E2E，覆盖正常完成、断网 pending、刷新恢复和恢复同步。每次涉及训练端同步、本地草稿、session 状态或训练模式打开计划流程的改动，都应优先运行 `npm run test:e2e`。
+
+不要把以下运行时或数据文件提交到 Git：
+
+- `backend/training.db`
+- `backend/backups/`
+- `backend/tmp_e2e_training_offline_draft.db*`
+- `frontend/test-results/`
+- `frontend/playwright-report/`
+- `frontend/blob-report/`
+- `logs/`
+- `.env`、数据库备份、截图、视频、trace、临时测试产物
+
+长任务结束时建议输出阶段交接信息，至少包含当前分支、最新 commit、验证命令结果、剩余风险和下一步建议，方便新会话接手。
+
+最终报告中不要输出裸的内部指令格式，例如 `cwd="..." branch="..."` 这类内容；路径和分支状态应放在代码块里或用普通中文说明，避免 Codex Desktop 渲染异常。
+
 ## 项目是什么
 
 这是一个面向体能训练管理、训练执行、测试数据管理和监控分析的 Web 平台。

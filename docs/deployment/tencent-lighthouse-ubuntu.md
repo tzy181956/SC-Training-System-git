@@ -246,12 +246,16 @@ sudo systemctl restart sc-training-backend
 readlink -f /opt/sc-training-system/current
 sudo systemctl status sc-training-backend
 curl http://127.0.0.1/health
+curl http://127.0.0.1/ready
+curl http://127.0.0.1/ready/deep
 ```
 
 更新原则：
 
-- 先备份，再迁移，再重启服务
-- `python scripts/migrate_db.py ensure` 必须在每次生产启动或更新前执行
+- 先备份，再运行 FK orphan 预检，再迁移，再重启服务
+- 正式迁移生产库前，必须在生产库或生产库快照上运行 `python scripts/check_fk_orphans.py`
+- 只有确认 orphan=0 后，才能执行 `python scripts/migrate_db.py ensure`
+- `python scripts/migrate_db.py ensure` 必须在每次生产启动或更新前执行；迁移后检查 `/health`、`/ready`、`/ready/deep`
 - 如果迁移失败，不要继续重启生产服务
 - 不要指望启动时的 `schema_sync` 自动补表来兜底生产更新
 

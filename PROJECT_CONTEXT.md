@@ -1,5 +1,25 @@
 # 项目背景说明
 
+## 2026-05-16 当前事实补充
+
+### 训练执行与同步现状
+
+训练端本地草稿与同步链路已由 Playwright E2E 覆盖，当前 `npm run test:e2e` 会自动启动临时后端、临时前端和临时 SQLite 数据库，验证以下链路：
+
+- 正常训练录入完成，并在训练报告和监控端确认 `completed`；
+- 断网后新增组记录进入 `pending`，刷新后本地草稿不丢失；
+- 恢复网络后 pending 草稿可同步，后端记录数正确，刷新后仍存在。
+
+本地草稿仍然是浏览器本机 `localStorage` 恢复能力，适合同一设备、同一浏览器内的训练现场容错；它不是跨浏览器、跨设备、清缓存后仍可恢复的强同步方案。
+
+### 数据迁移现状
+
+数据库结构演进当前以 Alembic migration 为正式路径，入口为 `backend/scripts/migrate_db.py`。`schema_sync.py` 仅作为过渡期兜底，不再作为正式迁移主方案继续扩展。
+
+当前 migration head 为 `c9d0e1f2a3b4`，已完成 Alembic metadata drift、business metadata 决策和 FK drift 收口。`backend/scripts/backend_check.py` 当前应完全通过。
+
+新增的 `backend/scripts/check_fk_orphans.py` 是迁移前只读预检脚本，用于确认候选外键字段不存在 orphan data。服务器生产库或生产库快照在执行 `migrate_db.py ensure` 前，必须先运行该脚本并确认 orphan=0。
+
 ## 文档身份
 
 这份文档是当前系统的产品与架构事实说明。  

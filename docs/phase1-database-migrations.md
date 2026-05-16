@@ -69,6 +69,19 @@
 
 - `20260423_c318e7988c37_baseline_schema.py`
 
+### 当前 head revision
+
+截至 2026-05-16，当前 Alembic head 为 `c9d0e1f2a3b4`。该 revision 已完成 FK migration 收口，`backend/scripts/backend_check.py` 当前应全绿通过。
+
+执行任何服务器生产库迁移前，必须先在生产库或生产库快照上运行：
+
+```bash
+cd backend
+python scripts/check_fk_orphans.py
+```
+
+只有确认 orphan=0 后，才能执行 `python scripts/migrate_db.py ensure`。
+
 ### 基线语义
 
 这条 revision 表示：
@@ -552,6 +565,7 @@ training_session_change_logs
 | 4 | `b1f8d2e7c6a1` | `backend/alembic/versions/20260424_b1f8d2e7c6a1_add_training_session_edit_logs.py` | Step 11：课后修改 / 补录日志 |
 | 5 | `f3a4b5c6d7e8` | `backend/alembic/versions/20260424_f3a4b5c6d7e8_add_dangerous_operation_logs.py` | Step 14：危险操作日志 |
 | 6 | `c7d8e9f0a1b2` | `backend/alembic/versions/20260424_c7d8e9f0a1b2_add_content_change_logs_and_user_team_id.py` | Step 15：日志页聚合来源补齐 |
+| 7 | `c9d0e1f2a3b4` | `backend/alembic/versions/20260516_c9d0e1f2a3b4_add_fk_constraints_for_metadata_drift.py` | FK orphan 预检后的外键约束收口 |
 
 ### 12.1 这些 revision 分别解决什么
 

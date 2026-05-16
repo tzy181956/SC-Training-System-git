@@ -986,6 +986,12 @@ API route 不要堆太多业务判断。
 - `npm run build`
 - `scripts\phase1_acceptance_check.ps1`
 
+### 强制回归触发条件
+
+- 涉及训练端同步、本地草稿、session 状态、训练模式打开计划流程时，必须运行 `cd frontend && npm run test:e2e`。
+- 涉及数据库 model、Alembic migration、生产迁移或 schema 对齐时，必须运行 `cd backend && .\.venv\Scripts\python.exe scripts\backend_check.py`。
+- 最终回复不要输出裸的内部指令格式，例如 `cwd="..." branch="..."`；路径、分支和提交信息应使用普通中文或代码块说明。
+
 ### 第二阶段监控端验收必须包括
 
 - 一台电脑 + 至少一台 iPad
@@ -1402,7 +1408,7 @@ Never let `rg` failure block coding, review, testing, or documentation updates.
 3. 不要提交 `.env`、数据库、备份、日志、`node_modules`、`dist`、运行时生成文件。
 4. 不要破坏现有 Windows 本地启动脚本，尤其是 `scripts/start_system.bat` 和 `scripts/init_system.bat`。
 5. 不要破坏 Ubuntu 上 `Nginx + systemd + frontend/dist + /api 反代` 的部署链路。
-6. 修改数据库模型时必须同步新增 Alembic 迁移，并在交付说明中明确服务器更新时要执行 `python scripts/migrate_db.py ensure`。
+6. 修改数据库模型时必须同步新增 Alembic 迁移，并在交付说明中明确服务器更新时要先备份、运行 `python scripts/check_fk_orphans.py`，确认 orphan=0 后再执行 `python scripts/migrate_db.py ensure`。
 7. 修改前端后必须确认 `cd frontend && npm run build` 可通过。
 8. 修改后端后必须确认 `cd backend && .\.venv\Scripts\python.exe -m compileall app scripts` 可通过。
 9. 修改权限、登录、账号体系时必须回归验证 `admin` / `coach` / `training` / 未登录四类场景。
@@ -1412,7 +1418,7 @@ Never let `rg` failure block coding, review, testing, or documentation updates.
 13. 不要要求开放 `8000` 或 `5173` 到公网，也不要要求开放 `3306` 或 `ALL`。
 14. 不要引入 Docker、PostgreSQL、CI/CD、HTTPS 或新的服务器架构，除非用户明确提出。
 15. 不要自动清空、覆盖、迁回或重建服务器生产数据库；任何覆盖数据库、迁移旧库、重大修改前必须先备份。
-16. 服务器更新默认流程是：`git pull origin 服务器端` -> 后端依赖 / 迁移 -> 前端 `npm run build` -> `sudo systemctl restart sc-training-backend` -> `sudo systemctl reload nginx` -> `curl http://127.0.0.1/health` -> 浏览器验收。
+16. 服务器更新默认流程是：`git pull origin 服务器端` -> 备份生产库 -> `python scripts/check_fk_orphans.py` -> orphan=0 后执行后端依赖 / 迁移 -> 前端 `npm run build` -> `sudo systemctl restart sc-training-backend` -> `sudo systemctl reload nginx` -> 检查 `/health`、`/ready`、`/ready/deep` -> 浏览器验收。
 17. 当前服务器是 HTTP 调试版，域名和 HTTPS 后续再做；不要擅自把当前部署说明扩展成更复杂的线上体系。
 
 ## 42. 外部审查意识

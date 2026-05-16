@@ -172,6 +172,17 @@ sudo chmod 440 /etc/sudoers.d/sc-training-deploy
 16. reload Nginx
 17. 请求 `HEALTHCHECK_URL`
 
+### 6.1 生产库正式迁移前门禁
+
+涉及 FK migration 或其他正式生产库结构迁移时，不要只依赖自动部署流程。迁移前必须先备份生产数据库，并在服务器生产库或生产库快照上运行：
+
+```bash
+cd <DEPLOY_PATH>/backend
+python scripts/check_fk_orphans.py
+```
+
+只有确认 orphan=0 后，才能执行 `python scripts/migrate_db.py ensure`。迁移后除 `HEALTHCHECK_URL` 外，还应检查 `/ready` 和 `/ready/deep`。
+
 ## 7. 手动重新运行部署
 
 在 GitHub 网页：
