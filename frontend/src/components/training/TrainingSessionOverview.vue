@@ -13,7 +13,16 @@ const props = defineProps<{
 
 const items = computed(() => props.session?.items || props.assignment?.template?.items || [])
 const modules = computed(() => {
-  if (props.session?.modules?.length) return props.session.modules
+  if (props.session?.modules?.length) {
+    return props.session.modules.map((module: any) => ({
+      ...module,
+      items: (module.items || []).map((moduleItem: any) => (
+        items.value.find((item: any) => item.id === moduleItem.id)
+        || items.value.find((item: any) => item.template_item_id === moduleItem.template_item_id)
+        || moduleItem
+      )),
+    }))
+  }
   if (props.assignment?.template) return resolveTemplateModules(props.assignment.template)
   return []
 })
@@ -111,6 +120,10 @@ watch(
           v-for="item in module.items"
           :key="item.id"
           :data-item-id="item.id"
+          data-testid="session-item-card"
+          :data-exercise-name="item.exercise.name"
+          :data-record-count="item.records?.length || 0"
+          :data-item-status="item.status || ''"
           class="item-card"
           :class="{
             active: session && item.id === activeItemId,

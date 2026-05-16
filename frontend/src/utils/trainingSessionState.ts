@@ -101,6 +101,7 @@ export function recomputeLocalSessionState(targetSession: any, fallbackTimestamp
   targetSession.status = sessionCompleted ? 'completed' : IN_PROGRESS_SESSION_STATUS
   targetSession.started_at = targetSession.started_at || findFirstRecordedAt(items) || fallbackTimestamp
   targetSession.completed_at = sessionCompleted ? targetSession.completed_at || fallbackTimestamp : null
+  syncSessionModulesFromItems(targetSession)
 }
 
 export function finalizeLocalSession(targetSession: any, completedAt: string) {
@@ -115,6 +116,7 @@ export function finalizeLocalSession(targetSession: any, completedAt: string) {
   targetSession.status = allCompleted ? 'completed' : 'partial_complete'
   targetSession.started_at = totalRecords > 0 ? targetSession.started_at || findFirstRecordedAt(items) : null
   targetSession.completed_at = completedAt
+  syncSessionModulesFromItems(targetSession)
 }
 
 export function findTrainingSessionRecord(targetSession: any, recordId: number) {
@@ -139,4 +141,17 @@ function findFirstRecordedAt(items: any[]) {
     .filter(Boolean)
     .sort()
   return completedAts[0] || null
+}
+
+function syncSessionModulesFromItems(targetSession: any) {
+  if (!targetSession?.modules?.length || !targetSession?.items?.length) return
+
+  targetSession.modules = targetSession.modules.map((module: any) => ({
+    ...module,
+    items: (module.items || []).map((moduleItem: any) => (
+      targetSession.items.find((item: any) => item.id === moduleItem.id)
+      || targetSession.items.find((item: any) => item.template_item_id === moduleItem.template_item_id)
+      || moduleItem
+    )),
+  }))
 }

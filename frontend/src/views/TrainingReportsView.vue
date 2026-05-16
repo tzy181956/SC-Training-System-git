@@ -754,7 +754,7 @@ function parseStringQuery(value: unknown) {
               </div>
             </div>
 
-            <div v-if="reportSessions.length" class="session-list">
+            <div v-if="reportSessions.length" class="session-list" data-testid="training-report-session-list">
               <TrainingSessionCard
                 v-for="session in reportSessions"
                 :key="session.id"

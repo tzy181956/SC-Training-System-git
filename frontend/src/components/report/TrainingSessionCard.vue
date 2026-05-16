@@ -263,7 +263,7 @@ function sessionSrpeLoadText() {
 </script>
 
 <template>
-  <details class="session-card" @toggle="handleToggle">
+  <details class="session-card" data-testid="training-report-session-card" :data-session-status="session.status" @toggle="handleToggle">
     <summary class="session-head">
       <div class="session-copy adaptive-card">
         <p class="session-date">{{ session.session_date }}</p>
