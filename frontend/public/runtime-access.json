@@ -1,7 +1,7 @@
 {
-  "accessUrl": "http://192.168.1.12:5173/",
-  "host": "192.168.1.12",
+  "accessUrl": "http://10.35.46.207:5173/",
+  "host": "10.35.46.207",
   "port": 5173,
-  "generatedAt": "2026-05-17 13:45:48",
+  "generatedAt": "2026-05-15 08:37:18",
   "source": "vite-dev-server"
 }
