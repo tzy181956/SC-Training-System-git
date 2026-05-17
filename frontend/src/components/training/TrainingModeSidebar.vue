@@ -300,19 +300,88 @@ function handleAthleteClick(athlete: any) {
   color: var(--muted);
 }
 
-@media (min-width: 768px) and (max-width: 1199px) {
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
+  .sidebar,
+  .block {
+    gap: 12px;
+  }
+
+  .athlete-list {
+    gap: 9px;
+    padding-right: 4px;
+  }
+
   .athlete-card {
-    gap: 10px;
-    min-height: 96px;
-    padding: 12px;
+    gap: 8px;
+    min-height: 90px;
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .athlete-main {
+    gap: 6px;
+  }
+
+  .athlete-header {
+    align-items: center;
+    gap: 6px;
   }
 
   .athlete-name {
     font-size: 18px;
+    line-height: 1.18;
+  }
+
+  .athlete-team {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .status-pill {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+
+  .plans-shell {
+    gap: 6px;
+    padding: 8px;
+    border-radius: 14px;
+  }
+
+  .inline-plan {
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 11px;
+  }
+
+  .plan-text {
+    font-size: 14px;
+    line-height: 1.28;
+  }
+
+  .empty-plan-hint {
+    padding: 10px 12px;
+    border-radius: 12px;
   }
 }
 
-@media (max-width: 767px) {
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
+  .athlete-card {
+    min-height: 84px;
+    padding: 9px;
+  }
+
+  .athlete-name {
+    font-size: 17px;
+  }
+
+  .plan-text {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 899px) {
   .athlete-name {
     font-size: 18px;
   }

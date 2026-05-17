@@ -258,6 +258,14 @@ onMounted(hydrate)
   }
 }
 
+@media (min-width: 768px) and (max-width: 899px), (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) {
+  .training-mode-layout {
+    grid-template-areas:
+      'sidebar overview'
+      'help help';
+  }
+}
+
 @media (max-width: 767px) {
   .training-mode-layout {
     grid-template-areas:

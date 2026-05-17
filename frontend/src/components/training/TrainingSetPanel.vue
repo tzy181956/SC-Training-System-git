@@ -18,6 +18,8 @@ const currentDraftDirty = ref(false)
 const currentSetSaving = ref(false)
 const currentSetError = ref('')
 const currentSetFeedback = ref('')
+const currentWeightInput = ref<HTMLInputElement | null>(null)
+const currentRepsInput = ref<HTMLInputElement | null>(null)
 const RIR_OPTIONS = [0, 1, 2, 3, 4] as const
 
 const historyPanelOpen = ref(false)
@@ -149,6 +151,12 @@ function applyCurrentDraftDefaults() {
   currentDraft.rir = ''
 }
 
+function onCurrentDraftInput(field: 'weight' | 'reps', event: Event) {
+  const target = event.target as HTMLInputElement | null
+  currentDraft[field] = target?.value ?? ''
+  onCurrentInput()
+}
+
 function onCurrentInput() {
   currentDraftDirty.value = true
   currentSetFeedback.value = ''
@@ -159,8 +167,14 @@ function onRecordInput(recordId: number) {
   recordDrafts[recordId].dirty = true
 }
 
+function parseDraftNumber(value: string, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 function bumpWeight(step: number) {
-  const base = Number(currentDraft.weight || 0)
+  const baseText = currentWeightInput.value?.value ?? currentDraft.weight
+  const base = parseDraftNumber(baseText || '0', 0)
   currentDraft.weight = formatWeight(Math.max(0, base + step))
   currentDraftDirty.value = true
   currentSetFeedback.value = ''
@@ -168,7 +182,8 @@ function bumpWeight(step: number) {
 
 function bumpCurrentField(field: 'reps', step: number) {
   if (field === 'reps') {
-    const base = Number(currentDraft.reps || 0)
+    const baseText = currentRepsInput.value?.value ?? currentDraft.reps
+    const base = parseDraftNumber(baseText || '1', 1)
     currentDraft.reps = String(Math.max(1, Math.round(base + step)))
   }
 
@@ -400,47 +415,69 @@ function resetRecordDraft(record: any) {
         </div>
 
         <div v-else class="current-stack">
-          <label class="field">
+          <div class="field">
             <span>重量 (千克)</span>
-            <input
-              v-model="currentDraft.weight"
-              class="text-input current-input"
-              data-testid="current-set-weight"
-              type="number"
-              step="0.1"
-              min="0"
-              @input="onCurrentInput"
-            />
-            <div class="step-row">
+            <div class="inline-stepper">
               <button
-                v-for="step in [-5, -2.5, 2.5, 5]"
-                :key="`current-weight-${step}`"
-                class="secondary-btn touch-btn step-btn"
-                :class="step < 0 ? 'step-btn--minus' : 'step-btn--plus'"
+                class="secondary-btn touch-btn step-btn inline-stepper-btn step-btn--minus"
+                data-testid="current-set-weight-decrement"
                 type="button"
-                @click="bumpWeight(step)"
+                @click="bumpWeight(-2.5)"
               >
-                {{ step > 0 ? `+${step}` : step }}
+                -2.5
+              </button>
+              <input
+                ref="currentWeightInput"
+                :value="currentDraft.weight"
+                class="text-input current-input inline-stepper-input"
+                data-testid="current-set-weight"
+                type="number"
+                step="0.1"
+                min="0"
+                @input="onCurrentDraftInput('weight', $event)"
+              />
+              <button
+                class="secondary-btn touch-btn step-btn inline-stepper-btn step-btn--plus"
+                data-testid="current-set-weight-increment"
+                type="button"
+                @click="bumpWeight(2.5)"
+              >
+                +2.5
               </button>
             </div>
-          </label>
+          </div>
 
-          <label class="field">
+          <div class="field">
             <span>次数</span>
-            <input
-              v-model="currentDraft.reps"
-              class="text-input current-input"
-              data-testid="current-set-reps"
-              type="number"
-              step="1"
-              min="1"
-              @input="onCurrentInput"
-            />
-            <div class="step-row step-row-compact">
-              <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('reps', -1)">-1</button>
-              <button class="secondary-btn touch-btn step-btn" type="button" @click="bumpCurrentField('reps', 1)">+1</button>
+            <div class="inline-stepper">
+              <button
+                class="secondary-btn touch-btn step-btn inline-stepper-btn"
+                data-testid="current-set-reps-decrement"
+                type="button"
+                @click="bumpCurrentField('reps', -1)"
+              >
+                -1
+              </button>
+              <input
+                ref="currentRepsInput"
+                :value="currentDraft.reps"
+                class="text-input current-input inline-stepper-input"
+                data-testid="current-set-reps"
+                type="number"
+                step="1"
+                min="1"
+                @input="onCurrentDraftInput('reps', $event)"
+              />
+              <button
+                class="secondary-btn touch-btn step-btn inline-stepper-btn"
+                data-testid="current-set-reps-increment"
+                type="button"
+                @click="bumpCurrentField('reps', 1)"
+              >
+                +1
+              </button>
             </div>
-          </label>
+          </div>
 
           <label class="field">
             <div class="rir-label-row">
@@ -699,9 +736,9 @@ span {
 }
 
 .current-input {
-  min-height: 64px;
-  padding: 0 18px;
-  font-size: 24px;
+  min-height: 56px;
+  padding: 0 12px;
+  font-size: 22px;
   font-weight: 700;
 }
 
@@ -938,6 +975,23 @@ span {
   gap: 8px;
 }
 
+.inline-stepper {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.45fr) minmax(86px, 1fr) minmax(72px, 0.45fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-stepper-input {
+  min-width: 0;
+  text-align: center;
+}
+
+.inline-stepper-btn {
+  min-width: 0;
+  padding-inline: 10px;
+}
+
 .step-row-compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -994,9 +1048,46 @@ span {
   font-size: 13px;
 }
 
-@media (min-width: 768px) and (max-width: 1199px) {
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
   .touch-panel {
     gap: 12px;
+  }
+
+  .panel-head,
+  .metric-block,
+  .suggestion-card,
+  .empty-state,
+  .field,
+  .history-head {
+    gap: 8px;
+  }
+
+  .panel-head {
+    gap: 10px;
+  }
+
+  .action-title {
+    font-size: 1.08rem;
+  }
+
+  .set-progress-title {
+    font-size: 1.2rem;
+  }
+
+  .action-status-pill {
+    min-height: 30px;
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+
+  .block-header {
+    display: grid;
+    gap: 4px;
+  }
+
+  .current-stack,
+  .history-table {
+    gap: 10px;
   }
 
   .current-input,
@@ -1035,6 +1126,11 @@ span {
     gap: 6px;
   }
 
+  .inline-stepper {
+    grid-template-columns: minmax(62px, 0.44fr) minmax(78px, 1fr) minmax(62px, 0.44fr);
+    gap: 6px;
+  }
+
   .rir-btn {
     min-height: 48px;
     border-radius: 12px;
@@ -1042,7 +1138,63 @@ span {
   }
 }
 
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
+  .touch-panel {
+    gap: 10px;
+  }
+
+  .current-input,
+  .history-input {
+    min-height: 54px;
+    font-size: 20px;
+  }
+
+  .touch-btn {
+    min-height: 48px;
+  }
+
+  .confirm-btn {
+    min-height: 56px;
+    font-size: 17px;
+  }
+
+  .submit-bar {
+    bottom: -12px;
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  .suggestion-card,
+  .history-block {
+    padding: 10px;
+  }
+
+  .step-row {
+    gap: 5px;
+  }
+
+  .inline-stepper {
+    grid-template-columns: minmax(58px, 0.44fr) minmax(72px, 1fr) minmax(58px, 0.44fr);
+    gap: 5px;
+  }
+
+  .step-btn,
+  .history-step-btn {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .rir-btn {
+    min-height: 46px;
+    font-size: 15px;
+  }
+}
+
 @media (max-width: 767px) {
+  .inline-stepper {
+    grid-template-columns: minmax(64px, 0.45fr) minmax(82px, 1fr) minmax(64px, 0.45fr);
+  }
+
   .step-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

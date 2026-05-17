@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, useSlots } from 'vue'
 
-import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 import '@/components/training/trainingLayout.css'
 import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
@@ -28,7 +27,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
       </div>
 
       <div class="topbar-actions">
-        <AuthUserBar class="topbar-action" />
         <AppModeSwitch class="mode-switcher" />
       </div>
     </header>
@@ -125,12 +123,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   justify-self: end;
 }
 
-.topbar-actions :deep(.auth-user-bar) {
-  flex: 0 1 240px;
-  min-width: 0;
-  max-width: 240px;
-}
-
 .topbar-actions :deep(.mode-switch) {
   flex: 0 0 auto;
 }
@@ -151,40 +143,72 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   overflow: hidden;
 }
 
-@media (min-width: 768px) and (max-width: 1199px) {
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
   .training-topbar {
-    grid-template-columns: auto minmax(320px, 1fr) auto;
-    column-gap: 10px;
-    padding: 8px 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 8px;
+    padding: 7px 9px;
   }
 
   .header-copy h1 {
-    font-size: 1.31rem;
+    font-size: 1.24rem;
   }
 
   .topbar-actions {
     gap: 6px;
   }
 
-  .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: 212px;
-    max-width: 212px;
+  .topbar-actions :deep(.mode-switch) {
+    gap: 5px;
+    padding: 3px;
+  }
+
+  .topbar-actions :deep(.mode-btn) {
+    min-height: 31px;
+    padding: 0 10px;
+    font-size: 13px;
   }
 }
 
-@media (min-width: 768px) and (max-width: 1050px) {
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
   .training-topbar {
-    grid-template-columns: auto minmax(308px, 1fr) auto;
-    column-gap: 8px;
+    column-gap: 6px;
+    padding: 6px 8px;
   }
 
   .topbar-actions {
     gap: 4px;
   }
 
-  .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: 192px;
-    max-width: 192px;
+  .topbar-actions :deep(.mode-switch) {
+    gap: 3px;
+  }
+
+  .topbar-actions :deep(.mode-btn) {
+    min-height: 30px;
+    padding: 0 8px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px), (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) {
+  .training-topbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 8px;
+    padding: 9px 10px;
+  }
+
+  .header-copy h1 {
+    font-size: 1.3rem;
+  }
+
+  .topbar-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .topbar-filters {
+    overflow: visible;
   }
 }
 
@@ -210,11 +234,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   .topbar-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: auto;
-    max-width: 100%;
   }
 
   .topbar-filters {

@@ -349,7 +349,7 @@ watch(
   color: color-mix(in srgb, var(--primary) 90%, black 6%);
 }
 
-@media (min-width: 768px) and (max-width: 1199px) {
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
   .overview {
     gap: 12px;
   }
@@ -371,20 +371,35 @@ watch(
     padding-right: 4px;
   }
 
+  .module-block {
+    gap: 10px;
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .module-note {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.25;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
   .item-card {
-    gap: 12px;
-    padding: 12px 14px;
+    gap: 10px;
+    padding: 11px 12px;
     border-radius: 14px;
-    min-height: 62px;
+    min-height: 58px;
   }
 
   .item-main {
-    gap: 10px;
+    gap: 8px;
   }
 
   .item-code {
-    min-width: 52px;
-    padding: 6px 10px;
+    min-width: 48px;
+    padding: 6px 9px;
     font-size: 0.92rem;
   }
 
@@ -400,6 +415,44 @@ watch(
   .prescription-summary,
   .progress-summary {
     font-size: 0.9rem;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
+  .module-block {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .item-card {
+    gap: 8px;
+    padding: 10px;
+    min-height: 54px;
+  }
+
+  .item-code {
+    min-width: 44px;
+    padding: 5px 8px;
+    font-size: 0.86rem;
+  }
+
+  .item-title {
+    font-size: 0.98rem;
+  }
+
+  .active-flag {
+    padding: 5px 7px;
+  }
+
+  .prescription-summary,
+  .progress-summary {
+    font-size: 0.86rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px), (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) {
+  .item-card {
+    min-height: 58px;
   }
 }
 </style>
