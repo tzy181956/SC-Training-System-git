@@ -12,6 +12,13 @@
   --training-filter-padding-inline: 12px;
   --training-filter-font-size: 14px;
   --training-filter-gap: 8px;
+  --training-panel-padding: 18px;
+  --training-panel-radius: var(--radius);
+}
+
+.training-shell .panel {
+  padding: var(--training-panel-padding);
+  border-radius: var(--training-panel-radius);
 }
 
 .training-three-column-layout {
@@ -35,19 +42,23 @@
   scrollbar-gutter: stable;
 }
 
-@media (min-width: 768px) and (max-width: 1199px) {
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
   .training-shell {
     --training-topbar-height: 56px;
     --training-topbar-radius: 18px;
-    --training-shell-padding: 12px;
-    --training-shell-gap: 10px;
-    --training-layout-gap: 12px;
-    --training-sidebar-width: 240px;
-    --training-panel-width: 260px;
-    --training-filter-width: 155px;
-    --training-filter-width-triple: 138px;
+    --training-shell-padding: 10px;
+    --training-shell-gap: 8px;
+    --training-layout-gap: 10px;
+    --training-sidebar-width: clamp(220px, 21vw, 250px);
+    --training-panel-width: clamp(270px, 24vw, 292px);
+    --training-filter-width: clamp(136px, 12vw, 150px);
+    --training-filter-width-triple: clamp(122px, 11vw, 136px);
     --training-filter-height: 32px;
-    --training-filter-padding-inline: 10px;
+    --training-filter-padding-inline: 8px;
+    --training-filter-font-size: 13px;
+    --training-filter-gap: 6px;
+    --training-panel-padding: 14px;
+    --training-panel-radius: 16px;
   }
 
   .training-three-column-layout {
@@ -55,10 +66,41 @@
   }
 }
 
-@media (min-width: 768px) and (max-width: 1050px) {
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
   .training-shell {
-    --training-filter-width: 150px;
-    --training-filter-width-triple: 132px;
+    --training-shell-padding: 8px;
+    --training-layout-gap: 8px;
+    --training-sidebar-width: 220px;
+    --training-panel-width: 270px;
+    --training-filter-width: 130px;
+    --training-filter-width-triple: 122px;
+    --training-filter-height: 30px;
+    --training-panel-padding: 12px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px), (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) {
+  .training-shell {
+    --training-topbar-height: auto;
+    --training-topbar-radius: 18px;
+    --training-shell-padding: 10px;
+    --training-shell-gap: 10px;
+    --training-layout-gap: 10px;
+    --training-sidebar-width: 230px;
+    --training-panel-width: 100%;
+    --training-filter-width: 148px;
+    --training-filter-width-triple: 136px;
+    --training-filter-height: 32px;
+    --training-filter-padding-inline: 8px;
+    --training-filter-font-size: 13px;
+    --training-filter-gap: 6px;
+    --training-panel-padding: 14px;
+    --training-panel-radius: 16px;
+  }
+
+  .training-three-column-layout {
+    grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(280px, 40vh);
   }
 }
 

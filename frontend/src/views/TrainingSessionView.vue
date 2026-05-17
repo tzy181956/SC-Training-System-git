@@ -1180,6 +1180,42 @@ onMounted(hydrate)
   }
 }
 
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
+  .hero {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .hero-copy {
+    gap: 7px;
+  }
+
+  .hero-status-pill,
+  .sync-indicator,
+  .session-notice {
+    min-height: 30px;
+    padding-inline: 10px;
+  }
+
+  .end-plan-btn {
+    min-height: 40px;
+    padding-inline: 12px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px), (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) {
+  .training-session-layout {
+    grid-template-areas:
+      'sidebar center'
+      'panel panel';
+  }
+
+  .layout-panel {
+    min-height: 0;
+  }
+}
+
 @media (max-width: 767px) {
   .training-session-layout {
     grid-template-areas:

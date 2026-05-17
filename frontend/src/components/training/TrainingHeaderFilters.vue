@@ -234,6 +234,23 @@ function handleTeamInput(event: Event) {
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
+  .training-header-filter-pill {
+    border-radius: 12px;
+  }
+
+  .training-header-filter-pill-text {
+    max-width: calc(100% - 2px);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px), (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) {
+  .training-header-filters {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+}
+
 @media (max-width: 767px) {
   .training-header-filters {
     flex-direction: column;

@@ -10,6 +10,31 @@ const backendUrl = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8011'
 
 test.describe.configure({ mode: 'serial' })
 
+test('training mode tablet viewports keep the recording panel usable', async ({ page }) => {
+  const consoleErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text())
+    }
+  })
+
+  await page.setViewportSize({ width: 1366, height: 1024 })
+  await login(page)
+  await openTrainingSession(page, NORMAL_ATHLETE)
+
+  for (const viewport of [
+    { width: 1366, height: 1024 },
+    { width: 1180, height: 820 },
+    { width: 1024, height: 768 },
+    { width: 820, height: 1180 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await expectTrainingViewport(page, viewport)
+  }
+
+  expect(consoleErrors).toEqual([])
+})
+
 test('normal training entry completes and appears in reports and monitoring', async ({ page, request }) => {
   await login(page)
   await openTrainingSession(page, NORMAL_ATHLETE)
@@ -205,6 +230,60 @@ function itemCard(page: Page, exerciseName: string) {
 
 function monitoringCard(page: Page, athleteName: string) {
   return page.locator(`[data-testid="monitoring-athlete-card"][data-athlete-name="${athleteName}"]`).first()
+}
+
+async function expectTrainingViewport(page: Page, viewport: { width: number; height: number }) {
+  await expect(page).toHaveURL(/\/training-mode\/session/)
+  await expect(page.getByTestId('training-set-panel')).toBeVisible()
+  await expect(page.locator('[data-testid="current-set-rir"][data-rir-value="0"]')).toBeVisible()
+  await expect(page.getByTestId('submit-current-set')).toBeVisible()
+
+  const hasHorizontalOverflow = await page.evaluate(() => {
+    const root = document.documentElement
+    const body = document.body
+    const shell = document.querySelector('.training-shell') as HTMLElement | null
+    return (
+      root.scrollWidth > root.clientWidth + 1
+      || body.scrollWidth > body.clientWidth + 1
+      || Boolean(shell && shell.scrollWidth > shell.clientWidth + 1)
+    )
+  })
+  expect(hasHorizontalOverflow, `${viewport.width}x${viewport.height} should not overflow horizontally`).toBe(false)
+
+  const boxes = await page.locator('.layout-sidebar, .layout-center, .layout-panel').evaluateAll((elements) => (
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect()
+      return {
+        className: element.className,
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      }
+    })
+  ))
+  expect(boxes).toHaveLength(3)
+  for (const box of boxes) {
+    expect(box.width, `${viewport.width}x${viewport.height} ${box.className} width`).toBeGreaterThan(0)
+    expect(box.height, `${viewport.width}x${viewport.height} ${box.className} height`).toBeGreaterThan(0)
+    expect(box.left, `${viewport.width}x${viewport.height} ${box.className} left edge`).toBeGreaterThanOrEqual(0)
+    expect(box.right, `${viewport.width}x${viewport.height} ${box.className} right edge`).toBeLessThanOrEqual(viewport.width + 1)
+  }
+
+  for (let leftIndex = 0; leftIndex < boxes.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < boxes.length; rightIndex += 1) {
+      const first = boxes[leftIndex]
+      const second = boxes[rightIndex]
+      const xOverlap = Math.max(0, Math.min(first.right, second.right) - Math.max(first.left, second.left))
+      const yOverlap = Math.max(0, Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top))
+      expect(
+        xOverlap * yOverlap,
+        `${viewport.width}x${viewport.height} ${first.className} overlaps ${second.className}`,
+      ).toBeLessThanOrEqual(1)
+    }
+  }
 }
 
 async function closeRpeModalIfVisible(page: Page) {

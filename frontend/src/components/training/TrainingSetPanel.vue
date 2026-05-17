@@ -994,9 +994,46 @@ span {
   font-size: 13px;
 }
 
-@media (min-width: 768px) and (max-width: 1199px) {
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
   .touch-panel {
     gap: 12px;
+  }
+
+  .panel-head,
+  .metric-block,
+  .suggestion-card,
+  .empty-state,
+  .field,
+  .history-head {
+    gap: 8px;
+  }
+
+  .panel-head {
+    gap: 10px;
+  }
+
+  .action-title {
+    font-size: 1.08rem;
+  }
+
+  .set-progress-title {
+    font-size: 1.2rem;
+  }
+
+  .action-status-pill {
+    min-height: 30px;
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+
+  .block-header {
+    display: grid;
+    gap: 4px;
+  }
+
+  .current-stack,
+  .history-table {
+    gap: 10px;
   }
 
   .current-input,
@@ -1039,6 +1076,53 @@ span {
     min-height: 48px;
     border-radius: 12px;
     font-size: 16px;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
+  .touch-panel {
+    gap: 10px;
+  }
+
+  .current-input,
+  .history-input {
+    min-height: 54px;
+    font-size: 20px;
+  }
+
+  .touch-btn {
+    min-height: 48px;
+  }
+
+  .confirm-btn {
+    min-height: 56px;
+    font-size: 17px;
+  }
+
+  .submit-bar {
+    bottom: -12px;
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  .suggestion-card,
+  .history-block {
+    padding: 10px;
+  }
+
+  .step-row {
+    gap: 5px;
+  }
+
+  .step-btn,
+  .history-step-btn {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .rir-btn {
+    min-height: 46px;
+    font-size: 15px;
   }
 }
 

@@ -151,15 +151,15 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   overflow: hidden;
 }
 
-@media (min-width: 768px) and (max-width: 1199px) {
+@media (min-width: 900px) and (max-width: 1199px) and (orientation: landscape) {
   .training-topbar {
-    grid-template-columns: auto minmax(320px, 1fr) auto;
-    column-gap: 10px;
-    padding: 8px 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 8px;
+    padding: 7px 9px;
   }
 
   .header-copy h1 {
-    font-size: 1.31rem;
+    font-size: 1.24rem;
   }
 
   .topbar-actions {
@@ -167,15 +167,29 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   }
 
   .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: 212px;
-    max-width: 212px;
+    flex-basis: 184px;
+    max-width: 184px;
+    padding: 6px 8px;
+    gap: 8px;
+    border-radius: 14px;
+  }
+
+  .topbar-actions :deep(.mode-switch) {
+    gap: 5px;
+    padding: 3px;
+  }
+
+  .topbar-actions :deep(.mode-btn) {
+    min-height: 31px;
+    padding: 0 10px;
+    font-size: 13px;
   }
 }
 
-@media (min-width: 768px) and (max-width: 1050px) {
+@media (min-width: 900px) and (max-width: 1050px) and (orientation: landscape) {
   .training-topbar {
-    grid-template-columns: auto minmax(308px, 1fr) auto;
-    column-gap: 8px;
+    column-gap: 6px;
+    padding: 6px 8px;
   }
 
   .topbar-actions {
@@ -183,8 +197,53 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   }
 
   .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: 192px;
-    max-width: 192px;
+    flex-basis: 164px;
+    max-width: 164px;
+  }
+
+  .topbar-actions :deep(.auth-user-bar .user-copy) {
+    gap: 2px;
+  }
+
+  .topbar-actions :deep(.auth-user-bar .user-copy small) {
+    display: none;
+  }
+
+  .topbar-actions :deep(.mode-switch) {
+    gap: 3px;
+  }
+
+  .topbar-actions :deep(.mode-btn) {
+    min-height: 30px;
+    padding: 0 8px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px), (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) {
+  .training-topbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 8px;
+    padding: 9px 10px;
+  }
+
+  .header-copy h1 {
+    font-size: 1.3rem;
+  }
+
+  .topbar-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .topbar-actions :deep(.auth-user-bar) {
+    flex: 0 1 220px;
+    max-width: 220px;
+    padding: 6px 8px;
+  }
+
+  .topbar-filters {
+    overflow: visible;
   }
 }
 
