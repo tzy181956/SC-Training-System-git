@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, useSlots } from 'vue'
 
-import AuthUserBar from '@/components/layout/AuthUserBar.vue'
 import AppModeSwitch from '@/components/layout/AppModeSwitch.vue'
 import '@/components/training/trainingLayout.css'
 import { getAppModeDisplayLabel } from '@/constants/appModeLabels'
@@ -28,7 +27,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
       </div>
 
       <div class="topbar-actions">
-        <AuthUserBar class="topbar-action" />
         <AppModeSwitch class="mode-switcher" />
       </div>
     </header>
@@ -125,12 +123,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   justify-self: end;
 }
 
-.topbar-actions :deep(.auth-user-bar) {
-  flex: 0 1 240px;
-  min-width: 0;
-  max-width: 240px;
-}
-
 .topbar-actions :deep(.mode-switch) {
   flex: 0 0 auto;
 }
@@ -166,14 +158,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
     gap: 6px;
   }
 
-  .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: 184px;
-    max-width: 184px;
-    padding: 6px 8px;
-    gap: 8px;
-    border-radius: 14px;
-  }
-
   .topbar-actions :deep(.mode-switch) {
     gap: 5px;
     padding: 3px;
@@ -194,19 +178,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
 
   .topbar-actions {
     gap: 4px;
-  }
-
-  .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: 164px;
-    max-width: 164px;
-  }
-
-  .topbar-actions :deep(.auth-user-bar .user-copy) {
-    gap: 2px;
-  }
-
-  .topbar-actions :deep(.auth-user-bar .user-copy small) {
-    display: none;
   }
 
   .topbar-actions :deep(.mode-switch) {
@@ -236,12 +207,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
     flex-wrap: wrap;
   }
 
-  .topbar-actions :deep(.auth-user-bar) {
-    flex: 0 1 220px;
-    max-width: 220px;
-    padding: 6px 8px;
-  }
-
   .topbar-filters {
     overflow: visible;
   }
@@ -269,11 +234,6 @@ const trainingModeLabel = getAppModeDisplayLabel('training')
   .topbar-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .topbar-actions :deep(.auth-user-bar) {
-    flex-basis: auto;
-    max-width: 100%;
   }
 
   .topbar-filters {

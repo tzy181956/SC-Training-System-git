@@ -234,9 +234,25 @@ function monitoringCard(page: Page, athleteName: string) {
 
 async function expectTrainingViewport(page: Page, viewport: { width: number; height: number }) {
   await expect(page).toHaveURL(/\/training-mode\/session/)
+  await expect(page.locator('.training-topbar .auth-user-bar')).toHaveCount(0)
   await expect(page.getByTestId('training-set-panel')).toBeVisible()
   await expect(page.locator('[data-testid="current-set-rir"][data-rir-value="0"]')).toBeVisible()
   await expect(page.getByTestId('submit-current-set')).toBeVisible()
+  await expect(page.getByTestId('current-set-weight-decrement')).toHaveText('-2.5')
+  await expect(page.getByTestId('current-set-weight-increment')).toHaveText('+2.5')
+  await expect(page.getByTestId('current-set-reps-decrement')).toHaveText('-1')
+  await expect(page.getByTestId('current-set-reps-increment')).toHaveText('+1')
+
+  await page.getByTestId('current-set-weight').fill('50')
+  await page.getByTestId('current-set-weight-decrement').click()
+  await expect(page.getByTestId('current-set-weight')).toHaveValue('47.5')
+  await page.getByTestId('current-set-weight-increment').click()
+  await expect(page.getByTestId('current-set-weight')).toHaveValue('50')
+  await page.getByTestId('current-set-reps').fill('5')
+  await page.getByTestId('current-set-reps-decrement').click()
+  await expect(page.getByTestId('current-set-reps')).toHaveValue('4')
+  await page.getByTestId('current-set-reps-increment').click()
+  await expect(page.getByTestId('current-set-reps')).toHaveValue('5')
 
   const hasHorizontalOverflow = await page.evaluate(() => {
     const root = document.documentElement
