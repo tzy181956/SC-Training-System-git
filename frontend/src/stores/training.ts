@@ -168,29 +168,7 @@ export const useTrainingStore = defineStore('training', () => {
     if (!session.value) throw new Error('No session loaded')
 
     const normalizedPayload = _normalizeSetPayload(payload)
-    if (draftPendingSync.value) {
-      return _saveSetLocally(itemId, normalizedPayload, uiState)
-    }
-
-    try {
-      const response = await syncTrainingSetOperation(
-        toSessionSyncOperationPayload(buildCreateSetOperation(session.value, itemId, normalizedPayload)),
-      )
-      _replaceSession(response.session)
-      _persistLocalDraft({
-        ...uiState,
-        latestSuggestion: response.next_suggestion ?? uiState.latestSuggestion ?? null,
-        pendingSync: false,
-        lastServerUpdatedAt: response.session.updated_at ?? null,
-        lastServerSignature: response.session.server_signature ?? null,
-        incrementalFailureCount: 0,
-        lastSyncAttemptAt: new Date().toISOString(),
-      })
-      await hydrateAthletes(sessionDate.value)
-      return response
-    } catch {
-      return _saveSetLocally(itemId, normalizedPayload, uiState)
-    }
+    return _saveSetLocally(itemId, normalizedPayload, uiState)
   }
 
   async function reviseSetRecord(recordId: number, payload: Record<string, unknown>, uiState: DraftUiState = {}) {

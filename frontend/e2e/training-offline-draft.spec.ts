@@ -93,6 +93,57 @@ test('restored pending draft syncs after network recovery and survives refresh',
   await expect(itemCard(page, FIRST_EXERCISE)).toHaveAttribute('data-record-count', '2')
 })
 
+test('提交当前组后不等待后台同步即可继续录入下一组', async ({ page, request }) => {
+  await login(page)
+  await openTrainingSession(page, OFFLINE_ATHLETE)
+  await itemCard(page, SECOND_EXERCISE).click()
+  await expect(page.getByTestId('training-set-panel')).toHaveAttribute('data-current-exercise', SECOND_EXERCISE)
+
+  let delayedSyncRequests = 0
+  let delayedSyncResponses = 0
+  await page.route('**/api/training/session-sync', async (route) => {
+    delayedSyncRequests += 1
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    const response = await route.fetch()
+    delayedSyncResponses += 1
+    await route.fulfill({ response })
+  })
+
+  const secondExerciseCard = itemCard(page, SECOND_EXERCISE)
+  const panel = page.getByTestId('training-set-panel')
+  const submitButton = page.getByTestId('submit-current-set')
+
+  await submitCurrentSet(page, { weight: 50, reps: 5, rir: 2 })
+  expect(delayedSyncResponses).toBe(0)
+  await expect(panel).not.toContainText('正在保存')
+  await expect(secondExerciseCard).toHaveAttribute('data-record-count', '1')
+  await expect(panel).toContainText('第 2 组 / 共 2 组')
+  await expect(page.getByTestId('current-set-weight')).toBeEditable()
+  await expect(page.getByTestId('current-set-reps')).toBeEditable()
+
+  await page.getByTestId('current-set-weight').fill('52.5')
+  await page.getByTestId('current-set-reps').fill('5')
+  await page.locator('[data-testid="current-set-rir"][data-rir-value="3"]').click()
+  await expect(page.locator('[data-testid="current-set-rir"][data-rir-value="3"]')).toHaveClass(/active/)
+  await expect(submitButton).toBeEnabled()
+  await submitButton.click()
+  await expect(secondExerciseCard).toHaveAttribute('data-record-count', '2')
+
+  await expect(page.getByTestId('training-sync-status')).toHaveAttribute('data-sync-status', 'synced', { timeout: 20000 })
+  expect(delayedSyncRequests).toBeGreaterThanOrEqual(1)
+  expect(delayedSyncResponses).toBe(delayedSyncRequests)
+  await page.unroute('**/api/training/session-sync')
+  await closeRpeModalIfVisible(page)
+
+  await page.reload()
+  await expect(page.getByTestId('training-sync-status')).toHaveAttribute('data-sync-status', 'synced')
+  await expect(itemCard(page, SECOND_EXERCISE)).toHaveAttribute('data-record-count', '2')
+
+  const session = await fetchCurrentSession(page, request)
+  expect(countSetRecords(session)).toBe(4)
+  expect(countSetRecordsForExercise(session, SECOND_EXERCISE)).toBe(2)
+})
+
 async function login(page: Page) {
   await page.goto('/login')
   await page.locator('input[autocomplete="username"]').fill('e2e_admin')
@@ -194,6 +245,11 @@ async function fetchCurrentSession(page: Page, request: APIRequestContext) {
 
 function countSetRecords(session: any) {
   return (session.items || []).reduce((total: number, item: any) => total + (item.records?.length || 0), 0)
+}
+
+function countSetRecordsForExercise(session: any, exerciseName: string) {
+  const item = (session.items || []).find((current: any) => current.exercise?.name === exerciseName)
+  return item?.records?.length || 0
 }
 
 function todayString() {
