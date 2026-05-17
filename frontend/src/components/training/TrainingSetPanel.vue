@@ -44,12 +44,10 @@ const canSubmitCurrentSet = computed(() => !currentSetSaving.value && !isComplet
 const actionTitle = computed(() => props.item?.exercise?.name || '当前动作')
 const actionStatusLabel = computed(() => {
   if (isCompleted.value) return '已完成'
-  if (currentSetSaving.value) return '保存中'
   return '录入中'
 })
 const actionStatusTone = computed(() => {
   if (isCompleted.value) return 'completed'
-  if (currentSetSaving.value) return 'saving'
   return 'active'
 })
 const currentRirDisplay = computed(() => {
@@ -57,9 +55,9 @@ const currentRirDisplay = computed(() => {
   return currentDraft.rir === '4' ? '4+' : currentDraft.rir
 })
 const currentSetSubmitHint = computed(() => {
-  if (currentSetSaving.value) return '正在保存到本机并同步训练记录'
+  if (currentSetSaving.value) return '正在本地确认当前组'
   if (!hasSelectedCurrentRir.value) return '先选择 RIR，再提交当前组'
-  return '确认后先保存到本机，再同步训练记录'
+  return '确认后立即保存到本机，后台自动同步'
 })
 
 const currentSetButtonLabel = computed(() => {
@@ -69,7 +67,7 @@ const currentSetButtonLabel = computed(() => {
 })
 
 const submitButtonLabel = computed(() => {
-  if (currentSetSaving.value) return '正在保存...'
+  if (currentSetSaving.value) return '正在确认...'
   if (isCompleted.value) return '动作已完成'
   if (!hasSelectedCurrentRir.value) return '请选择 RIR'
   return currentSetButtonLabel.value
@@ -283,12 +281,12 @@ async function saveCurrentSet() {
       response?.local_only
         ? response?.item?.status === 'completed'
           ? '已保存到本机，后台会继续补传，当前动作已完成。'
-          : `已保存到本机，后台会继续补传，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
+          : `已保存到本机，后台同步中，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
         : response?.item?.status === 'completed'
           ? '已保存，当前动作已完成。'
           : `已保存，第 ${(response?.item?.records?.length || 0) + 1} 组可继续录入。`
   } catch {
-    currentSetError.value = '当前组保存失败，请重试。'
+    currentSetError.value = '当前组本地保存失败，请重试。'
     currentSetFeedback.value = ''
   } finally {
     currentSetSaving.value = false

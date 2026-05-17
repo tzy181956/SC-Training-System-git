@@ -633,11 +633,14 @@ watch(
 
 watch(
   () => trainingStore.session?.id,
-  () => {
+  (sessionId) => {
     sessionRpeModalOpen.value = false
     sessionRpeDeferred.value = false
     sessionRpeSubmitting.value = false
     sessionRpeError.value = ''
+    if (sessionId && !route.params.sessionId) {
+      void router.replace({ name: 'training-session', params: { sessionId } })
+    }
   },
 )
 
